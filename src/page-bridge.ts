@@ -801,7 +801,10 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
             selectedConnectorIds: undefined,
             searchConnectorIds: undefined,
             startedWithByoMcp: false,
-            sourceEvent: undefined,
+            // 上流builderが sourceEvent.timeStamp を無条件に読むようになったため、
+            // undefinedを渡すとTypeErrorで全turnが失敗する。DOM Eventと同じ時間基準
+            // (performance.now()由来の高分解能タイムスタンプ)を持つ最小のevent様objectを渡す。
+            sourceEvent: { timeStamp: performance.now() },
             allSystemHints: [],
             systemHints: [],
             firstInputTimestampMs: performance.now(),

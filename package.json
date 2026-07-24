@@ -43,7 +43,8 @@
     "test": "tsx --test test/*.test.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "prepack": "pnpm check && pnpm build",
-    "prepublishOnly": "pnpm check && pnpm build"
+    "verify:release-commit": "node scripts/verify-release-commit.mjs",
+    "prepublishOnly": "node scripts/verify-release-commit.mjs && pnpm check && pnpm build"
   },
   "publishConfig": {
     "access": "public"
