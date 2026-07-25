@@ -5,12 +5,18 @@
 
 Codex開発枠から、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
 
+## 開発工場での位置づけ
+
+gpt-connectorは[dotagents開発工場](https://github.com/kitepon-rgb/dotagents)が管理する
+自作コア10製品の一つです。本repoはChrome runtime、job/session、添付、release、diagnosticsを所有し、
+dotagentsは正規MCP ID `gpt_connector`、導入、host統合を所有します。MarkItDownは別区分の第三者CLIです。
+
 ブラウザは認証・integrity・attestation・conversation lifecycleの実行環境として使う。composer、送信button、回答DOM、React fiberは操作・参照しない。
 
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.4.8`。公開済みversionは[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は[GitHub repository](https://github.com/kitepon-rgb/gpt-connector)を正とする。
+現在ソース版は`gpt-connector@0.4.9`。公開済みversionは[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は[GitHub repository](https://github.com/kitepon-rgb/gpt-connector)を正とする。
 
 ## 成立済み機能
 
