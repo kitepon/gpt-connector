@@ -5,11 +5,15 @@
 
 Codex開発枠から、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
 
-## 開発工場での位置づけ
+[kitepon.dev](https://kitepon.dev/)を運営する[クオ（@QLyun35332）](https://x.com/QLyun35332)が
+開発・メンテナンスしています。
 
-gpt-connectorは[dotagents開発工場](https://github.com/kitepon-rgb/dotagents)が管理する
-自作コア10製品の一つです。本repoはChrome runtime、job/session、添付、release、diagnosticsを所有し、
-dotagentsは正規MCP ID `gpt_connector`、導入、host統合を所有します。MarkItDownは別区分の第三者CLIです。
+## 所有境界
+
+本repositoryはChrome runtime、job/session、添付、release、diagnosticsを所有します。
+正規MCP ID `gpt_connector`、導入、host統合は、kitepon.devの製品開発を支える内部基盤
+[dotagents](https://github.com/kitepon-rgb/dotagents)が担当します。
+MarkItDownは別区分の第三者CLIです。
 
 ブラウザは認証・integrity・attestation・conversation lifecycleの実行環境として使う。composer、送信button、回答DOM、React fiberは操作・参照しない。
 
