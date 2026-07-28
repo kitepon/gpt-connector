@@ -3,7 +3,10 @@
   "version": "0.4.9",
   "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をCodexから呼び出すローカルconnector",
   "license": "MIT",
-  "author": "kitepon-rgb",
+  "author": {
+    "name": "Quo / クオ at kitepon.dev",
+    "url": "https://x.com/QLyun35332"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kitepon-rgb/gpt-connector.git"
