@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071018"/>
+      <stop offset="1" stop-color="#101923"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#72a9bc" stroke-opacity=".07"/>
+    </pattern>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5aa7ff"/>
+      <stop offset=".72" stop-color="#65d7bb"/>
+      <stop offset="1" stop-color="#ff805c"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+
+  <text x="76" y="164" fill="#f4f8fa" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="70" font-weight="700" letter-spacing="-2">gpt-connector</text>
+  <text x="80" y="212" fill="#9eb0bb" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="24">ChatGPT Web runtime, called from Codex.</text>
+
+  <g transform="translate(80 276)">
+    <rect width="340" height="170" rx="22" fill="#101d28" stroke="#365467"/>
+    <circle cx="30" cy="30" r="6" fill="#5aa7ff"/>
+    <text x="52" y="38" fill="#d7e7ef" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="20" font-weight="600">Codex</text>
+    <text x="28" y="91" fill="#8da4b1" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18">$ consult --session release</text>
+    <text x="28" y="128" fill="#65d7bb" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="17">receipt: accepted</text>
+  </g>
+
+  <path d="M420 361H552" fill="none" stroke="url(#signal)" stroke-width="4"/>
+  <circle cx="486" cy="361" r="18" fill="#0d1822" stroke="#65d7bb" stroke-width="3"/>
+  <path d="M479 361h14m-5-5 5 5-5 5" fill="none" stroke="#dff9f2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g transform="translate(552 276)">
+    <rect width="648" height="170" rx="22" fill="#101d28" stroke="#365467"/>
+    <circle cx="30" cy="30" r="6" fill="#ff805c"/>
+    <text x="52" y="38" fill="#d7e7ef" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="20" font-weight="600">ChatGPT</text>
+    <text x="28" y="91" fill="#8da4b1" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18">Same session. Full answer recovered.</text>
+    <text x="28" y="128" fill="#5aa7ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="17">normal chat · durable recovery</text>
+  </g>
+
+  <text x="80" y="536" fill="#788d99" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="20" letter-spacing=".5">A stable connector for agent-to-ChatGPT consultation</text>
+  <rect x="80" y="566" width="1120" height="2" fill="url(#signal)" opacity=".7"/>
+</svg>
