@@ -18,12 +18,22 @@ test("bridgeはDOM selector・event・fiberを利用しない", () => {
   assert.doesNotMatch(expression, /querySelector|__reactFiber|\.click\(|dispatchEvent/u);
   assert.match(expression, /conversationFactory/u);
   assert.match(expression, /requestedModelId/u);
-  assert.match(expression, /lastPrepareParentMessageId/u);
-  assert.match(expression, /lastCompletionFinishedTimestamp/u);
-  assert.match(expression, /prepareRequestBlocked/u);
   assert.match(expression, /sessionCount/u);
   assert.match(expression, new RegExp(bridgeBuildId, "u"));
   assert.doesNotThrow(() => new Function(expression));
+});
+
+test("sender検出は現行wrapperのfollowup前処理とsettled callbackを固定する", () => {
+  const expression = createBridgeBootstrapExpression(
+    "https://cdn.oaistatic.com/assets/core.js",
+    "https://cdn.oaistatic.com/assets/conversation.js",
+    "https://cdn.oaistatic.com/assets/upload.js",
+  );
+
+  assert.match(expression, /promptMessage/u);
+  assert.match(expression, /followups_v2_followup_source/u);
+  assert.match(expression, /conversational_onboarding_/u);
+  assert.match(expression, /onRequestSettled/u);
 });
 
 test("bridgeは公式upload objectとattachment read-backを一意化する", () => {

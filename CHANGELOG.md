@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.10 — 2026-07-31
+
+- ChatGPT現行bundleで公式senderがprepare本体からfollowup前処理wrapperへ変わり、旧markerが候補0件に
+  なっていたため、一意性を維持した現行wrapperの構造markerへ更新した。
+- 専用Chromeのlive diagnostics、page bridge初期化、model catalog取得まで確認した。DOM、React fiber、
+  UI eventへの依存は追加していない。
+
 ## 0.4.8 — 2026-07-23
 
 - Chrome 150がCDPの`minimized`要求へ成功応答しながら実状態を`maximized`のまま維持する場合でも、

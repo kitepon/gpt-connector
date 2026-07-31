@@ -27,10 +27,10 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
     if (typeof value !== "function" || value.length !== 1) return false;
     const source = functionSource(value);
     return source.startsWith("async function") &&
-      source.includes("prepareState") &&
-      source.includes("lastPrepareParentMessageId") &&
-      source.includes("lastCompletionFinishedTimestamp") &&
-      source.includes("prepareRequestBlocked");
+      source.includes("promptMessage") &&
+      source.includes("followups_v2_followup_source") &&
+      source.includes("conversational_onboarding_") &&
+      source.includes("onRequestSettled");
   }));
 
   const builder = unique("builder", entries(conversationModule).filter(([, value]) => {
