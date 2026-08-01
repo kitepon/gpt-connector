@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.11 — 2026-08-01
+
+- ChatGPT現行bundleの公式builderがcomposer拡張slotを`composerController`をkeyとするWeakMapで
+  引くようになり、未指定のturnが`CHAT_FAILED: Invalid value used as weak map key`で全失敗して
+  いたため、拡張slotが空で解決される専用objectを渡すよう修復した。chat、consult、画像生成が
+  同じ経路で復旧する。
+- builder検出markerへ`composerController`を追加し、この契約が再び変わった場合はfallbackせず
+  `RUNTIME_DRIFT`で停止する。DOM、React fiber、UI eventへの依存は追加していない。
+
 ## 0.4.10 — 2026-07-31
 
 - ChatGPT現行bundleで公式senderがprepare本体からfollowup前処理wrapperへ変わり、旧markerが候補0件に

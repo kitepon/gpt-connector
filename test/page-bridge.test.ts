@@ -36,6 +36,20 @@ test("sender検出は現行wrapperのfollowup前処理とsettled callbackを固�
   assert.match(expression, /onRequestSettled/u);
 });
 
+test("builder呼出しはcomposerControllerへ専用objectを渡し拡張slotを空で解決する", () => {
+  const expression = createBridgeBootstrapExpression(
+    "https://cdn.oaistatic.com/assets/core.js",
+    "https://cdn.oaistatic.com/assets/conversation.js",
+    "https://cdn.oaistatic.com/assets/upload.js",
+  );
+
+  // builder検出は現行契約どおりcomposerControllerを要求し、変化時はRUNTIME_DRIFTで止まる。
+  assert.match(expression, /source\.includes\("composerController"\)/u);
+  // 渡す値はWeakMap keyになるため、undefinedでもprimitiveでもないobjectで固定する。
+  assert.match(expression, /const composerController = \{\};/u);
+  assert.match(expression, /await builder\(\{\s*composerController,/u);
+});
+
 test("bridgeは公式upload objectとattachment read-backを一意化する", () => {
   const expression = createBridgeBootstrapExpression(
     "https://cdn.oaistatic.com/assets/core.js",

@@ -39,6 +39,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
     return source.includes("contentToSend") &&
       source.includes("allSystemHints") &&
       source.includes("selectedSkillIds") &&
+      source.includes("composerController") &&
       source.includes("build_request_params.prompt_message");
   }));
 
@@ -104,6 +105,11 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
     ];
     return required.every((key) => key in value) && typeof value.uploadFile === "function";
   }));
+
+  // 上流builderがcomposer拡張slotをcomposerController keyのWeakMapで引くようになったため、
+  // undefinedを渡すと「Invalid value used as weak map key」で全turnが失敗する。UI composerを
+  // 持たない本connectorは、拡張slotが空のまま解決される専用tokenを1つだけ使い回す。
+  const composerController = {};
 
   const sessions = new Map();
   const operations = new Map();
@@ -787,6 +793,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           }
           const prompt = String(input.prompt);
           const params = await builder({
+            composerController,
             conversation: session.conversation,
             attachments,
             content: prompt,
