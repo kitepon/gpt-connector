@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
 import {
+  chatgptEffortFieldDescription,
+  chatgptModelFieldDescription,
   consultInputSchema,
   imageInputSchema,
   sessionsInputSchema,
@@ -121,20 +123,31 @@ export const mcpToolNames = [
 
 export const mcpServerVersion = packageVersion;
 
+// callerが最初に読む境界宣言。provider scopeを先頭へ置かないと、tool名が中立な
+// consult／sessions／diagnosticsが「別modelへ相談する」全般を吸い込み、
+// Claude・Gemini等を使う場面で誤って本serverが呼ばれる。
+export const mcpServerInstructions =
+  "このserverはログイン済みOpenAI ChatGPT (consumer Web) 専用のconnectorである。" +
+  "実行できるのはChatGPT accountで利用可能なmodelだけで、Anthropic Claude (Fable、Opus、Sonnet、Haiku)、" +
+  "Google Gemini、その他providerのmodelは呼べない。ChatGPT以外のmodelを使うことが目的なら、" +
+  "tool名が用途に近く見えても本serverのtoolを呼ばず、caller側の当該provider経路を使う。" +
+  "ChatGPTへ送る場合: second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。" +
+  "caller timeout後は再送せずsessionsで同じslugを確認する。live model/effortはchatgpt_models、" +
+  "既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。";
+
 export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer {
   const server = new McpServer(
     { name: "gpt-connector", version: mcpServerVersion },
-    {
-      instructions:
-        "second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。caller timeout後は再送せずsessionsで同じslugを確認する。live model/effortはchatgpt_models、既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。",
-    },
+    { instructions: mcpServerInstructions },
   );
 
   server.registerTool(
     "chatgpt_models",
     {
-      title: "通常Chatモデル一覧",
-      description: "ログイン中accountで利用可能な通常Chat modelとthinking effortを返す。",
+      title: "ChatGPTの通常Chatモデル一覧",
+      description:
+        "ログイン中のOpenAI ChatGPT accountで利用可能な通常Chat modelとthinking effortを返す。" +
+        "返るのはChatGPTのmodelだけで、Claudeなど他providerのmodelは含まない。",
       inputSchema: z.object({}).strict(),
       annotations: {
         readOnlyHint: true,
@@ -148,14 +161,15 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "chatgpt_chat",
     {
-      title: "通常Chatへ送信",
+      title: "ChatGPTの通常Chatへ送信",
       description:
-        "ChatGPT公式Web runtimeの通常ChatへUIなしで送信する。keepOpen=falseなら応答後archiveする。",
+        "OpenAI ChatGPT公式Web runtimeの通常ChatへUIなしで送信する。送信先はChatGPTのmodelに限られ、" +
+        "Claudeなど他providerのmodelへは送れない。keepOpen=falseなら応答後archiveする。",
       inputSchema: z
         .object({
           prompt: z.string().min(1),
-          model: z.string().min(1).optional(),
-          effort: z.string().min(1).optional(),
+          model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
+          effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
           sessionId: z.string().uuid().optional(),
           keepOpen: z.boolean().default(false),
         })
@@ -172,9 +186,10 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "chatgpt_image",
     {
-      title: "通常Chatで画像生成",
+      title: "ChatGPTの通常Chatで画像生成",
       description:
-        "ChatGPT通常枠の画像生成ツールで画像を生成し、Libraryと会話を相関確認してworkspaceRoot配下へno-clobber保存する。slugで冪等化する。",
+        "OpenAI ChatGPT通常枠の画像生成ツールで画像を生成し、Libraryと会話を相関確認してworkspaceRoot配下へno-clobber保存する。" +
+        "slugで冪等化する。ChatGPT以外の画像生成provider（Gemini等）は扱えない。",
       inputSchema: imageInputSchema,
       annotations: {
         readOnlyHint: false,
@@ -188,9 +203,11 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "consult",
     {
-      title: "通常Chatへ相談",
+      title: "ChatGPTへ相談",
       description:
-        "ChatGPT公式Web runtimeへ相談する。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。",
+        "OpenAI ChatGPT公式Web runtimeへ相談する。相談先はChatGPTのmodelに固定されており、" +
+        "Claude・Gemini等へのsecond opinionには使えない（そちらはcaller側の当該provider経路を使う）。" +
+        "filesはworkspaceRoot相対で正規添付し、slugで冪等化する。",
       inputSchema: consultInputSchema,
       annotations: {
         readOnlyHint: false,
@@ -204,8 +221,10 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "sessions",
     {
-      title: "相談状態を回収",
-      description: "既知slug 1件の状態・terminal result・errorを返し、再送は行わない。",
+      title: "ChatGPT相談の状態を回収",
+      description:
+        "本server (ChatGPT connector) が持つ既知slug 1件の状態・terminal result・errorを返し、再送は行わない。" +
+        "他providerやcaller側の会話履歴は扱わない。",
       inputSchema: sessionsInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -219,8 +238,10 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "diagnostics",
     {
-      title: "connector診断",
-      description: "会話やuploadを作らず、接続・bridge・job/session件数だけを返す。",
+      title: "ChatGPT connectorの診断",
+      description:
+        "本server (ChatGPT connector) 自身の診断。会話やuploadを作らず、接続・bridge・job/session件数だけを返す。" +
+        "caller側の環境や他providerの状態は診断しない。",
       inputSchema: z.object({}).strict(),
       annotations: {
         readOnlyHint: true,
@@ -234,8 +255,9 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
   server.registerTool(
     "chatgpt_close",
     {
-      title: "通常Chat sessionを閉じる",
-      description: "process内sessionをserver archiveし、opaque handleを破棄する。deleteは行わない。",
+      title: "ChatGPTの通常Chat sessionを閉じる",
+      description:
+        "本serverがChatGPT上に開いたprocess内sessionをserver archiveし、opaque handleを破棄する。deleteは行わない。",
       inputSchema: z.object({ sessionId: z.string().uuid() }).strict(),
       annotations: {
         readOnlyHint: false,

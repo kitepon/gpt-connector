@@ -8,13 +8,22 @@ export const consultSlugSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9._-]{2,63}$/u);
 
+// model/effortはlive ChatGPTのcatalogでfail-closedに検証される。callerが他providerの
+// model IDを渡す誤用を、実行前のschema注釈の時点で止める。
+export const chatgptModelFieldDescription =
+  "chatgpt_modelsが返すOpenAI ChatGPTのmodel slugだけを指定する（例 gpt-5-5）。" +
+  "claude-*、gemini-*など他providerのmodel IDは指定できず、MODEL_NOT_AVAILABLEで失敗する。";
+
+export const chatgptEffortFieldDescription =
+  "chatgpt_modelsが当該ChatGPT modelに対して返したthinking effortだけを指定する。";
+
 export const consultInputSchema = z
   .object({
     prompt: z.string().min(1),
     files: z.array(z.string()).min(1).max(20).optional(),
     workspaceRoot: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
-    effort: z.string().min(1).optional(),
+    model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
+    effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
     slug: consultSlugSchema,
     keepOpen: z.boolean().default(false),
     dryRun: z.boolean().default(false),
@@ -51,8 +60,8 @@ export const imageInputSchema = z
     prompt: z.string().min(1),
     workspaceRoot: z.string().min(1),
     output: z.string().min(1),
-    model: z.string().min(1),
-    effort: z.string().min(1).optional(),
+    model: z.string().min(1).describe(chatgptModelFieldDescription),
+    effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
     slug: consultSlugSchema,
   })
   .strict()

@@ -223,7 +223,9 @@ GPT_CONNECTOR_STATE_DIR = "/absolute/product-owned/state/gpt-connector"
 7. timeout時は再送せず、同じslugを`sessions`へ渡す。
 8. 既存互換の複数turnで`keepOpen=true`を使った場合は、最後に`chatgpt_close`を呼ぶ。
 
-MCP tools:
+MCP tools（すべてOpenAI ChatGPT専用。`consult`／`sessions`／`diagnostics`はtool名が中立だが、
+Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない。server instructionsと
+各tool descriptionでもこの境界を宣言している）:
 
 - `chatgpt_models`: 通常Chat model／effort一覧。
 - `chatgpt_chat`: 新規またはsession継続。既定`keepOpen=false`で応答後archive。

@@ -8,6 +8,10 @@
   同じ経路で復旧する。
 - builder検出markerへ`composerController`を追加し、この契約が再び変わった場合はfallbackせず
   `RUNTIME_DRIFT`で停止する。DOM、React fiber、UI eventへの依存は追加していない。
+- MCP callerが他providerのmodel（Claude、Gemini等）を使う場面で本serverを誤って呼ぶのを防ぐため、
+  server instructions冒頭をChatGPT専用のprovider境界宣言に変え、各tool descriptionへ対象provider、
+  `model`／`effort`へ「`chatgpt_models`が返すChatGPT slugだけ」の注釈を追加した。tool名、入出力、
+  既存の呼び出し契約は変えていない。
 
 ## 0.4.10 — 2026-07-31
 
