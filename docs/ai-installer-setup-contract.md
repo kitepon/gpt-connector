@@ -64,6 +64,10 @@ AI installerはpassword、cookie、tokenを要求・取得・表示・保存し�
 
 ### 4. Codex MCP設定
 
+このserverはログイン済みOpenAI ChatGPT専用であり、Claude・Gemini等他providerのmodelは扱えない。
+`consult`／`sessions`／`diagnostics`はtool名が中立だが対象は同じで、他providerへのsecond opinionや
+caller環境の診断には使えない。server instructionsと各tool descriptionが同じ境界を宣言する。
+
 対象projectの既存`.codex/config.toml`を上書きせず、次のserver設定をmergeする。
 
 ```toml
