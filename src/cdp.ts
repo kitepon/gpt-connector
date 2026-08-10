@@ -91,7 +91,9 @@ export async function discoverChatGptTarget(
   try {
     response = await fetchImplementation(listUrl);
   } catch {
-    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧へ接続できません。");
+    // 接続自体の失敗＝専用Chromeが起動していない（unreachable）。起動中の異常（HTTP error・
+    // target形式不正）と区別し、診断がidle（平常）と故障を見分けられるようにする。
+    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧へ接続できません。", { unreachable: true });
   }
 
   if (!response.ok) {

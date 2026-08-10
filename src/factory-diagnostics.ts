@@ -100,6 +100,20 @@ async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
     };
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "INVALID_INPUT") throw error;
+    if (
+      error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" &&
+      error.details?.unreachable === true
+    ) {
+      // 専用Chromeが起動していない＝on-demand設計の平常状態（idle）。故障ではないため
+      // not_readyへ丸めず、live runtime系checkを「未検証（chrome_idle）」として返す。
+      // 起動中の異常（HTTP error・target不正・RUNTIME_DRIFT）は従来どおりnot_ready。
+      return {
+        cdp: check("cdp", "unverified", "chrome_idle"),
+        origin: check("official_origin", "unverified", "cdp_not_inspected"),
+        auth: check("auth", "unverified", "cdp_not_inspected"),
+        bridge: check("runtime_bridge", "unverified", "cdp_not_inspected"),
+      };
+    }
     const reason = error instanceof ConnectorError && error.code === "RUNTIME_DRIFT"
       ? "runtime_unverified" : "cdp_unavailable";
     return {
