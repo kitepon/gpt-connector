@@ -44,11 +44,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx --test test/*.test.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
-    "prepack": "pnpm check && pnpm build",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "prepack": "npm run check && npm run build",
     "verify:release-commit": "node scripts/verify-release-commit.mjs",
     "test:release-gate": "node --test scripts/verify-release-commit.test.mjs",
-    "prepublishOnly": "node scripts/verify-release-commit.mjs && pnpm check && pnpm build"
+    "prepublishOnly": "node scripts/verify-release-commit.mjs && npm run check && npm run build"
   },
   "publishConfig": {
     "access": "public"
