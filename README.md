@@ -235,6 +235,10 @@ Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない
 - `sessions`: exact slug 1件の状態／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
 
+`diagnostics`は専用Chrome未接続時も`gpt-connector.diagnostics.v1`の`not_ready`結果を正常応答として返し、
+read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Chat、consult、画像生成など実操作の
+接続失敗は、引き続きruntime-error storeへ記録する。
+
 移行期間にCodex側のMCP server idを`oracle`へすれば、tool名は`oracle.consult`／`oracle.sessions`になる。別adapter packageやOracleへの自動fallbackは使わない。
 
 ## attachment contract

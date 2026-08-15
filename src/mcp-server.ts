@@ -10,6 +10,7 @@ import {
   sessionsInputSchema,
   type ChatInput,
   type CloseInput,
+  type ConnectorDiagnostics,
   type ConsultInput,
   type ImageInput,
   type SessionsInput,
@@ -32,23 +33,31 @@ interface ConnectorPort {
 }
 
 type ConnectorFactory = () => Promise<ConnectorPort>;
+type ConnectorDoctor = () => Promise<ConnectorDiagnostics>;
 
 export class LazyConnectorHost {
   readonly #endpoint: string;
   readonly #stateDirectory: string | undefined;
   readonly #connect: ConnectorFactory;
+  readonly #doctor: ConnectorDoctor;
   #connectorPromise: Promise<ConnectorPort> | null = null;
 
   constructor(
     endpoint = "http://127.0.0.1:9223",
     stateDirectory?: string,
     connect?: ConnectorFactory,
+    doctor?: ConnectorDoctor,
   ) {
     this.#endpoint = endpoint;
     this.#stateDirectory = stateDirectory;
     this.#connect = connect ?? (() => GptConnector.connect({
       endpoint: this.#endpoint,
       stateDirectory: this.#stateDirectory,
+    }));
+    this.#doctor = doctor ?? (() => GptConnector.doctor({
+      endpoint: this.#endpoint,
+      stateDirectory: this.#stateDirectory,
+      readOnlyJobs: true,
     }));
   }
 
@@ -80,6 +89,16 @@ export class LazyConnectorHost {
         }
       }
       throw error;
+    }
+  }
+
+  async diagnostics(): Promise<ConnectorDiagnostics> {
+    if (this.#connectorPromise === null) return this.#doctor();
+    try {
+      return await this.run((connector) => connector.diagnostics());
+    } catch (error) {
+      if (!(error instanceof ConnectorError) || error.code !== "CDP_UNAVAILABLE") throw error;
+      return this.#doctor();
     }
   }
 
@@ -249,7 +268,7 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
         idempotentHint: true,
       },
     },
-    async () => toolResult(async () => host.run((connector) => connector.diagnostics())),
+    async () => toolResult(async () => host.diagnostics()),
   );
 
   server.registerTool(

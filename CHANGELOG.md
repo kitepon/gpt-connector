@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.13 — 2026-08-15
+
+- MCP `diagnostics`をlive操作と同じerror telemetry経路からread-only `doctor`へ分離した。
+  専用Chrome未接続・live connector非対応hostでも固定diagnostics JSONを正常応答として返し、
+  診断しただけで`CDP_UNAVAILABLE`のhigh severity runtime errorを作らない。
+- `chatgpt_models`、Chat、consult、画像生成など実操作のCDP障害は、従来どおりruntime-error storeへ
+  記録する契約を維持する。
+
 ## 0.4.11 — 2026-08-01
 
 - ChatGPT現行bundleの公式builderがcomposer拡張slotを`composerController`をkeyとするWeakMapで
