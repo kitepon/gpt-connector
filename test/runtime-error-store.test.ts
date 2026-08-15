@@ -86,6 +86,13 @@ test("Windows ACLは注入した正規ACL境界の失敗をstore_unavailableへ�
   assert.equal(getRuntimeErrorDiagnostics({ env: windowsEnv, configPath: box.configPath, storePath: box.storePath, windowsAcl: () => { throw new Error("acl denied"); } }).status, "unavailable");
 });
 
+test("Windows実ACLはaccount名の大文字小文字差を許容してsnapshotとackを完了する", { skip: process.platform !== "win32" }, () => {
+  const box = sandbox(); enable(box);
+  assert.equal(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }).status, "recorded");
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors.length, 1);
+  assert.equal(acknowledgeRuntimeErrors(1, { env: box.env }).status, "acknowledged");
+});
+
 test("runtime error storeはprivate mode、tamper、symlinkを拒否し、診断へpathを出さない", { skip: process.platform === "win32" }, () => {
   const box = sandbox(); enable(box);
   observeRuntimeError({ code: "CDP_UNAVAILABLE" }, { env: box.env });

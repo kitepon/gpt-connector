@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.14 — 2026-08-15
+
+- Windowsのowner-only ACL検証で、`whoami`と`icacls`がmachine名の大文字小文字を
+  異なる表記で返しても同一accountとして照合する。runtime-error snapshotとackが
+  `windows acl verification`で停止し、BugHub deliveryを閉じられない欠陥を修復した。
+- npm公開metadataを移転後の正規repository `kitepon/gpt-connector`へ更新した。
+
 ## 0.4.13 — 2026-08-15
 
 - MCP `diagnostics`をlive操作と同じerror telemetry経路からread-only `doctor`へ分離した。

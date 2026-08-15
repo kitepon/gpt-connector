@@ -196,7 +196,7 @@ function applyWindowsAcl(path: string, directory: boolean, injected?: RuntimeErr
   const grant = `${user}:${directory ? "(OI)(CI)F" : "F"}`;
   execFileSync("icacls", [path, "/inheritance:r", "/grant:r", grant, "/remove:g", "Users", "Everyone", "Authenticated Users"], { encoding: "utf8", windowsHide: true });
   const verified = execFileSync("icacls", [path], { encoding: "utf8", windowsHide: true });
-  if (!verified.includes(user) || /Everyone|Authenticated Users/u.test(verified)) throw new Error("windows acl verification");
+  if (!verified.toLowerCase().includes(user.toLowerCase()) || /Everyone|Authenticated Users/iu.test(verified)) throw new Error("windows acl verification");
 }
 function emptyStore(): Store { return { schema: runtimeErrorStoreSchema, next_sequence: 1, acknowledged_through: 0, records: [] }; }
 function validateStore(value: unknown): asserts value is Store {

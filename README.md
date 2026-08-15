@@ -20,7 +20,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.4.11`。公開済みversionは[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は[GitHub repository](https://github.com/kitepon-rgb/gpt-connector)を正とする。
+現在ソース版は`gpt-connector@0.4.14`。公開済みversionは[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は[GitHub repository](https://github.com/kitepon/gpt-connector)を正とする。
 
 ## 成立済み機能
 

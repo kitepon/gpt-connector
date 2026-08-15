@@ -1,6 +1,6 @@
 {
   "name": "gpt-connector",
-  "version": "0.4.13",
+  "version": "0.4.14",
   "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をCodexから呼び出すローカルconnector",
   "license": "MIT",
   "author": {
@@ -9,11 +9,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kitepon-rgb/gpt-connector.git"
+    "url": "git+https://github.com/kitepon/gpt-connector.git"
   },
-  "homepage": "https://github.com/kitepon-rgb/gpt-connector#readme",
+  "homepage": "https://github.com/kitepon/gpt-connector#readme",
   "bugs": {
-    "url": "https://github.com/kitepon-rgb/gpt-connector/issues"
+    "url": "https://github.com/kitepon/gpt-connector/issues"
   },
   "type": "module",
   "main": "dist/src/index.js",
