@@ -10,8 +10,13 @@ import { packageVersion } from "../src/version.js";
 
 function runTool(name: "diagnostics" | "chatgpt_models") {
   const root = mkdtempSync(join(tmpdir(), "gpt-connector-mcp-diagnostics-"));
-  const config = join(root, "config", "dotagents", "factory-reporter.json");
-  const store = join(root, "state", "gpt-connector", "runtime-errors.json");
+  const localAppData = join(root, "local-app-data");
+  const config = process.platform === "win32"
+    ? join(localAppData, "dotagents", "factory-reporter", "config.json")
+    : join(root, "config", "dotagents", "factory-reporter.json");
+  const store = process.platform === "win32"
+    ? join(localAppData, "gpt-connector", "runtime-errors.json")
+    : join(root, "state", "gpt-connector", "runtime-errors.json");
   mkdirSync(dirname(config), { recursive: true, mode: 0o700 });
   writeFileSync(config, JSON.stringify({
     schema_version: "1.0",
@@ -31,6 +36,7 @@ function runTool(name: "diagnostics" | "chatgpt_models") {
     env: {
       ...process.env,
       HOME: join(root, "home"),
+      LOCALAPPDATA: localAppData,
       XDG_CONFIG_HOME: join(root, "config"),
       XDG_STATE_HOME: join(root, "state"),
       GPT_CONNECTOR_CDP_ENDPOINT: "http://127.0.0.1:1",
