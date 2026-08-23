@@ -1,18 +1,16 @@
-import { execFile as execFileCallback, spawn as nodeSpawn } from "node:child_process";
 import { chmod, lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { homedir, platform as hostPlatform } from "node:os";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { CdpClient, discoverChatGptTarget } from "./cdp.js";
 import { GptConnector } from "./connector.js";
 import { ConnectorError } from "./errors.js";
+import { activateProcess, chromeLaunchCommand, hideProcess, inspectListenerProcesses, isOwnedChromeCommand, revealProcess, spawnDetached, verifyWindowVisibility, type ListenerProcess } from "./platform/darwin.js";
 
 export interface BrowserLaunchResult { readonly ok: true; readonly status: "already_ready" | "started"; readonly endpoint: "http://127.0.0.1:9223"; }
 export interface BrowserShowResult { readonly ok: true; readonly status: "shown"; readonly endpoint: "http://127.0.0.1:9223"; }
 type Spawned = { readonly once: (event: "error", listener: (error: Error) => void) => unknown; };
 type Spawn = (command: string, args: readonly string[]) => Spawned;
 type Readiness = () => Promise<boolean>;
-interface ListenerProcess { readonly pid: string; readonly command: string; }
 type ProcessInspector = () => Promise<readonly ListenerProcess[]>;
 interface BrowserLock { release(): Promise<void>; }
 type LockAcquirer = (profile: string, waitDeadlineMs: number) => Promise<BrowserLock>;
@@ -59,7 +57,6 @@ const readyDeadlineMs = 30_000;
 const ownershipProbeGraceMs = 3_000;
 const windowVisibilityGraceMs = 5_000;
 const lockWaitMarginMs = 1_000;
-const execFile = promisify(execFileCallback);
 let inFlight: Promise<BrowserLaunchResult> | undefined;
 
 export async function startBrowser(options: BrowserOptions = {}): Promise<BrowserLaunchResult> {
@@ -156,9 +153,9 @@ async function startBrowserLocked(options: BrowserOptions, profile: string): Pro
     const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "already_ready"); await visibilityVerifier(await stableOwnedListenerPid(profile, processInspector, pid), false, visibilityTimeout()); return result;
   }
 
-  const args = ["-j", "-g", "-n", "-a", "Google Chrome", "--args", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`, "--no-startup-window", "--no-first-run", "--no-default-browser-check"];
-  const spawn = options.spawn ?? ((command, values) => nodeSpawn(command, values, { detached: true, stdio: "ignore" }));
-  try { await spawnError(spawn("open", args)); } catch (error) { throw launcherError("CDP_UNAVAILABLE", "専用Chromeを起動できませんでした。", error); }
+  const launch = chromeLaunchCommand(profile);
+  const spawn = options.spawn ?? spawnDetached;
+  try { await spawnError(spawn(launch.command, launch.args)); } catch (error) { throw launcherError("CDP_UNAVAILABLE", "専用Chromeを起動できませんでした。", error); }
   if (!await waitForOwnedEndpoint(endpointReady, ownershipReady, sleep, timeout, Math.max(1, readyDeadline - Date.now()))) {
     throw new ConnectorError("CDP_UNAVAILABLE", "専用ChromeのCDP endpointと所有者を確認できるまで待機がtimeoutしました。");
   }
@@ -337,42 +334,6 @@ async function stableOwnedListenerPid(profile: string, inspect: ProcessInspector
 async function hideOwnedProcess(profile: string, inspect: ProcessInspector, hide: ProcessHider, timeoutMs: number): Promise<number> {
   const pid = await ownedListenerPid(profile, inspect);
   try { await hide(pid, timeoutMs); return pid; } catch (error) { throw launcherError("CDP_UNAVAILABLE", "専用Chromeをhidden状態へ移行できませんでした。", error); }
-}
-const runningApplicationActionScript = "ObjC.import('AppKit'); function run(argv) { const a = $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(argv[0])); if (a.isNil()) throw new Error('PID not running'); const action = String(argv[1]); if (action === 'hide') a.hide; else if (action === 'unhide') a.unhide; else if (action === 'activate') { if (!a.activateWithOptions($.NSApplicationActivateAllWindows | $.NSApplicationActivateIgnoringOtherApps)) throw new Error('activate failed'); } else throw new Error('invalid action'); return 'ok'; }";
-const runningApplicationStatusScript = "ObjC.import('AppKit'); function run(argv) { const a = $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(argv[0])); if (a.isNil()) throw new Error('PID not running'); const status = String(argv[1]); if (status === 'hide') return String(Boolean(a.hidden)); if (status === 'unhide') return String(!Boolean(a.hidden)); if (status === 'activate') return String(Boolean(a.active)); throw new Error('invalid status'); }";
-async function runningApplicationAction(pid: number, action: "hide" | "unhide" | "activate", timeoutMs = appProbeTimeoutMs): Promise<void> {
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("PIDが不正です");
-  await execFile("osascript", ["-l", "JavaScript", "-e", runningApplicationActionScript, "--", String(pid), action], { timeout: Math.min(timeoutMs, 500) });
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const remaining = Math.max(1, deadline - Date.now());
-    const { stdout } = await execFile("osascript", ["-l", "JavaScript", "-e", runningApplicationStatusScript, "--", String(pid), action], { timeout: Math.min(500, remaining) });
-    if (stdout.trim() === "true") return;
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(action === "hide" ? "hidden状態への遷移がtimeoutしました" : action === "unhide" ? "hidden状態の解除がtimeoutしました" : "active状態への遷移がtimeoutしました");
-}
-async function hideProcess(pid: number, timeoutMs: number): Promise<void> { await runningApplicationAction(pid, "hide", timeoutMs); }
-async function revealProcess(pid: number, timeoutMs: number): Promise<void> { await runningApplicationAction(pid, "unhide", timeoutMs); }
-async function activateProcess(pid: number, timeoutMs: number): Promise<void> { await runningApplicationAction(pid, "activate", timeoutMs); }
-const windowVisibilityScript = "ObjC.import('CoreGraphics'); function run(argv) { const pid = Number(argv[0]); const r = $.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, $.kCGNullWindowID); const n = $.CFArrayGetCount(r); let count = 0; for (let i = 0; i < n; i += 1) { const value = ObjC.deepUnwrap(ObjC.castRefToObject($.CFArrayGetValueAtIndex(r, i))); if (value.kCGWindowOwnerPID === pid && value.kCGWindowLayer === 0) count += 1; } return String(count); }";
-async function verifyWindowVisibility(pid: number, expectedVisible: boolean, timeoutMs: number): Promise<void> { const deadline = Date.now() + timeoutMs; do { let stdout: string; try { ({ stdout } = await execFile("osascript", ["-l", "JavaScript", "-e", windowVisibilityScript, "--", String(pid)], { timeout: Math.min(3_000, Math.max(1, deadline - Date.now())) })); } catch (error) { throw new ConnectorError("CDP_UNAVAILABLE", "WindowServer状態を確認できませんでした。", undefined, { cause: error }); } const count = Number(stdout.trim()); if (Number.isSafeInteger(count) && (expectedVisible ? count >= 1 : count === 0)) return; if (Date.now() < deadline) await new Promise<void>((resolve) => setTimeout(resolve, 100)); } while (Date.now() < deadline); throw new ConnectorError("RUNTIME_DRIFT", expectedVisible ? "WindowServer表示windowがありません。" : "WindowServer表示windowが残っています。"); }
-function isOwnedChromeCommand(command: string, profile: string): boolean {
-  const token = (value: string) => new RegExp(`(?:^|\\s)${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`);
-  return /\/Google Chrome(?:\s|$)/.test(command)
-    && token("--remote-debugging-address=127.0.0.1").test(command)
-    && token("--remote-debugging-port=9223").test(command)
-    && token(`--user-data-dir=${profile}`).test(command);
-}
-async function inspectListenerProcesses(): Promise<readonly ListenerProcess[]> {
-  try {
-    const { stdout } = await execFile("lsof", ["-nP", "-iTCP:9223", "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
-    const pids = [...new Set(stdout.split("\n").map((value) => value.trim()).filter((value) => /^\d+$/.test(value)))];
-    return Promise.all(pids.map(async (pid) => {
-      const { stdout: command } = await execFile("ps", ["-p", pid, "-o", "command="], { encoding: "utf8" });
-      return { pid, command: command.trim() };
-    }));
-  } catch { return []; }
 }
 async function acquireBrowserLock(profile: string, waitDeadlineMs: number): Promise<BrowserLock> {
   const file = join(profile, "browser-launch.lock");

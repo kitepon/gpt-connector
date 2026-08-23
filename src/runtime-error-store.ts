@@ -1,20 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
-  chmodSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import * as fs from "node:fs";
-import { homedir, arch as hostArch, platform as hostPlatform } from "node:os";
+import { arch as hostArch, platform as hostPlatform } from "node:os";
 import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
 
+import { assertPrivate, defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, ensurePrivateDirectory, makeFilePrivate, type WindowsAclApplier } from "./platform/state.js";
 import { packageVersion } from "./version.js";
+
+export { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath } from "./platform/state.js";
 
 export const runtimeErrorStoreSchema = "gpt-connector.runtime-errors.v1" as const;
 export const runtimeErrorStateSchemaVersion = "1.0" as const;
@@ -62,21 +61,7 @@ interface RecordEntry {
   sequence: number;
 }
 interface Store { schema: typeof runtimeErrorStoreSchema; next_sequence: number; acknowledged_through: number; records: RecordEntry[]; }
-export interface RuntimeErrorOptions { readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: (path: string, directory: boolean) => void; }
-
-export function defaultFactoryReporterConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  const home = env.HOME ?? env.USERPROFILE ?? homedir();
-  return isWindows(env)
-    ? join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "dotagents", "factory-reporter", "config.json")
-    : join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "dotagents", "factory-reporter.json");
-}
-
-export function defaultRuntimeErrorStorePath(env: NodeJS.ProcessEnv = process.env): string {
-  const home = env.HOME ?? env.USERPROFILE ?? homedir();
-  return isWindows(env)
-    ? join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "gpt-connector", "runtime-errors.json")
-    : join(env.XDG_STATE_HOME ?? join(home, ".local", "state"), "gpt-connector", "runtime-errors.json");
-}
+export interface RuntimeErrorOptions { readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
 
 export function isRuntimeErrorCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath"> = {}): boolean {
   try {
@@ -186,18 +171,7 @@ function mutateExistingOrEnabled<T>(options: RuntimeErrorOptions, operation: (st
   try { lstatSync(path); return mutate(options, operation, false); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && disabled !== undefined) return disabled; throw error; }
 }
 function readStore(options: RuntimeErrorOptions, missingEmpty: boolean): Store { const path = options.storePath ?? defaultRuntimeErrorStorePath(options.env); try { const info = lstatSync(path); if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe store"); assertPrivate(path, false, options.env, options.windowsAcl); const parsed: unknown = JSON.parse(readFileSync(path, "utf8")); validateStore(parsed); return parsed; } catch (error) { if (missingEmpty && (error as NodeJS.ErrnoException).code === "ENOENT") return emptyStore(); throw error; } }
-function writeStore(store: Store, options: RuntimeErrorOptions): void { validateStore(store); const path = options.storePath ?? defaultRuntimeErrorStorePath(options.env); const directory = dirname(path); ensurePrivateDirectory(directory, options.env, options.windowsAcl); const temporary = join(directory, `.runtime-errors.${process.pid}.${randomBytes(6).toString("hex")}.tmp`); try { writeFileSync(temporary, `${JSON.stringify(store)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" }); if (!isWindows(options.env)) chmodSync(temporary, 0o600); else applyWindowsAcl(temporary, false, options.windowsAcl); renameSync(temporary, path); if (!isWindows(options.env)) chmodSync(path, 0o600); assertPrivate(path, false, options.env, options.windowsAcl); } finally { rmSync(temporary, { force: true }); } }
-function ensurePrivateDirectory(directory: string, env?: NodeJS.ProcessEnv, windowsAcl?: RuntimeErrorOptions["windowsAcl"]): void { mkdirSync(directory, { recursive: true, mode: 0o700 }); const info = lstatSync(directory); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe store directory"); if (!isWindows(env)) chmodSync(directory, 0o700); else applyWindowsAcl(directory, true, windowsAcl); assertPrivate(directory, true, env, windowsAcl); }
-function assertPrivate(path: string, directory: boolean, env?: NodeJS.ProcessEnv, windowsAcl?: RuntimeErrorOptions["windowsAcl"]): void { const info = statSync(path); if (!isWindows(env) && (info.mode & 0o077) !== 0) throw new Error(directory ? "directory permissions" : "file permissions"); if (isWindows(env)) applyWindowsAcl(path, directory, windowsAcl); }
-function applyWindowsAcl(path: string, directory: boolean, injected?: RuntimeErrorOptions["windowsAcl"]): void {
-  if (injected) return injected(path, directory);
-  const user = execFileSync("whoami", [], { encoding: "utf8", windowsHide: true }).trim();
-  if (!user) throw new Error("windows acl user");
-  const grant = `${user}:${directory ? "(OI)(CI)F" : "F"}`;
-  execFileSync("icacls", [path, "/inheritance:r", "/grant:r", grant, "/remove:g", "Users", "Everyone", "Authenticated Users"], { encoding: "utf8", windowsHide: true });
-  const verified = execFileSync("icacls", [path], { encoding: "utf8", windowsHide: true });
-  if (!verified.toLowerCase().includes(user.toLowerCase()) || /Everyone|Authenticated Users/iu.test(verified)) throw new Error("windows acl verification");
-}
+function writeStore(store: Store, options: RuntimeErrorOptions): void { validateStore(store); const path = options.storePath ?? defaultRuntimeErrorStorePath(options.env); const directory = dirname(path); ensurePrivateDirectory(directory, options.env, options.windowsAcl); const temporary = join(directory, `.runtime-errors.${process.pid}.${randomBytes(6).toString("hex")}.tmp`); try { writeFileSync(temporary, `${JSON.stringify(store)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" }); makeFilePrivate(temporary, options.env, options.windowsAcl); renameSync(temporary, path); makeFilePrivate(path, options.env, options.windowsAcl); assertPrivate(path, false, options.env, options.windowsAcl); } finally { rmSync(temporary, { force: true }); } }
 function emptyStore(): Store { return { schema: runtimeErrorStoreSchema, next_sequence: 1, acknowledged_through: 0, records: [] }; }
 function validateStore(value: unknown): asserts value is Store {
   if (!plain(value) || !exactKeys(value, ["schema", "next_sequence", "acknowledged_through", "records"])) throw new Error("store schema");
@@ -225,4 +199,3 @@ function safePlatform(value?: string): string { return ["darwin", "linux", "win3
 function safeArch(value?: string): string { return /^[a-z0-9_]+$/u.test(value ?? hostArch()) ? (value ?? hostArch()) : "unknown"; }
 function assertFingerprint(value: string): void { if (!/^[a-f0-9]{64}$/u.test(value)) throw new TypeError("fingerprint が不正です"); }
 function assertExactKeys(value: object, keys: readonly string[], message: string): void { if (Object.keys(value).some((key) => !keys.includes(key))) throw new TypeError(message); }
-function isWindows(env?: NodeJS.ProcessEnv): boolean { return env?.OS === "Windows_NT" || hostPlatform() === "win32"; }

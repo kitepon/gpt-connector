@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -12,6 +11,7 @@ import {
   type ConsultSnapshot,
 } from "./contract.js";
 import { ConnectorError, connectorErrorCodes } from "./errors.js";
+import { chmodPrivateIfPosix, defaultConsultStateDirectory, posixModeExposesOthers } from "./platform/state.js";
 
 const retrySchema = z.enum([
   "never",
@@ -137,10 +137,7 @@ const allowedTransitions = new Map<ConsultJobState, readonly ConsultJobState[]>(
   ["failed", []],
 ]);
 
-export function defaultConsultStateDirectory(): string {
-  const stateHome = process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
-  return join(stateHome, "gpt-connector");
-}
+export { defaultConsultStateDirectory } from "./platform/state.js";
 
 export class ConsultJobStore {
   readonly #stateDirectory: string;
@@ -351,7 +348,7 @@ export class ConsultJobStore {
     try {
       await writeFile(temporaryPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
       await rename(temporaryPath, this.#statePath);
-      if (process.platform !== "win32") await chmod(this.#statePath, 0o600);
+      await chmodPrivateIfPosix(this.#statePath);
     } catch {
       try {
         await rm(temporaryPath, { force: true });
@@ -405,10 +402,7 @@ export class ConsultJobStore {
       } else {
         await mkdir(this.#stateDirectory, { recursive: true, mode: 0o700 });
       }
-      if (
-        process.platform !== "win32" &&
-        ((await stat(this.#stateDirectory)).mode & 0o077) !== 0
-      ) {
+      if (posixModeExposesOthers((await stat(this.#stateDirectory)).mode)) {
         throw new Error("state_directory_permissions");
       }
     } catch {
