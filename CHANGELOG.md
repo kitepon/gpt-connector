@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.17 — 2026-08-24
+
+- OS依存の判定をplatform層へ集約する挙動不変リファクタ（harness用語統一campaignの分離規約）。
+  macOS専用面のゲートを`platform/darwin.ts`の`isDarwin()`へ一本化し（browser start/show・
+  factory diagnosticsの3箇所）、`platform/state.ts`内のWindows判定を`isWindows()`へ統一、
+  runtime error storeのOS文字列検証を既存`safePlatform()`の再利用へ畳んだ。
+  公開API・エラーメッセージ・診断schemaは不変。
+
 ## 0.4.16 — 2026-08-23
 
 - ChatGPT現行bundleでthreadStore・treeApi・apiClient・threadGetter・conversationFactoryの

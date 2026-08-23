@@ -1,10 +1,10 @@
 import { chmod, lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
-import { homedir, platform as hostPlatform } from "node:os";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { CdpClient, discoverChatGptTarget } from "./cdp.js";
 import { GptConnector } from "./connector.js";
 import { ConnectorError } from "./errors.js";
-import { activateProcess, chromeLaunchCommand, hideProcess, inspectListenerProcesses, isOwnedChromeCommand, revealProcess, spawnDetached, verifyWindowVisibility, type ListenerProcess } from "./platform/darwin.js";
+import { activateProcess, chromeLaunchCommand, isDarwin, hideProcess, inspectListenerProcesses, isOwnedChromeCommand, revealProcess, spawnDetached, verifyWindowVisibility, type ListenerProcess } from "./platform/darwin.js";
 
 export interface BrowserLaunchResult { readonly ok: true; readonly status: "already_ready" | "started"; readonly endpoint: "http://127.0.0.1:9223"; }
 export interface BrowserShowResult { readonly ok: true; readonly status: "shown"; readonly endpoint: "http://127.0.0.1:9223"; }
@@ -67,8 +67,7 @@ export async function startBrowser(options: BrowserOptions = {}): Promise<Browse
 }
 
 export async function showBrowser(options: BrowserOptions = {}): Promise<BrowserShowResult> {
-  const current = options.platform ?? hostPlatform();
-  if (current !== "darwin") throw new ConnectorError("INVALID_INPUT", "browser showはmacOS以外を未対応として拒否します。");
+  if (!isDarwin(options.platform)) throw new ConnectorError("INVALID_INPUT", "browser showはmacOS以外を未対応として拒否します。");
   const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));
   const timeout = options.probeTimeoutMs ?? probeTimeoutMs;
   const fetcher = timedFetch(options.fetch ?? globalThis.fetch, timeout);
@@ -83,8 +82,7 @@ export async function showBrowser(options: BrowserOptions = {}): Promise<Browser
 }
 
 async function startBrowserOnce(options: BrowserOptions): Promise<BrowserLaunchResult> {
-  const current = options.platform ?? hostPlatform();
-  if (current !== "darwin") throw new ConnectorError("INVALID_INPUT", "browser startはmacOS以外を未対応として拒否します。");
+  if (!isDarwin(options.platform)) throw new ConnectorError("INVALID_INPUT", "browser startはmacOS以外を未対応として拒否します。");
   const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));
   await ensurePrivateProfile(profile);
   const lockWaitDeadlineMs = (options.readyDeadlineMs ?? readyDeadlineMs) + lockWaitMarginMs;

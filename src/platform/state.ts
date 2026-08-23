@@ -48,9 +48,9 @@ function applyWindowsAcl(path: string, directory: boolean, injected?: WindowsAcl
 }
 
 export async function chmodPrivateIfPosix(path: string): Promise<void> {
-  if (process.platform !== "win32") await chmod(path, 0o600);
+  if (!isWindows()) await chmod(path, 0o600);
 }
 
 export function posixModeExposesOthers(mode: number): boolean {
-  return process.platform !== "win32" && (mode & 0o077) !== 0;
+  return !isWindows() && (mode & 0o077) !== 0;
 }

@@ -57,3 +57,8 @@ export async function inspectListenerProcesses(): Promise<readonly ListenerProce
     }));
   } catch { return []; }
 }
+
+// macOS専用面のゲート判定の唯一の置き場。呼び出し側でprocess.platformを直接比較しない。
+export function isDarwin(platformOverride?: string): boolean {
+  return (platformOverride ?? process.platform) === "darwin";
+}
