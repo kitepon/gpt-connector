@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.15 — 2026-08-23
+
+- OS依存コードを`src/platform/`へ分離した。macOS専用プリミティブ（`open`によるChrome起動、
+  JXAのwindow/process制御、lsof/psのポート所有確認）は`platform/darwin.ts`、OS別のstateパス解決と
+  権限強制（POSIX chmod／Windows icacls ACL）は`platform/state.ts`だけが持つ。browser-launcherと
+  各storeからOS分岐を排除し、片方のOSの修正が他方を壊す構造を解消した。公開APIと挙動は不変
+  （Windowsのstore書込でrename後のACL適用が1回増えるだけで最終状態は同一）。
+
 ## 0.4.14 — 2026-08-15
 
 - Windowsのowner-only ACL検証で、`whoami`と`icacls`がmachine名の大文字小文字を
