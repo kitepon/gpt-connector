@@ -13,6 +13,7 @@ test("bridgeはDOM selector・event・fiberを利用しない", () => {
     "https://cdn.oaistatic.com/assets/core.js",
     "https://cdn.oaistatic.com/assets/conversation.js",
     "https://cdn.oaistatic.com/assets/upload.js",
+    "https://cdn.oaistatic.com/assets/shared.js",
   );
 
   assert.doesNotMatch(expression, /querySelector|__reactFiber|\.click\(|dispatchEvent/u);
@@ -28,6 +29,7 @@ test("sender検出は現行wrapperのfollowup前処理とsettled callbackを固�
     "https://cdn.oaistatic.com/assets/core.js",
     "https://cdn.oaistatic.com/assets/conversation.js",
     "https://cdn.oaistatic.com/assets/upload.js",
+    "https://cdn.oaistatic.com/assets/shared.js",
   );
 
   assert.match(expression, /promptMessage/u);
@@ -41,6 +43,7 @@ test("builder呼出しはcomposerControllerへ専用objectを渡し拡張slotを
     "https://cdn.oaistatic.com/assets/core.js",
     "https://cdn.oaistatic.com/assets/conversation.js",
     "https://cdn.oaistatic.com/assets/upload.js",
+    "https://cdn.oaistatic.com/assets/shared.js",
   );
 
   // builder検出は現行契約どおりcomposerControllerを要求し、変化時はRUNTIME_DRIFTで止まる。
@@ -55,6 +58,7 @@ test("bridgeは公式upload objectとattachment read-backを一意化する", ()
     "https://cdn.oaistatic.com/assets/core.js",
     "https://cdn.oaistatic.com/assets/conversation.js",
     "https://cdn.oaistatic.com/assets/upload.js",
+    "https://cdn.oaistatic.com/assets/shared.js",
   );
 
   assert.doesNotMatch(expression, /attachments:\s*\[\]/u);
@@ -75,6 +79,7 @@ test("bridgeは生成画像をcurrent turnとLibraryの二重IDで相関しchunk
     "https://cdn.oaistatic.com/assets/core.js",
     "https://cdn.oaistatic.com/assets/conversation.js",
     "https://cdn.oaistatic.com/assets/upload.js",
+    "https://cdn.oaistatic.com/assets/shared.js",
   );
 
   assert.match(expression, /origination_thread_id/u);

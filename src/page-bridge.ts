@@ -2,16 +2,17 @@ import { createHash } from "node:crypto";
 
 export const bridgeGlobalName = "__gptConnectorBridgeV1";
 
-const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl, uploadUrl, expectedBuildId) {
+const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl, uploadUrl, sharedUrl, expectedBuildId) {
   const globalName = "__gptConnectorBridgeV1";
   if (globalThis[globalName]?.version === 1 && globalThis[globalName]?.buildId === expectedBuildId) {
     return globalThis[globalName].summary();
   }
 
-  const [core, conversationModule, uploadModule] = await Promise.all([
+  const [core, conversationModule, uploadModule, shared] = await Promise.all([
     import(coreUrl),
     import(conversationUrl),
-    import(uploadUrl)
+    import(uploadUrl),
+    import(sharedUrl)
   ]);
 
   const entries = (module) => Object.entries(module);
@@ -21,6 +22,11 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       throw new Error("RUNTIME_DRIFT:" + role + ":" + candidates.length);
     }
     return candidates[0][1];
+  };
+  // 現行bundleは任意のkeyへ関数を返すlazy proxy exportを含み、shape判定を全通過してしまう。
+  // 実在しないkeyが関数として返る候補はstore実体ではないので一意化の前に除外する。
+  const concrete = (value) => {
+    try { return typeof value.__gptConnectorAbsentProbe !== "function"; } catch { return false; }
   };
 
   const sender = unique("sender", entries(core).filter(([, value]) => {
@@ -43,23 +49,23 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       source.includes("build_request_params.prompt_message");
   }));
 
-  const threadStore = unique("threadStore", entries(core).filter(([, value]) =>
-    value && typeof value === "object" &&
+  const threadStore = unique("threadStore", entries(shared).filter(([, value]) =>
+    value && typeof value === "object" && concrete(value) &&
     typeof value.initThread === "function" &&
     typeof value.setServerIdForNewThread === "function" &&
     typeof value.deleteThread === "function" &&
     typeof value.retainThread === "function"
   ));
 
-  const treeApi = unique("treeApi", entries(core).filter(([, value]) =>
-    value && typeof value === "object" &&
+  const treeApi = unique("treeApi", entries(shared).filter(([, value]) =>
+    value && typeof value === "object" && concrete(value) &&
     typeof value.getLastAssistantMessage === "function" &&
     typeof value.getCurrentMessage === "function" &&
     typeof value.getConversationTurns === "function"
   ));
 
-  const apiClientCandidates = entries(core).filter(([, value]) =>
-    value && typeof value === "object" &&
+  const apiClientCandidates = entries(shared).filter(([, value]) =>
+    value && typeof value === "object" && concrete(value) &&
     typeof value.safeGet === "function" &&
     typeof value.safePost === "function" &&
     typeof value.safePatch === "function" &&
@@ -77,13 +83,13 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
   }));
   const apiClient = unique("apiClient", apiClientCandidates.filter((_, index) => apiClientProbeResults[index]));
 
-  const threadGetter = unique("threadGetter", entries(core).filter(([, value]) => {
+  const threadGetter = unique("threadGetter", entries(shared).filter(([, value]) => {
     if (typeof value !== "function" || value.length !== 1) return false;
     const source = functionSource(value);
     return /return [\w$]+\.threads\[[\w$]+\]\}$/.test(source);
   }));
 
-  const factoryCandidates = entries(core).filter(([, value]) => {
+  const factoryCandidates = entries(shared).filter(([, value]) => {
     if (typeof value !== "function") return false;
     const source = functionSource(value);
     return /^function [^(]+\([A-Za-z_$][\w$]*\)\{return [\w$]+\([\w$]+\(\),[\w$]+\(\),[A-Za-z_$][\w$]*\)\}$/.test(source);
@@ -951,8 +957,9 @@ export function createBridgeBootstrapExpression(
   coreUrl: string,
   conversationUrl: string,
   uploadUrl: string,
+  sharedUrl: string,
 ): string {
-  return `(${bridgeBootstrapSource})(${JSON.stringify(coreUrl)}, ${JSON.stringify(conversationUrl)}, ${JSON.stringify(uploadUrl)}, ${JSON.stringify(bridgeBuildId)})`;
+  return `(${bridgeBootstrapSource})(${JSON.stringify(coreUrl)}, ${JSON.stringify(conversationUrl)}, ${JSON.stringify(uploadUrl)}, ${JSON.stringify(sharedUrl)}, ${JSON.stringify(bridgeBuildId)})`;
 }
 
 export function createBridgeCallExpression(

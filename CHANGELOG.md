@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.16 — 2026-08-23
+
+- ChatGPT現行bundleでthreadStore・treeApi・apiClient・threadGetter・conversationFactoryの
+  export群がcore chunkから共有chunkへ移動し、bridge初期化が`RUNTIME_DRIFT:threadStore:0`で
+  全機能停止していたため、共有chunkを第4のruntime assetとして一意検出（marker:
+  `setServerIdForNewThread`等）し、5役の解決先を共有moduleへ切り替えて修復した。
+- 現行bundleは任意のkeyへ関数を返すlazy proxy exportを含み、store shape判定を全通過して
+  一意検出を壊すため、実在しないkeyが関数として返る候補を一意化の前に除外する。
+- RUNTIME_DRIFT診断へ`sharedFingerprint`を追加した。DOM・fiber・UI eventへの依存は
+  引き続き追加していない。
+
 ## 0.4.15 — 2026-08-23
 
 - OS依存コードを`src/platform/`へ分離した。macOS専用プリミティブ（`open`によるChrome起動、

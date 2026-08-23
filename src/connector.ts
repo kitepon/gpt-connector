@@ -1015,6 +1015,7 @@ export class GptConnector {
         assets.coreUrl,
         assets.conversationUrl,
         assets.uploadUrl,
+        assets.sharedUrl,
       ),
     );
     const parsed = z
@@ -1029,6 +1030,7 @@ export class GptConnector {
         coreFingerprint: assets.coreFingerprint,
         conversationFingerprint: assets.conversationFingerprint,
         uploadFingerprint: assets.uploadFingerprint,
+        sharedFingerprint: assets.sharedFingerprint,
       });
     }
   }

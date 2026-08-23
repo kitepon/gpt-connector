@@ -8,9 +8,11 @@ export interface RuntimeAssets {
   readonly coreUrl: string;
   readonly conversationUrl: string;
   readonly uploadUrl: string;
+  readonly sharedUrl: string;
   readonly coreFingerprint: string;
   readonly conversationFingerprint: string;
   readonly uploadFingerprint: string;
+  readonly sharedFingerprint: string;
 }
 
 interface AssetCandidate {
@@ -35,6 +37,14 @@ const uploadMarkers = [
   "process_upload_stream",
   "attachLibraryFile",
   "uploadFile:async",
+] as const;
+
+// thread/tree/apiClient等のstore群はcore chunkから共有chunkへ移動した。
+// setServerIdForNewThreadは現行bundleでその共有chunkだけが持つ。
+const sharedMarkers = [
+  "setServerIdForNewThread",
+  "initThread",
+  "getLastAssistantMessage",
 ] as const;
 
 const maxAssetCount = 800;
@@ -152,13 +162,16 @@ export async function discoverRuntimeAssets(
   const core = findUnique("core", fetched, coreMarkers);
   const conversation = findUnique("conversation", fetched, conversationMarkers);
   const upload = findUnique("upload", fetched, uploadMarkers);
+  const shared = findUnique("shared", fetched, sharedMarkers);
 
   return {
     coreUrl: core.url,
     conversationUrl: conversation.url,
     uploadUrl: upload.url,
+    sharedUrl: shared.url,
     coreFingerprint: fingerprint(core.source),
     conversationFingerprint: fingerprint(conversation.source),
     uploadFingerprint: fingerprint(upload.source),
+    sharedFingerprint: fingerprint(shared.source),
   };
 }

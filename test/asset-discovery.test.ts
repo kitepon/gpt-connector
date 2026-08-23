@@ -9,13 +9,16 @@ const rootUrl = `${origin}/assets/bootstrap.js`;
 const coreUrl = `${origin}/assets/core.js`;
 const conversationUrl = `${origin}/cdn/assets/conversation.js`;
 const uploadUrl = `${origin}/assets/upload.js`;
+const sharedUrl = `${origin}/assets/shared.js`;
 
 const coreSource = [
   'import "./upload.js";',
+  'import "./shared.js";',
   "/f/conversation/prepare conduit_token completion.submit.request",
 ].join(" ");
 const conversationSource = "contentToSend allSystemHints selectedSkillIds build_request_params.prompt_message";
 const uploadSource = "process_upload_stream attachLibraryFile uploadFile:async";
+const sharedSource = "setServerIdForNewThread initThread getLastAssistantMessage";
 
 function fetchFrom(sources: ReadonlyMap<string, string>): typeof fetch {
   return async (input) => {
@@ -30,6 +33,7 @@ function baseSources(): Map<string, string> {
     [coreUrl, coreSource],
     [conversationUrl, conversationSource],
     [uploadUrl, uploadSource],
+    [sharedUrl, sharedSource],
   ]);
 }
 
@@ -39,9 +43,11 @@ test("初期rootから相対・root-relative importを再帰探索して3 role�
   assert.equal(result.coreUrl, coreUrl);
   assert.equal(result.conversationUrl, conversationUrl);
   assert.equal(result.uploadUrl, uploadUrl);
+  assert.equal(result.sharedUrl, sharedUrl);
   assert.match(result.coreFingerprint, /^[0-9a-f]{16}$/u);
   assert.match(result.conversationFingerprint, /^[0-9a-f]{16}$/u);
   assert.match(result.uploadFingerprint, /^[0-9a-f]{16}$/u);
+  assert.match(result.sharedFingerprint, /^[0-9a-f]{16}$/u);
 });
 
 test("coreとuploadが同一assetでも一意なら許可する", async () => {
