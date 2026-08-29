@@ -8,11 +8,10 @@ export const consultSlugSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9._-]{2,63}$/u);
 
-// model/effortはlive ChatGPTのcatalogでfail-closedに検証される。callerが他providerの
-// model IDを渡す誤用を、実行前のschema注釈の時点で止める。
+// model/effortはlive ChatGPTのcatalogでfail-closedに検証される。
 export const chatgptModelFieldDescription =
   "chatgpt_modelsが返すOpenAI ChatGPTのmodel slugだけを指定する（例 gpt-5-5）。" +
-  "claude-*、gemini-*など他providerのmodel IDは指定できず、MODEL_NOT_AVAILABLEで失敗する。";
+  "catalogに無い値はMODEL_NOT_AVAILABLEで失敗する。";
 
 export const chatgptEffortFieldDescription =
   "chatgpt_modelsが当該ChatGPT modelに対して返したthinking effortだけを指定する。";

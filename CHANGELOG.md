@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.18 — 2026-08-29
+
+- MCPのserver instructions、tool description、model field descriptionから、呼べない他providerの固有名を除去した。否定文に含めたFable等がtool discovery検索へ一致し、gpt-connectorを誤候補として返す欠陥を根治する。
+- discovery textはChatGPTの肯定能力と`chatgpt_models` catalog境界だけを記述する。実行時のcatalog fail-closed、tool名、入出力、ChatGPT専用provider境界は不変。
+
 ## 0.4.17 — 2026-08-24
 
 - OS依存の判定をplatform層へ集約する挙動不変リファクタ（harness用語統一campaignの分離規約）。

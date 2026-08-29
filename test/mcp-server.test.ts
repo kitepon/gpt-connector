@@ -4,11 +4,12 @@ import test from "node:test";
 import { z } from "zod";
 
 import {
+  chatgptEffortFieldDescription,
   chatgptModelFieldDescription,
   consultInputSchema,
   imageInputSchema,
 } from "../src/contract.js";
-import { mcpServerInstructions, mcpServerVersion, mcpToolNames } from "../src/mcp-server.js";
+import { mcpServerInstructions, mcpServerVersion, mcpToolDescriptions, mcpToolNames } from "../src/mcp-server.js";
 import { packageVersion } from "../src/version.js";
 
 test("MCP tool名を固定する", () => {
@@ -28,20 +29,24 @@ test("MCP server versionをpackage公開versionと一致させる", () => {
 });
 
 test("server instructionsは冒頭でChatGPT専用のprovider境界を宣言する", () => {
-  // 中立名のconsult／sessions／diagnosticsが他providerの用途を吸い込まないよう、
-  // scope宣言を先頭に置き、代表的な誤爆先を名指しで除外する。
   const head = mcpServerInstructions.slice(0, 80);
   assert.match(head, /ChatGPT/u);
   assert.match(head, /専用/u);
-  assert.match(mcpServerInstructions, /Claude/u);
-  assert.match(mcpServerInstructions, /Fable/u);
-  assert.match(mcpServerInstructions, /Gemini/u);
-  assert.match(mcpServerInstructions, /本serverのtoolを呼ばず/u);
+  assert.match(mcpServerInstructions, /chatgpt_models/u);
+});
+
+test("tool discovery textへ他provider固有名を混入させない", () => {
+  const discoveryText = [
+    mcpServerInstructions,
+    chatgptModelFieldDescription,
+    chatgptEffortFieldDescription,
+    ...Object.values(mcpToolDescriptions),
+  ].join("\n");
+  assert.doesNotMatch(discoveryText, /Anthropic|Claude|Fable|Opus|Sonnet|Haiku|Gemini/iu);
 });
 
 test("model fieldはChatGPT slug以外を受け付けないとcallerへ明示する", () => {
   assert.match(chatgptModelFieldDescription, /chatgpt_models/u);
-  assert.match(chatgptModelFieldDescription, /claude-\*/u);
   assert.match(chatgptModelFieldDescription, /MODEL_NOT_AVAILABLE/u);
 
   // callerへ実際に届くJSON Schemaに載ることまで固定する。
