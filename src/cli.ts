@@ -4,7 +4,6 @@ import { GptConnector } from "./connector.js";
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
 import { factoryDiagnostics } from "./factory-diagnostics.js";
-import { doctorWithAuthRecovery } from "./doctor.js";
 import {
   acknowledgeRuntimeErrors,
   compactRuntimeErrors,
@@ -124,9 +123,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "doctor" || command === "diagnostics") {
-    const diagnostics = command === "doctor"
-      ? await doctorWithAuthRecovery({ endpoint, stateDirectory })
-      : await GptConnector.doctor({ endpoint, stateDirectory });
+    const diagnostics = await GptConnector.doctor({ endpoint, stateDirectory });
     writeJson(diagnostics);
     if (diagnostics.overall !== "ready") process.exitCode = 1;
     return;

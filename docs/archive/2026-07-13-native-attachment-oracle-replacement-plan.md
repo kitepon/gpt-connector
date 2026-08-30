@@ -277,4 +277,4 @@ Phase 1で正規添付が可能と確認できた場合だけ進む。
 - [旧Oracle置換評価](2026-07-13-oracle-replacement-evaluation-plan.md)
 - [OpenAI公式 Projects, chats, and tasks](https://learn.chatgpt.com/docs/projects)
 - [OpenAI公式 ChatKit attachment設定](https://developers.openai.com/api/docs/guides/chatkit-themes#enable-file-attachments)
-- [既存実装RAG](../../rag/chatgpt-app/gpt-connector-implementation-20260713.md)
+- [既存実装RAG](https://github.com/kitepon/gpt-connector/blob/main/rag/chatgpt-app/gpt-connector-implementation-20260713.md)

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, posix, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { missingPackedMarkdownTargets } from "../scripts/markdown-link-targets.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -21,28 +23,25 @@ test("実npm pack内の全Markdownは相対linkをpack内だけで解決する",
   const files = new Set(pack[0]?.files.map((file) => file.path) ?? []);
   const markdownFiles = [...files].filter((path) => path.endsWith(".md"));
   assert.ok(markdownFiles.length > 0, "npm packにMarkdownが含まれていません");
-  assert.ok(
-    files.has("docs/archive/native-attachment-contract-v0.2-history.md"),
-    "現行attachment契約から参照する成立履歴がnpm packに含まれていません",
-  );
+  const requiredHistory = [
+    "docs/archive/native-attachment-contract-v0.2-history.md",
+    "docs/archive/2026-07-13-native-attachment-oracle-replacement-plan.md",
+    "docs/archive/2026-07-13-native-file-attachment-plan.md",
+    "docs/archive/2026-07-13-oracle-replacement-evaluation-plan.md",
+  ];
+  for (const historyPath of requiredHistory) {
+    assert.ok(files.has(historyPath), `参照される成立履歴がnpm packにありません: ${historyPath}`);
+  }
   for (const markdownPath of markdownFiles) {
     const source = await readFile(resolve(projectRoot, markdownPath), "utf8");
-    const targets = [
-      ...[...source.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/gu)].map((match) => match[1] ?? ""),
-      ...[...source.matchAll(/<(?:img|source)\b[^>]*(?:src|srcset)=["']([^"']+)["'][^>]*>/giu)]
-        .map((match) => match[1] ?? ""),
-    ];
-    for (const rawTarget of targets) {
-      const target = rawTarget.trim().replace(/^<|>$/gu, "");
-      if (/^(?:https?:|mailto:|data:|#)/u.test(target)) continue;
-      const path = target.split("#", 1)[0]?.split("?", 1)[0] ?? "";
-      if (path.length === 0) continue;
-      const packedPath = posix.normalize(posix.join(posix.dirname(markdownPath), path));
-      assert.ok(
-        files.has(packedPath),
-        `${markdownPath}の相対link ${rawTarget} はnpm pack内の${packedPath}で解決できません`,
-      );
-    }
+    const missing = missingPackedMarkdownTargets({ markdownPath, markdown: source, packedPaths: files });
+    assert.deepEqual(
+      missing,
+      [],
+      `${markdownPath}の相対linkがnpm pack内で解決できません: ${missing
+        .map(({ target, resolved }) => `${target} -> ${resolved}`)
+        .join(", ")}`,
+    );
   }
 });
 
@@ -72,13 +71,20 @@ test("復旧、release gate、archive履歴の案内は実装事実と一致す�
     readFile(resolve(projectRoot, "docs/README.md"), "utf8"),
     readFile(resolve(projectRoot, ".github/workflows/ci.yml"), "utf8"),
   ]);
-  assert.match(readme, /doctor[^\n]*auth_required[^\n]*表示/u);
-  assert.match(installer, /`auth_required`では[^\n]*専用Chromeだけを表示/u);
-  assert.match(installer, /`doctor`が専用Chromeを表示済み/u);
+  assert.match(readme, /auth_required[^\n]*browser show[^\n]*専用Chromeを表示/u);
+  assert.match(readme, /診断はChromeの表示状態を変えず/u);
+  assert.match(installer, /Chromeの表示状態も変えず/u);
+  assert.match(installer, /reasonCode`が`auth_required`[^\n]*\n次の正規入口で専用Chromeを表示/u);
+  assert.match(installer, /gpt-connector browser show/u);
   assert.match(release, /test:release-gate[^\n]*単体試験/u);
+  assert.match(release, /test:release-gate[^\n]*現在のworktreeは判定しない/u);
   assert.match(release, /verify:release-commit[^\n]*publish対象/u);
+  assert.match(workflow, /release-commit:\s*[\s\S]*node scripts\/verify-release-commit\.mjs/u);
   assert.match(workflow, /corepack pnpm verify:release-commit/u);
+  assert.match(workflow, /needs:\s*\[ownership, full, release-commit\]/u);
   assert.match(history, /engine[^\n]*実装しなかった/u);
+  assert.match(history, /\]\(2026-07-13-native-attachment-oracle-replacement-plan\.md\)/u);
+  assert.match(history, /\]\(2026-07-13-oracle-replacement-evaluation-plan\.md\)/u);
   assert.match(evaluation, /`engine`互換を実装する場合[^\n]*未実装/u);
   assert.match(docsIndex, /完了・中止・置換・凍結/u);
 
@@ -108,7 +114,7 @@ test("製品CIはrepository内のreusable workflowだけを使う", async () => 
     (workflow) => workflow.path === "product-full-ci.yml",
   )?.source ?? "";
   assert.match(caller, /uses:\s*\.\/\.github\/workflows\/product-full-ci\.yml\b/u);
-  assert.match(caller, /documentation-command:\s*>-[\s\S]*test\/repository-contract\.test\.ts/u);
+  assert.match(caller, /documentation-command:\s*>-[\s\S]*test\/repository-contract\.test\.ts[\s\S]*test\/markdown-link-targets\.test\.ts/u);
   assert.match(productFull, /\bworkflow_call:\s*$/mu);
   assert.equal(productFull.match(/shell:\s*pwsh/gu)?.length, 3);
   assert.doesNotMatch(productFull, /Progra~1\\Git\\bin\\bash\.exe/u);

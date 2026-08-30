@@ -27,7 +27,9 @@ corepack pnpm test:release-gate
 npm pack --dry-run --json
 ```
 
-`test:release-gate`はrelease commit gate自体の単体試験である。対象commitを`main`へpushし、4環境のGitHub Actionsがgreenになった後、cleanなworktreeで実gateを確認する。
+`test:release-gate`はrelease commit gateの単体試験であり、fixture repository内の成功・拒否条件だけを検査する。現在のworktreeは判定しない。
+対象commitを`main`へpushすると、CIの`release-commit` jobが4環境の製品試験後にclean checkoutで実gateを通す。
+手元でも同じ入口を実行できる。
 
 ```bash
 git fetch origin
@@ -35,8 +37,8 @@ corepack pnpm verify:release-commit
 ```
 
 `verify:release-commit`はpublish対象が`origin/main`の祖先であり、tracked／untracked差分のないworktreeから
-payloadを作ることを要求する。この入口自身が`origin/main`を取得してから判定する。packageの`prepublishOnly`と
-tag CIのpublish jobも同じ入口を使う。
+payloadを作ることを要求する。この入口自身が`origin/main`を取得してから判定する。CIの`release-commit` job、
+packageの`prepublishOnly`、tag CIのpublish jobは同じ入口を使う。
 
 ## Cloud publish
 

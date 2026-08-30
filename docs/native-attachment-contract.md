@@ -47,8 +47,8 @@ interface ConsultInput {
 - schemaは`gpt-connector.diagnostics.v1`。
 - `overall=ready`では`reasonCode=ready`、CDP／origin／authとsession／operation／upload／job件数を返す。
 - CDP接続前の失敗でも同じschemaをstdoutへ返し、`overall=not_ready`と`cdp_unavailable`等の安定reason codeを持たせる。取得不能なboolean／countは`null`であり、0やfalseへ偽装しない。
-- CLI doctorは`auth_required`を検出すると正規専用Chromeを表示へ戻し、その診断JSONを返して非0終了する。手動ログイン以外の認証操作は行わない。
-- libraryの`GptConnector.doctor`、CLI `diagnostics`、MCP／factory diagnosticsは画面状態を変えない。いずれの診断もupload、conversation、prompt出力を行わない。
+- libraryの`GptConnector.doctor`、CLI `doctor`／`diagnostics`、MCP／factory diagnosticsは画面状態を変えない。いずれの診断もupload、conversation、prompt出力を行わない。
+- `auth_required`からの復旧はCLI `browser show`だけが担う。正規専用profileとCDP endpointの所有者を検査し、そのPIDだけを表示してactivateする。
 
 ## slug idempotency
 

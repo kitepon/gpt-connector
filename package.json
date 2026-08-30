@@ -31,6 +31,9 @@
     "LICENSE",
     "docs/README.md",
     "docs/ai-installer-setup-contract.md",
+    "docs/archive/2026-07-13-native-attachment-oracle-replacement-plan.md",
+    "docs/archive/2026-07-13-native-file-attachment-plan.md",
+    "docs/archive/2026-07-13-oracle-replacement-evaluation-plan.md",
     "docs/archive/native-attachment-contract-v0.2-history.md",
     "docs/native-attachment-contract.md",
     "docs/release.md"
@@ -67,8 +70,12 @@
     "@types/node": "26.1.1",
     "@types/ws": "8.18.1",
     "eslint": "10.7.0",
+    "micromark-util-decode-string": "2.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
     "tsx": "4.23.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.63.0"
+    "typescript-eslint": "8.63.0",
+    "unified": "11.0.5"
   }
 }

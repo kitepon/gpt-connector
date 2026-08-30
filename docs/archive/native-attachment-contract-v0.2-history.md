@@ -28,5 +28,6 @@
 - conversation archiveをfile cleanupとみなさず、retention unknownを公開した。
 - sensitive file denylistにoverrideを設けなかった。
 
-より詳しい実装・移行工程は、GitHub repositoryの
-[`docs/archive/`](https://github.com/kitepon/gpt-connector/tree/main/docs/archive)に保存する。
+より詳しい実装・移行工程は
+[`2026-07-13-native-attachment-oracle-replacement-plan.md`](2026-07-13-native-attachment-oracle-replacement-plan.md)と
+[`2026-07-13-oracle-replacement-evaluation-plan.md`](2026-07-13-oracle-replacement-evaluation-plan.md)に保存する。

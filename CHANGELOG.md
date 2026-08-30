@@ -8,7 +8,7 @@
   npm packageにはREADMEから参照する文書地図、installer、attachment、release文書を同梱する。
 - 最終4環境CIを製品repository内のreusable workflowへ移し、tag起点のGitHub ActionsだけがOIDC provenance付きで
   npm公開する。local `npm publish`はrelease手順から除外した。
-- `doctor`が認証切れを検出すると正規専用Chromeを表示し、人間がそのままログインできるようにした。
+- `doctor`は画面を変えない診断に固定し、認証切れでは`browser show`が正規専用Chromeだけを表示する復旧手順を明記した。
 - 実npm packのMarkdownリンクを検査し、現行attachment契約から参照する成立履歴も配布する。
 - publish前のclean worktreeと`origin/main`祖先性を、package、CI、release手順の共通入口で検査する。
 
