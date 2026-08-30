@@ -45,6 +45,23 @@ test('untracked payloadは拒否する', async (t) => {
   );
 });
 
+test('git status自体の失敗はclean worktreeとして通さない', () => {
+  const spawn = (_command, args) => {
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+      return { status: 0, stdout: `${'a'.repeat(40)}\n`, stderr: '' };
+    }
+    if (args[0] === 'status') {
+      return { status: 128, stdout: '', stderr: 'fatal: index file corrupt' };
+    }
+    throw new Error(`unexpected git call: ${args.join(' ')}`);
+  };
+
+  assert.throws(
+    () => verifyReleaseCommit({ projectDirectory: '/unused', spawn }),
+    /git statusの失敗をclean扱いにはできません.*fatal: index file corrupt/s,
+  );
+});
+
 test('origin/mainへ未着地のclean commitは拒否する', async (t) => {
   const work = await landedWorktree(t);
   await writeFile(path.join(work, 'tracked.txt'), 'local release candidate\n', 'utf8');

@@ -19,13 +19,21 @@ export function verifyReleaseCommit({
 } = {}) {
   const git = (...args) => {
     const result = spawn('git', args, { cwd: projectDirectory, encoding: 'utf8' });
-    return { ok: result.status === 0, stdout: (result.stdout ?? '').trim() };
+    return {
+      ok: result.status === 0,
+      stdout: (result.stdout ?? '').trim(),
+      stderr: (result.stderr ?? '').trim(),
+    };
   };
 
   const head = git('rev-parse', 'HEAD');
   assert.ok(head.ok, 'git HEAD を解決できません');
 
   const dirty = git('status', '--porcelain', '--untracked-files=normal');
+  assert.ok(
+    dirty.ok,
+    `working treeの状態を確認できません。git statusの失敗をclean扱いにはできません。${dirty.stderr ? `\n${dirty.stderr}` : ''}`,
+  );
   assert.equal(
     dirty.stdout,
     '',
