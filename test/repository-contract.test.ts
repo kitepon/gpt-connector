@@ -110,4 +110,6 @@ test("製品CIはrepository内のreusable workflowだけを使う", async () => 
   assert.match(caller, /uses:\s*\.\/\.github\/workflows\/product-full-ci\.yml\b/u);
   assert.match(caller, /documentation-command:\s*>-[\s\S]*test\/repository-contract\.test\.ts/u);
   assert.match(productFull, /\bworkflow_call:\s*$/mu);
+  assert.equal(productFull.match(/shell:\s*pwsh/gu)?.length, 3);
+  assert.doesNotMatch(productFull, /Progra~1\\Git\\bin\\bash\.exe/u);
 });
