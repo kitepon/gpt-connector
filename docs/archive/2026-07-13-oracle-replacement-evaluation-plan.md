@@ -4,7 +4,7 @@
 
 状態: 完了・archive済み
 
-> 2026-07-13方針更新: 本書の「text filesをpromptへ展開し、正規uploadを不要とする」部分はオーナー裁定で上書きされた。現行方針は[`docs/2026-07-13-native-file-attachment-plan.md`](../2026-07-13-native-file-attachment-plan.md)を正とし、最初にChatGPT正規添付の実現調査を行う。テキスト展開は未採用であり、暗黙fallbackにしない。
+> 2026-07-13方針更新: 本書の「text filesをpromptへ展開し、正規uploadを不要とする」部分はオーナー裁定で上書きされた。現行方針は[`2026-07-13-native-file-attachment-plan.md`](2026-07-13-native-file-attachment-plan.md)を正とし、最初にChatGPT正規添付の実現調査を行う。テキスト展開は未採用であり、暗黙fallbackにしない。
 
 ## 目的
 

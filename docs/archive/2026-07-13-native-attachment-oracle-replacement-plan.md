@@ -126,7 +126,7 @@ Phase 1で正規添付が可能と確認できた場合だけ進む。
 - [x] `dryRun`で解決file、bytes、MIME、model／effort、upload可否を返し、uploadや会話作成を行わない。
 - [x] upload result、attachment metadata、server file IDは内部値とし、外部へはslug／sessionIdだけを返す。
 - [x] prompt本文への展開は別modeとしても実装しない。
-- [x] 公開schema、error code、file lifecycle、保持期限を[`native-attachment-contract.md`](native-attachment-contract.md)へ正本化し、親が反証する。
+- [x] 公開schema、error code、file lifecycle、保持期限を[`native-attachment-contract.md`](../native-attachment-contract.md)へ正本化し、親が反証する。
 
 ## Phase 3 — 安全網
 
@@ -274,7 +274,7 @@ Phase 1で正規添付が可能と確認できた場合だけ進む。
 
 ## 参照
 
-- [旧Oracle置換評価](archive/2026-07-13-oracle-replacement-evaluation-plan.md)
+- [旧Oracle置換評価](2026-07-13-oracle-replacement-evaluation-plan.md)
 - [OpenAI公式 Projects, chats, and tasks](https://learn.chatgpt.com/docs/projects)
 - [OpenAI公式 ChatKit attachment設定](https://developers.openai.com/api/docs/guides/chatkit-themes#enable-file-attachments)
-- [既存実装RAG](../rag/chatgpt-app/gpt-connector-implementation-20260713.md)
+- [既存実装RAG](../../rag/chatgpt-app/gpt-connector-implementation-20260713.md)

@@ -83,5 +83,5 @@ PNG signature、chunk、CRC、dimensions、画像内容はlocalで検査しな�
 
 ## 証拠
 
-- [PNG E2E raw](../rag/chatgpt-app/raw/chatgpt-native-image-attachment-e2e-20260713.md)
-- [Native attachment contract](native-attachment-contract.md)
+- [PNG E2E raw](../../rag/chatgpt-app/raw/chatgpt-native-image-attachment-e2e-20260713.md)
+- [Native attachment contract](../native-attachment-contract.md)

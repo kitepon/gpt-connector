@@ -44,5 +44,5 @@
 
 ## 参照
 
-- [OpenAI公式file type／limit記録](../rag/chatgpt-app/raw/openai-chatgpt-file-upload-limits-retention-20260713.md)
-- [Native attachment contract](native-attachment-contract.md)
+- [OpenAI公式file type／limit記録](../../rag/chatgpt-app/raw/openai-chatgpt-file-upload-limits-retention-20260713.md)
+- [Native attachment contract](../native-attachment-contract.md)

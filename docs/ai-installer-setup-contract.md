@@ -8,7 +8,7 @@ AI installerが`gpt-connector`を安全かつ再現可能に導入し、人間�
 
 - 対象OSはmacOS。
 - Google Chromeがインストール済みである。
-- Node.js 26以上とnpmが利用できる。
+- Node.js 22以上とnpmが利用できる。
 - オーナーがChatGPTへログインできるaccountを持つ。
 - connector用Chrome profileは`$HOME/.gpt-connector/browser-profile`、CDP endpointは`http://127.0.0.1:9223`を既定とする。
 
@@ -28,7 +28,8 @@ gpt-connector --version
 version指定時:
 
 ```bash
-npm install --global gpt-connector@<version>
+gpt_connector_version="0.4.19" # オーナーが指定したversionへ置き換える
+npm install --global "gpt-connector@$gpt_connector_version"
 gpt-connector --version
 ```
 
@@ -48,17 +49,21 @@ gpt-connector doctor
 gpt-connector browser start
 ```
 
-起動後に`gpt-connector doctor`を再実行する。`reasonCode`が`auth_required`なら、AI installerはここで停止し、開いた専用ChromeでChatGPTへログインするよう人間へ依頼する。ログイン完了の申告後、`doctor`を再実行する。
+起動後に`gpt-connector doctor`を再実行する。初回診断または再診断の`reasonCode`が`auth_required`なら、AI installerは先に次を実行する。
 
-`browser start`はcold startでは窓なしChromeのCDP browser endpointからChatGPT targetを最初から最小化状態で作成・確認してからapp readyを待つ。既存endpointではapp ready probeより先に専用ChatGPT windowを最小化する。現行macOS実測では最小化中も送受信を維持する。target作成、最小化または確認に失敗した場合、AI installerは成功扱いせず停止する。
+```bash
+gpt-connector browser show
+```
 
-`browser start`の成功返却時点では専用ChatGPT windowは最小化済みである。`AUTH_REQUIRED`時だけ同じ専用windowを表示へ戻してから停止する。人間が手動で表示へ戻す必要がある場合は`gpt-connector browser show`を使う。Chrome更新時はrelease smokeとして`browser start`、`models`、最小化中の`chat`、必要時の`browser show`を確認する。
+表示成功後に停止し、専用ChromeでChatGPTへログインするよう人間へ依頼する。ログイン完了の申告後、`doctor`を再実行する。
 
-window stateのread-backは非同期遷移の収束を有界時間待機して確認する。単発read-backが遷移前stateを返しただけでは失敗にしない。
+`browser start`はcold startでは窓なしChromeのCDP browser endpointからbackground ChatGPT targetを作成・確認し、正規専用PIDをAppKit `hidden`へ移してからapp readyを待つ。既存endpointでもapp ready probeより先に正規専用PIDをhiddenへ移す。target作成、hidden遷移または確認に失敗した場合、AI installerは成功扱いせず停止する。
 
-show後もChrome CDPが`minimized`を返す場合があるため、showは`Page.bringToFront`を送り、最終状態を正規PIDのWindowServer layer 0 on-screen window数で確認する。start成功時は0、show成功時は1件以上である。
+`browser start`の成功返却時点では正規専用PIDはhiddenで、WindowServer layer 0の表示windowは0件である。`AUTH_REQUIRED`時だけ同じ専用PIDをunhideしてwindowを表示へ戻してから停止する。人間が手動で表示へ戻す必要がある場合は`gpt-connector browser show`を使う。Chrome更新時はrelease smokeとして`browser start`、`models`、hidden中の`chat`、必要時の`browser show`を確認する。
 
-Chromeのhiddenはflashを覆うcold準備状態だけであり、最小化確認後は正規PIDだけをunhideしてからprobeする。hiddenのまま運用せず、Oracleのhide fallbackではない。
+CDPの`minimized`指定はcold target作成時のhintであり、公開する画面非表示状態ではない。ChromeがCDPのwindow state要求へ成功応答しても実状態が変わらない場合があるため、startとshowの最終判定には使わない。
+
+`browser show`は`Page.bringToFront`を送った後、正規専用PIDだけをunhide／activateする。最終状態はAppKit `hidden`状態とWindowServer layer 0 on-screen window数で確認する。start成功時はhiddenかつ0件、show成功時はunhiddenかつ1件以上である。
 
 AI installerはpassword、cookie、tokenを要求・取得・表示・保存しない。ログインformの入力や認証challengeの突破を自動化しない。
 
@@ -115,8 +120,8 @@ consumerが明示的に別のstate directoryを必要とする場合だけ、pro
 | reasonCode | AI installerの処理 |
 | --- | --- |
 | `ready` | Chromeを再起動せず、未完了の設定だけを進める。 |
-| `cdp_unavailable` | 専用Chromeを起動する。cold startでは窓なしChromeのbrowser CDPから最小化済みChatGPT targetを作成し、起動済みならapp probe前に既存ChatGPT windowを最小化する。ChatGPT page targetは1つにする。 |
-| `auth_required` | 人間へ専用Chromeでの手動ログインを依頼し、完了申告まで停止する。 |
+| `cdp_unavailable` | 専用Chromeを起動する。cold startでは窓なしChromeのbrowser CDPからbackground ChatGPT targetを作成し、正規専用PIDをhiddenへ移してからapp probeする。起動済みでも同じ順序を守る。ChatGPT page targetは1つにする。 |
+| `auth_required` | `gpt-connector browser show`で専用Chromeを表示し、成功後に人間へ手動ログインを依頼して完了申告まで停止する。 |
 | `runtime_drift` | 非公開runtimeの互換性喪失として停止し、更新または製品側修正が必要と報告する。別方式へfallbackしない。 |
 | `state_unavailable` | state directoryのpath、所有者、permissionを報告して停止する。台帳を無断削除しない。 |
 | `connector_error` | 診断JSONと再現手順を保持して停止する。推測で成功扱いしない。 |

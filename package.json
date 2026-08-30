@@ -1,6 +1,6 @@
 {
   "name": "gpt-connector",
-  "version": "0.4.18",
+  "version": "0.4.19",
   "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をCodexから呼び出すローカルconnector",
   "license": "MIT",
   "author": {
@@ -29,7 +29,10 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
-    "docs/ai-installer-setup-contract.md"
+    "docs/README.md",
+    "docs/ai-installer-setup-contract.md",
+    "docs/native-attachment-contract.md",
+    "docs/release.md"
   ],
   "bin": {
     "gpt-connector": "dist/src/cli.js",

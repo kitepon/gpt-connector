@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.19 — 2026-08-30
+
+- 専用Chromeの非表示契約を、実装どおりAppKit `hidden`とWindowServer表示window 0件へ統一した。
+  CDP `minimized`はcold target作成時のhintだけとし、start／show成功の証拠に使わない。
+- 現行製品文書と完了履歴を分離し、install、状態、復旧、更新、releaseの正本をgpt-connector自身へ戻した。
+  npm packageにはREADMEから参照する文書地図、installer、attachment、release文書を同梱する。
+- 最終4環境CIを製品repository内のreusable workflowへ移し、tag起点のGitHub ActionsだけがOIDC provenance付きで
+  npm公開する。local `npm publish`はrelease手順から除外した。
+
 ## 0.4.18 — 2026-08-29
 
 - MCPのserver instructions、tool description、model field descriptionから、呼べない他providerの固有名を除去した。否定文に含めたFable等がtool discovery検索へ一致し、gpt-connectorを誤候補として返す欠陥を根治する。

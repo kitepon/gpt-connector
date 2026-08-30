@@ -1,14 +1,10 @@
-# Native attachment／Oracle replacement contract
+# Native attachment contract
 
-作成日: 2026-07-13
-
-状態: `gpt-connector@0.2.0`公開契約
+状態: 現行の公開契約
 
 ## 目的
 
-`gpt-connector`が、ローカルworkspaceのfileをChatGPT通常Chatへ正規attachmentとして送り、caller timeout後も同じ相談を再送せず回収できる公開契約を定める。
-
-本文展開、OpenAI API、Oracleへのfallback、server ID公開はこの契約に含めない。
+`gpt-connector`が、ローカルworkspaceのfileをChatGPT通常Chatへ正規attachmentとして送り、caller timeout後も同じ相談を再送せず回収できる公開契約を定める。本文展開や別transportへのfallbackは行わない。
 
 ## 公開method
 
@@ -86,7 +82,7 @@ globが0件matchなら`FILE_NOT_FOUND`。一部だけ成功扱いにしない。
 
 ### sensitive file denylist
 
-初回releaseは次を`SENSITIVE_FILE_BLOCKED`で拒否し、overrideを持たない。
+次を`SENSITIVE_FILE_BLOCKED`で拒否し、overrideを持たない。
 
 - `.env`、`.env.*`、`.npmrc`、`.netrc`
 - `*.pem`、`*.key`、`*.p12`、`*.pfx`、`*.kdbx`
@@ -121,8 +117,8 @@ OpenAI公式は一般的なtext、spreadsheet、presentation、documentを対応
 
 - file spec: 最大20。glob展開後も20以下。
 - empty file: `FILE_EMPTY`でupload前拒否。
-- single file: 初回releaseは20 MiB。
-- total: 初回releaseは64 MiB。
+- single file: 20 MiB。
+- total: 64 MiB。
 - OpenAI公式hard limit 512MB/file、text/document 2M tokens/fileは上位制約として併記する。
 - 2M tokenはlocalで正確に判定せず、server `too_many_tokens`を`FILE_LIMIT_EXCEEDED`へ写像する。
 - connector limitは実測matrixを通して拡張する。server hard limitへ黙って丸投げしない。
@@ -247,23 +243,9 @@ resolve/validate
 - 部分upload済みfileはjob内部へ記録するが、削除成功を保証しない。
 - 部分upload後の失敗は`partialUpload.count`とcleanup状態をterminal errorへ残し、一括失敗の陰に隠さない。
 - caller timeoutはjob cancelを意味しない。`sessions(slug)`で状態を先に確認する。
-- explicit cancelと細粒度progressは初回releaseでは未実装。dotagents切替前必須はstate遷移とterminal回収で満たし、未実装機能へfallbackしない。
+- explicit cancelと細粒度progressは未実装。state遷移とterminal回収で状態を明示し、未実装機能へfallbackしない。
 - CDP切断／process crash時は重複送信の可能性を除外できるまで自動retryしない。
-- prompt本文展開、Oracle、API engine、別model、別effortへのfallbackはない。
+- prompt本文展開、別transport、別model、別effortへのfallbackはない。
 
-## 互換
-
-- 現行`chatgpt_chat`／`sessionId`は既存利用向けに残す。
-- dotagents移行面は同じcoreの`consult`／`sessions`を使い、別adapter packageを作らない。
-- 移行期間だけMCP server idを`oracle`にできるが、実体commandは`gpt-connector-mcp`。
-- Oracle固有`engine`を受ける互換面を作る場合、`browser`だけを受理し、他値を拒否する。
-
-## 親反証
-
-- file pathをabsoluteのまま受ける方が簡単: MCP cwdとhost差異、誤送信範囲が広がるため棄却。absolute `workspaceRoot`＋relative specに固定する。
-- serverが512MBを許すので同値にする: 初回runtime transfer／memory matrixがなく、dotagents実績にも不要。20MiB/file／64MiB totalから実測で拡張する。
-- 未知binaryをlocalで拒否する: attachment transportの責務をChatGPT対応形式の判定へ広げるため棄却。`application/octet-stream`で公式runtimeへ渡し、その成否を明示する。
-- 各形式をlocal parserで厳密検査する: 添付transportの責務をcontent validationへ広げるため棄却。元bytesを標準MIMEまたはoctet-streamで渡す。
-- timeout時に同じslugで再実行する: upload／conversation重複の危険があるため棄却。同じslugはsnapshot lookupになる。
-- archiveでfileも片付く: generic DELETE 404とLibrary仕様に反するため棄却。retention unknownを公開する。
-- secret overrideが必要: 初回Oracle移行に不要で誤送信リスクを増やす。denylist overrideなしで開始する。
+この契約の成立時に使った移行互換、初版version、設計反証は
+[`archive/native-attachment-contract-v0.2-history.md`](https://github.com/kitepon/gpt-connector/blob/main/docs/archive/native-attachment-contract-v0.2-history.md)へ保存する。

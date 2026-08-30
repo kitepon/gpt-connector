@@ -5,14 +5,16 @@
 
 Codex開発枠から、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
 
-[kitepon.dev](https://kitepon.dev/)を運営する[クオ（@QLyun35332）](https://x.com/QLyun35332)が
-開発・メンテナンスしています。
+[kitepon.dev](https://kitepon.dev/)のクオが開発・メンテナンスしています。
 
 ## 所有境界
 
-本repositoryはChrome runtime、job/session、添付、release、diagnosticsを所有します。
-正規MCP ID `gpt_connector`、導入、host統合は、kitepon.devの製品開発を支える内部基盤
-[dotagents](https://github.com/kitepon-rgb/dotagents)が担当します。
+本repositoryはinstall、MCP設定、Chrome runtime、job/session、state、schema／migration、添付、
+diagnostics、recovery、update、releaseを所有します。単独cloneでもこのrepository内のREADMEと
+[`docs/README.md`](docs/README.md)だけで導入・運用・復旧・公開まで完結します。
+[dotagents](https://github.com/kitepon/dotagents)は任意の工場統合、host別wire、製品間compatibilityと
+統合受入を担当しますが、gpt-connectorの運用を制御せず、実行時の必須依存でもありません。
+正規MCP IDは`gpt_connector`です。
 MarkItDownは別区分の第三者CLIです。
 
 ブラウザは認証・integrity・attestation・conversation lifecycleの実行環境として使う。composer、送信button、回答DOM、React fiberは操作・参照しない。
@@ -20,7 +22,10 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.4.18`。公開済みversionは[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は[GitHub repository](https://github.com/kitepon/gpt-connector)を正とする。
+現在ソース版は`gpt-connector@0.4.19`。0.4.18はChatGPT能力だけをdiscovery textへ載せ、
+実行可能なmodel／effortを`chatgpt_models`のlive catalogだけで決める契約です。公開済みversionは
+[npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
+[GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
 
 ## 成立済み機能
 
@@ -44,7 +49,7 @@ MarkItDownは別区分の第三者CLIです。
 
 - macOS
 - Google Chrome
-- Node.js 26以上
+- Node.js 22以上
 - ChatGPTへログインできるaccount
 
 sourceからbuildする場合だけpnpm 11以上も必要。
@@ -56,19 +61,19 @@ npm install --global gpt-connector
 ```
 
 専用Chromeを起動する。通常ChromeとOracle profileは使用しない。
-true headlessは使わず、cold startでは窓なしで専用profileのheadful Chromeを起動する。CDP browser endpointからbackground ChatGPT targetを作成し、target/windowの存在とschemaを確認する。画面非表示の正本はCDPの`windowState`ではなく、正規専用PIDのAppKit `hidden`状態とWindowServer layer 0 window数である。
+true headlessは使わず、cold startでは窓なしで専用profileのheadful Chromeを起動する。CDP browser endpointからbackground ChatGPT targetを作成し、target/windowの存在とschemaを確認する。CDPの`minimized`指定はcold target作成時のhintであり、公開する画面非表示状態ではない。画面非表示の正本は、正規専用PIDのAppKit `hidden`状態とWindowServer layer 0 window数である。
 
 `browser start`は正規専用PIDだけをhiddenへ移行し、ChatGPTの公式origin、認証、page bridge、WindowServer表示window 0件を確認してから成功を返す。CDPのwindow state要求が成功応答後も収束しないChromeでも、実画面状態を優先する。別profileや別PIDへは作用しない。
 
 認証が必要になった場合だけwindowを表示へ戻す。手動でログイン／確認するには次を使う。
 
-表示／非表示の最終判定は正規PIDのWindowServer layer 0 window数で行う。start成功時は0、show成功時は1件以上である。Chrome 150ではCDPの`normal`／`minimized`要求が成功応答を返しても`maximized`から変化しない実例を確認したため、CDP stateだけを可視性の証拠にしない。
+表示／非表示の最終判定は正規PIDのAppKit `hidden`状態とWindowServer layer 0 window数で行う。start成功時はhiddenかつ表示window 0件、show成功時はunhiddenかつ1件以上である。Chrome 150ではCDPの`normal`／`minimized`要求が成功応答を返しても`maximized`から変化しない実例を確認したため、CDP stateだけを可視性の証拠にしない。
 
 ```bash
 gpt-connector browser show
 ```
 
-Chrome更新時はrelease smokeとして`browser start`、`models`、最小化中の`chat`、必要時の`browser show`を確認する。
+Chrome更新時はrelease smokeとして`browser start`、`models`、hidden中の`chat`、必要時の`browser show`を確認する。
 
 ```bash
 gpt-connector browser start
@@ -83,7 +88,7 @@ CodexなどのAIが導入する場合は、[AI installer向けセットアップ
 ## source setup
 
 ```bash
-git clone https://github.com/kitepon-rgb/gpt-connector.git
+git clone https://github.com/kitepon/gpt-connector.git
 cd gpt-connector
 pnpm install
 pnpm check
@@ -152,6 +157,24 @@ gpt-connector --version
 ```
 
 `doctor`は`gpt-connector.diagnostics.v1` JSONを返します。接続可能なら`overall: "ready"`、CDPや認証などが未準備なら`overall: "not_ready"`と安定`reasonCode`をstdoutへ返し、exit codeは非0です。診断はuploadや会話作成を行いません。
+
+## 更新・復旧・release
+
+通常更新は公式npm packageだけを使います。更新後はversionとread-only診断を確認し、Chromeを重複起動しません。
+
+```bash
+npm install --global gpt-connector@latest
+gpt-connector --version
+gpt-connector doctor
+```
+
+`doctor`が`cdp_unavailable`なら`browser start`、`auth_required`なら先に`browser show`で専用Chromeを表示してから手動ログイン、
+`runtime_drift`なら製品更新または製品側修理が正規復旧です。別APIや通常Chromeへfallbackしません。
+caller timeout後のconsult／画像jobは同じslugを再送せず、`sessions --slug <slug>`で既存jobを回収します。
+process再起動前の非terminal jobは`JOB_RECOVERY_UNAVAILABLE`となり、自動再送しません。
+
+releaseの唯一の手順とgateは[`docs/release.md`](docs/release.md)を正とします。工場へ切り離しても、
+version同期、検証、main着地、npm公開、tag／GitHub Release、公開後smokeはこのrepositoryだけで実行できます。
 
 ## BugHub factory 契約
 
