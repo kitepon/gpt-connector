@@ -69,13 +69,12 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: npm install --global npm@11.6.4
       - run: corepack pnpm install --frozen-lockfile
-      - name: Verify tag, package, and main ancestry
+      - name: Verify tag, release commit, and package
         shell: bash
         run: |
           version=$(node -p "require('./package.json').version")
           test "$GITHUB_REF_NAME" = "v$version"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          corepack pnpm verify:release-commit
           npm pack --dry-run --json >/dev/null
       - name: Publish to npm with provenance
         shell: bash

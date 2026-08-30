@@ -33,13 +33,14 @@ npm install --global "gpt-connector@$gpt_connector_version"
 gpt-connector --version
 ```
 
-### 2. 現在状態のread-only診断
+### 2. 現在状態の診断
 
 ```bash
 gpt-connector doctor
 ```
 
 `overall`が`ready`なら専用Chromeを重複起動せず、手順4へ進む。`doctor`はuploadやconversationを作らない。
+`auth_required`では、正規専用Chromeだけを表示へ戻してから診断JSONを返す。
 
 ### 3. 専用Chromeの準備
 
@@ -49,13 +50,9 @@ gpt-connector doctor
 gpt-connector browser start
 ```
 
-起動後に`gpt-connector doctor`を再実行する。初回診断または再診断の`reasonCode`が`auth_required`なら、AI installerは先に次を実行する。
-
-```bash
-gpt-connector browser show
-```
-
-表示成功後に停止し、専用ChromeでChatGPTへログインするよう人間へ依頼する。ログイン完了の申告後、`doctor`を再実行する。
+起動後に`gpt-connector doctor`を再実行する。初回診断または再診断の`reasonCode`が`auth_required`なら、
+`doctor`が専用Chromeを表示済みである。AI installerは停止し、そのChromeでChatGPTへログインするよう人間へ依頼する。
+ログイン完了の申告後、`doctor`を再実行する。
 
 `browser start`はcold startでは窓なしChromeのCDP browser endpointからbackground ChatGPT targetを作成・確認し、正規専用PIDをAppKit `hidden`へ移してからapp readyを待つ。既存endpointでもapp ready probeより先に正規専用PIDをhiddenへ移す。target作成、hidden遷移または確認に失敗した場合、AI installerは成功扱いせず停止する。
 
@@ -121,7 +118,7 @@ consumerが明示的に別のstate directoryを必要とする場合だけ、pro
 | --- | --- |
 | `ready` | Chromeを再起動せず、未完了の設定だけを進める。 |
 | `cdp_unavailable` | 専用Chromeを起動する。cold startでは窓なしChromeのbrowser CDPからbackground ChatGPT targetを作成し、正規専用PIDをhiddenへ移してからapp probeする。起動済みでも同じ順序を守る。ChatGPT page targetは1つにする。 |
-| `auth_required` | `gpt-connector browser show`で専用Chromeを表示し、成功後に人間へ手動ログインを依頼して完了申告まで停止する。 |
+| `auth_required` | `doctor`が表示した専用Chromeでの手動ログインを人間へ依頼し、完了申告まで停止する。 |
 | `runtime_drift` | 非公開runtimeの互換性喪失として停止し、更新または製品側修正が必要と報告する。別方式へfallbackしない。 |
 | `state_unavailable` | state directoryのpath、所有者、permissionを報告して停止する。台帳を無断削除しない。 |
 | `connector_error` | 診断JSONと再現手順を保持して停止する。推測で成功扱いしない。 |

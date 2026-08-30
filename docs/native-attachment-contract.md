@@ -47,7 +47,8 @@ interface ConsultInput {
 - schemaは`gpt-connector.diagnostics.v1`。
 - `overall=ready`では`reasonCode=ready`、CDP／origin／authとsession／operation／upload／job件数を返す。
 - CDP接続前の失敗でも同じschemaをstdoutへ返し、`overall=not_ready`と`cdp_unavailable`等の安定reason codeを持たせる。取得不能なboolean／countは`null`であり、0やfalseへ偽装しない。
-- CLI doctorは`not_ready`で非0終了する。diagnosticsはupload、conversation、prompt出力を行わない。
+- CLI doctorは`auth_required`を検出すると正規専用Chromeを表示へ戻し、その診断JSONを返して非0終了する。手動ログイン以外の認証操作は行わない。
+- libraryの`GptConnector.doctor`、CLI `diagnostics`、MCP／factory diagnosticsは画面状態を変えない。いずれの診断もupload、conversation、prompt出力を行わない。
 
 ## slug idempotency
 
@@ -248,4 +249,4 @@ resolve/validate
 - prompt本文展開、別transport、別model、別effortへのfallbackはない。
 
 この契約の成立時に使った移行互換、初版version、設計反証は
-[`archive/native-attachment-contract-v0.2-history.md`](https://github.com/kitepon/gpt-connector/blob/main/docs/archive/native-attachment-contract-v0.2-history.md)へ保存する。
+[`archive/native-attachment-contract-v0.2-history.md`](archive/native-attachment-contract-v0.2-history.md)へ保存する。

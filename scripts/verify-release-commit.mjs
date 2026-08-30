@@ -25,12 +25,17 @@ export function verifyReleaseCommit({
   const head = git('rev-parse', 'HEAD');
   assert.ok(head.ok, 'git HEAD を解決できません');
 
-// 既定ブランチはorigin/HEADのsymbolic refから取る。未設定の環境ではmainへ落とす。
-  const originHead = git('symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD');
-  const defaultRef = originHead.ok && originHead.stdout
-    ? originHead.stdout.replace('refs/remotes/', '')
-    : 'origin/main';
+  const dirty = git('status', '--porcelain', '--untracked-files=normal');
+  assert.equal(
+    dirty.stdout,
+    '',
+    `working treeに未commitの変更があります。publish対象commitとpayloadが一致しません:\n${dirty.stdout}`,
+  );
 
+  const fetched = git('fetch', '--no-tags', 'origin', 'main');
+  assert.ok(fetched.ok, 'origin/mainを更新できません。originへ到達できる環境で再実行してください。');
+
+  const defaultRef = 'origin/main';
   const defaultResolved = git('rev-parse', '--verify', `${defaultRef}^{commit}`);
   assert.ok(
     defaultResolved.ok,
@@ -42,15 +47,6 @@ export function verifyReleaseCommit({
     isAncestor.ok,
     `publish対象 ${head.stdout.slice(0, 12)} が ${defaultRef} の祖先ではありません。`
       + ' 先に既定ブランチへ着地させてpushしてから publish してください。',
-  );
-
-// payloadはworking treeから作られるため、dirtyなtreeで出すとどのcommitにも対応しない
-// 成果物が公開される。ignore済みのdist/やbuild/は対象外。
-  const dirty = git('status', '--porcelain', '--untracked-files=normal');
-  assert.equal(
-    dirty.stdout,
-    '',
-    `working treeに未commitの変更があります。publish対象commitとpayloadが一致しません:\n${dirty.stdout}`,
   );
 
   return `release commit ${head.stdout.slice(0, 12)} is landed on ${defaultRef}.`;

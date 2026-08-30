@@ -35,7 +35,8 @@ corepack pnpm verify:release-commit
 ```
 
 `verify:release-commit`はpublish対象が`origin/main`の祖先であり、tracked／untracked差分のないworktreeから
-payloadを作ることを要求する。
+payloadを作ることを要求する。この入口自身が`origin/main`を取得してから判定する。packageの`prepublishOnly`と
+tag CIのpublish jobも同じ入口を使う。
 
 ## Cloud publish
 

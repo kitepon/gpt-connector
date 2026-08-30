@@ -72,7 +72,7 @@ dotagents正典上のOracleの役割は、ChatGPT Chat枠を使う「実読不�
 
 ### P0 — Oracle切替前に必須
 
-1. `consult`面: prompt、text files／glob、dry-run、slug、model、effort。`engine`はbrowser固定で、省略または`browser`以外を拒否する。一般利用ではslugを任意にできるが、dotagents標準形ではcaller生成の一意slugを必須にする。
+1. `consult`面: prompt、text files／glob、dry-run、slug、model、effort。Oracle固有の`engine`互換を実装する場合は`browser`だけを受ける条件だったが、この互換は未実装。一般利用ではslugを任意にできるが、dotagents標準形ではcaller生成の一意slugを必須にする。
 2. text context assembler: 決定的順序、include glob、重複排除、UTF-8検証、秘密pattern除外、総byte上限、文字数／概算token表示。binary uploadは持たない。
 3. 明示model／effortとresolved metadata。現行機能を流用し、未指定defaultをdotagentsの決定表用途では使わない。
 4. 最小job status: caller timeout後もcaller既知のslugで同じjobを検索し、再送せずterminal result／errorを確認できる。timeout時に裏operationを孤児化しない。本文、cookie、conversation IDは台帳へ保存しない。

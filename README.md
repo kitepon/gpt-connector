@@ -149,18 +149,18 @@ gpt-connector consult \
 gpt-connector sessions --slug review-001
 ```
 
-read-only診断:
+診断:
 
 ```bash
 gpt-connector doctor
 gpt-connector --version
 ```
 
-`doctor`は`gpt-connector.diagnostics.v1` JSONを返します。接続可能なら`overall: "ready"`、CDPや認証などが未準備なら`overall: "not_ready"`と安定`reasonCode`をstdoutへ返し、exit codeは非0です。診断はuploadや会話作成を行いません。
+`doctor`は`gpt-connector.diagnostics.v1` JSONを返します。接続可能なら`overall: "ready"`、CDPや認証などが未準備なら`overall: "not_ready"`と安定`reasonCode`をstdoutへ返し、exit codeは非0です。`auth_required`では正規専用Chromeを表示へ戻してから結果を返します。診断はuploadや会話作成を行いません。
 
 ## 更新・復旧・release
 
-通常更新は公式npm packageだけを使います。更新後はversionとread-only診断を確認し、Chromeを重複起動しません。
+通常更新は公式npm packageだけを使います。更新後はversionと診断を確認し、Chromeを重複起動しません。
 
 ```bash
 npm install --global gpt-connector@latest
@@ -168,7 +168,7 @@ gpt-connector --version
 gpt-connector doctor
 ```
 
-`doctor`が`cdp_unavailable`なら`browser start`、`auth_required`なら先に`browser show`で専用Chromeを表示してから手動ログイン、
+`doctor`が`cdp_unavailable`なら`browser start`を使います。`auth_required`では`doctor`が専用Chromeを表示するため、そこで手動ログインします。
 `runtime_drift`なら製品更新または製品側修理が正規復旧です。別APIや通常Chromeへfallbackしません。
 caller timeout後のconsult／画像jobは同じslugを再送せず、`sessions --slug <slug>`で既存jobを回収します。
 process再起動前の非terminal jobは`JOB_RECOVERY_UNAVAILABLE`となり、自動再送しません。

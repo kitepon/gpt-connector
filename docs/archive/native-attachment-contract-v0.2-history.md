@@ -15,7 +15,7 @@
 
 - `chatgpt_chat`／`sessionId`を既存利用向けに残した。
 - dotagents移行面も同じcoreの`consult`／`sessions`を使い、別adapter packageを作らなかった。
-- 移行期間だけMCP server IDを`oracle`にできたが、実体commandは`gpt-connector-mcp`だった。
+- MCP server IDを`oracle`のままにする移行案はあったが、実装しなかった。
 - Oracle固有`engine`を受ける互換面は実装しなかった。`consult`は最初からstrict schemaを使い、`engine`を未知fieldとして拒否した。
 
 ## 初版の判断
@@ -28,6 +28,5 @@
 - conversation archiveをfile cleanupとみなさず、retention unknownを公開した。
 - sensitive file denylistにoverrideを設けなかった。
 
-より詳しい実装・移行工程は
-[`2026-07-13-native-attachment-oracle-replacement-plan.md`](2026-07-13-native-attachment-oracle-replacement-plan.md)と
-[`2026-07-13-oracle-replacement-evaluation-plan.md`](2026-07-13-oracle-replacement-evaluation-plan.md)に保存する。
+より詳しい実装・移行工程は、GitHub repositoryの
+[`docs/archive/`](https://github.com/kitepon/gpt-connector/tree/main/docs/archive)に保存する。

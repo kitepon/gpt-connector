@@ -45,6 +45,17 @@ test('untracked payloadは拒否する', async (t) => {
   );
 });
 
+test('origin/mainへ未着地のclean commitは拒否する', async (t) => {
+  const work = await landedWorktree(t);
+  await writeFile(path.join(work, 'tracked.txt'), 'local release candidate\n', 'utf8');
+  git(work, 'add', 'tracked.txt');
+  git(work, 'commit', '-m', 'not landed');
+  assert.throws(
+    () => verifyReleaseCommit({ projectDirectory: work }),
+    /origin\/main の祖先ではありません/,
+  );
+});
+
 test('ignore済み生成物は通過する', async (t) => {
   const work = await landedWorktree(t);
   await writeFile(path.join(work, 'ignored.tmp'), 'generated\n', 'utf8');

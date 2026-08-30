@@ -1,22 +1,30 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
-import { dirname, posix, resolve } from "node:path";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, posix, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("npm pack内の全Markdownは相対linkをpack内だけで解決する", async () => {
+test("実npm pack内の全Markdownは相対linkをpack内だけで解決する", async (t) => {
+  const outputDirectory = await mkdtemp(join(tmpdir(), "gpt-connector-pack-contract-"));
+  t.after(async () => rm(outputDirectory, { recursive: true, force: true }));
   const output = execFileSync(
     process.platform === "win32" ? "npm.cmd" : "npm",
-    ["pack", "--dry-run", "--ignore-scripts", "--json"],
+    ["pack", "--ignore-scripts", "--json", "--pack-destination", outputDirectory],
     { cwd: projectRoot, encoding: "utf8" },
   );
-  const pack = JSON.parse(output) as Array<{ files: Array<{ path: string }> }>;
+  const pack = JSON.parse(output) as Array<{ filename: string; files: Array<{ path: string }> }>;
+  assert.equal((await stat(join(outputDirectory, pack[0]?.filename ?? ""))).isFile(), true);
   const files = new Set(pack[0]?.files.map((file) => file.path) ?? []);
   const markdownFiles = [...files].filter((path) => path.endsWith(".md"));
   assert.ok(markdownFiles.length > 0, "npm packにMarkdownが含まれていません");
+  assert.ok(
+    files.has("docs/archive/native-attachment-contract-v0.2-history.md"),
+    "現行attachment契約から参照する成立履歴がnpm packに含まれていません",
+  );
   for (const markdownPath of markdownFiles) {
     const source = await readFile(resolve(projectRoot, markdownPath), "utf8");
     const targets = [
@@ -55,19 +63,28 @@ test("現行versionの直書き箇所はpackage versionと一致する", async (
 });
 
 test("復旧、release gate、archive履歴の案内は実装事実と一致する", async () => {
-  const [readme, installer, release, history, docsIndex] = await Promise.all([
+  const [readme, installer, release, history, evaluation, docsIndex, workflow] = await Promise.all([
     readFile(resolve(projectRoot, "README.md"), "utf8"),
     readFile(resolve(projectRoot, "docs/ai-installer-setup-contract.md"), "utf8"),
     readFile(resolve(projectRoot, "docs/release.md"), "utf8"),
     readFile(resolve(projectRoot, "docs/archive/native-attachment-contract-v0.2-history.md"), "utf8"),
+    readFile(resolve(projectRoot, "docs/archive/2026-07-13-oracle-replacement-evaluation-plan.md"), "utf8"),
     readFile(resolve(projectRoot, "docs/README.md"), "utf8"),
+    readFile(resolve(projectRoot, ".github/workflows/ci.yml"), "utf8"),
   ]);
-  assert.match(readme, /auth_required[^\n]*browser show/u);
-  assert.match(installer, /auth_required[^\n]*browser show/u);
+  assert.match(readme, /doctor[^\n]*auth_required[^\n]*表示/u);
+  assert.match(installer, /`auth_required`では[^\n]*専用Chromeだけを表示/u);
+  assert.match(installer, /`doctor`が専用Chromeを表示済み/u);
   assert.match(release, /test:release-gate[^\n]*単体試験/u);
   assert.match(release, /verify:release-commit[^\n]*publish対象/u);
+  assert.match(workflow, /corepack pnpm verify:release-commit/u);
   assert.match(history, /engine[^\n]*実装しなかった/u);
+  assert.match(evaluation, /`engine`互換を実装する場合[^\n]*未実装/u);
   assert.match(docsIndex, /完了・中止・置換・凍結/u);
+
+  const versionSync = release.match(/## Version同期\n([\s\S]*?)\n## /u)?.[1] ?? "";
+  assert.match(versionSync, /^\s*- `README\.md`/mu);
+  assert.doesNotMatch(versionSync, /^\s*- `pnpm-lock\.yaml`/mu);
 });
 
 test("製品CIはrepository内のreusable workflowだけを使う", async () => {
