@@ -16,6 +16,10 @@ import {
 } from "./runtime-error-store.js";
 import { packageVersion } from "./version.js";
 import { showBrowser, startBrowser } from "./browser-launcher.js";
+import { setup } from "./setup.js";
+import { setupClients, type SetupClient } from "./setup-registration.js";
+import { installSetupPackage } from "./platform/setup-package.js";
+import { isAbsolute } from "node:path";
 
 interface ParsedArgs {
   readonly command: string | undefined;
@@ -79,8 +83,32 @@ function writeJson(value: unknown): void {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "setup" && argv[1] === "--help" && argv.length === 2) {
+    process.stdout.write("usage: gpt-connector setup [--ai claude,codex,grok,cursor] [--codex-config <absolute-config.toml>] [--check]\n");
+    return;
+  }
+  if (argv[0] === "setup") {
+    const { values } = parseArgs(argv);
+    if ([...values.keys()].some((key) => !["ai", "codex-config", "check"].includes(key))) throw new Error("setupの引数が不正です。");
+    const clients = stringArg(values, "ai")?.split(",") ?? [...setupClients];
+    if (clients.length === 0 || clients.some((client) => !setupClients.includes(client as SetupClient))) throw new Error("--aiはclaude,codex,grok,cursorから指定してください。");
+    const check = flagArg(values, "check");
+    const codexConfig = stringArg(values, "codex-config");
+    if (codexConfig !== undefined && (!isAbsolute(codexConfig) || !clients.includes("codex"))) throw new Error("--codex-configはCodex設定の絶対pathが必要です。");
+    let installed: number | null;
+    try { installed = check ? null : installSetupPackage(argv.slice(1)); } catch {
+      writeJson({ schema: "gpt-connector.setup.v1", overall: "failed", stage: "package", code: "SETUP_PACKAGE_FAILED" });
+      process.exitCode = 1;
+      return;
+    }
+    if (installed !== null) { process.exitCode = installed; return; }
+    const result = await setup({ clients: [...new Set(clients)] as SetupClient[], codexConfig, check });
+    writeJson(result);
+    process.exitCode = result.overall === "ready" ? 0 : result.overall === "partial" ? 2 : 1;
+    return;
+  }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> | sessions --slug <id> | close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> | sessions --slug <id> | close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {

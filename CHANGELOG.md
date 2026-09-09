@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — 2026-09-10
+
+- `npx --yes gpt-connector@latest setup`で、実行版のnpm global導入、Claude・Codex・Grok・CursorへのMCP登録、state読取りとMCP接続確認、Macの専用Chrome準備を連続実行する。
+- `setup --check`は設定変更・ブラウザ起動なしで診断する。手動ログイン待ち、登録・準備の失敗、非Macのlive未対応は成功と分けて返す。
+- 既存command、args、env、認証、モデル、他MCP、利用者の無効化・ツール制限を維持し、Codexのtimeout等は不足keyだけを補う。TOMLは既存値・コメント・整形を残して挿入する。
+- `--ai`による対象選択、`--codex-config`による既存project設定の移行を追加。更新前の設定を製品所有directoryへtarで保存する。
+- Windows/Linuxのnpm package、MCP、store/state読取りを維持した。state schemaと既存7 toolsの契約は変更していない。
+
 ## 0.4.19 — 2026-08-30
 
 - 専用Chromeの非表示契約を、実装どおりAppKit `hidden`とWindowServer表示window 0件へ統一した。

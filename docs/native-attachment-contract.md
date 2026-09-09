@@ -48,7 +48,7 @@ interface ConsultInput {
 - `overall=ready`では`reasonCode=ready`、CDP／origin／authとsession／operation／upload／job件数を返す。
 - CDP接続前の失敗でも同じschemaをstdoutへ返し、`overall=not_ready`と`cdp_unavailable`等の安定reason codeを持たせる。取得不能なboolean／countは`null`であり、0やfalseへ偽装しない。
 - libraryの`GptConnector.doctor`、CLI `doctor`／`diagnostics`、MCP／factory diagnosticsは画面状態を変えない。いずれの診断もupload、conversation、prompt出力を行わない。
-- `auth_required`からの復旧はCLI `browser show`だけが担う。正規専用profileとCDP endpointの所有者を検査し、そのPIDだけを表示してactivateする。
+- `auth_required`では`setup`が既存の`browser show`処理を呼ぶ。手動でもCLI `browser show`を使える。正規専用profileとCDP endpointの所有者を検査し、そのPIDだけを表示してactivateする。
 
 ## slug idempotency
 

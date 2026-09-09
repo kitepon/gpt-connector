@@ -15,10 +15,11 @@ test("実npm pack内の全Markdownは相対linkをpack内だけで解決する",
   t.after(async () => rm(outputDirectory, { recursive: true, force: true }));
   const output = execFileSync(
     process.platform === "win32" ? "npm.cmd" : "npm",
-    ["pack", "--ignore-scripts", "--json", "--pack-destination", outputDirectory],
+    ["pack", "--dry-run=false", "--ignore-scripts", "--json", "--pack-destination", outputDirectory],
     { cwd: projectRoot, encoding: "utf8" },
   );
-  const pack = JSON.parse(output) as Array<{ filename: string; files: Array<{ path: string }> }>;
+  // npm 11の配列とnpm 12のpackage名をkeyにしたobjectは、同じentryとして検査する。
+  const pack = Object.values(JSON.parse(output)) as Array<{ filename: string; files: Array<{ path: string }> }>;
   assert.equal((await stat(join(outputDirectory, pack[0]?.filename ?? ""))).isFile(), true);
   const files = new Set(pack[0]?.files.map((file) => file.path) ?? []);
   const markdownFiles = [...files].filter((path) => path.endsWith(".md"));

@@ -65,14 +65,22 @@ gh release create "v$release_version" --target "$release_commit" --generate-note
 
 ## 公開後smoke
 
-公開npm packageを公式経路でglobal installし、最低限次を確認する。
+公開npm packageをAitermの永続PTYから対象hostへSSH接続した同じセッションで公式導入し、setupと診断を確認する。
+WindowsではPowerShell 7を使う。同一端末の共有AI設定への導入は他製品と並行しない。
 
 ```bash
 release_version=$(node -p "require('./package.json').version")
 npm install --global "gpt-connector@$release_version"
+gpt-connector setup
 gpt-connector --version
-gpt-connector doctor
+gpt-connector setup --check
 ```
+
+初回の公開入口`npx --yes gpt-connector@<公開版> setup`も確認する。Macではlive readinessまで、Windows/Linuxでは
+package・4AI登録・MCP・state読取りまで実測し、live未対応の`partial`／終了2を別記する。
+各AI自身でも登録を確認する（Claude `mcp get`、Codex `mcp get --json`、Grok `mcp doctor --json`、Cursor `mcp list-tools`）。
+`sessions`の読取りは製品所有の隔離fixtureで確認し、利用者のjob内容を公開しない。
+設定更新前後で既存env、モデル、認証、他MCPが保持されたこと、setup再実行で変更が増えないことを確認する。
 
 さらにread-only MCP initialize／tools listがstderrを汚さず、7 toolsと0.4.18以降のChatGPT限定
 discovery契約を維持することを確認する。Chrome runtimeへ変更があるreleaseだけ、専用profileで

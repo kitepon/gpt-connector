@@ -1,7 +1,7 @@
 {
   "name": "gpt-connector",
-  "version": "0.4.19",
-  "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をCodexから呼び出すローカルconnector",
+  "version": "0.5.0",
+  "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をAIクライアントから呼び出すローカルconnector",
   "license": "MIT",
   "author": {
     "name": "Quo / クオ at kitepon.dev",
@@ -62,6 +62,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
+    "smol-toml": "1.8.0",
+    "toml-eslint-parser": "0.10.0",
     "ws": "8.21.0",
     "zod": "4.4.3"
   },

@@ -7,7 +7,7 @@ diagnostics、recovery、update、releaseを所有する。dotagentsは任意の
 ## 現行文書
 
 - [README](../README.md): 人間向けの導入、browser運用、CLI／MCP、session、diagnostics、更新と復旧。
-- [AI installer向けセットアップ契約](ai-installer-setup-contract.md): AIが単独でinstallし、人へログインだけを依頼する順序と停止条件。
+- [AI installer向けセットアップ契約](ai-installer-setup-contract.md): `setup`による初回・更新・再実行、4AI登録、OS別機能、手動ログインと停止条件。
 - [native attachment契約](native-attachment-contract.md): 添付、job、state、recoveryの公開契約。
 - [release](release.md): version同期、検証、main着地、npm／GitHub公開、公開後smoke。
 - [CHANGELOG](../CHANGELOG.md): 版別変更履歴。

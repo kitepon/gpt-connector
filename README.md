@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/gpt-connector.svg)](https://www.npmjs.com/package/gpt-connector)
 [![license](https://img.shields.io/npm/l/gpt-connector.svg)](LICENSE)
 
-Codex開発枠から、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
+Claude・Codex・Grok・Cursorから、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
 
 [kitepon.dev](https://kitepon.dev/)のクオが開発・メンテナンスしています。
 
@@ -22,8 +22,8 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.4.19`。0.4.18はChatGPT能力だけをdiscovery textへ載せ、
-実行可能なmodel／effortを`chatgpt_models`のlive catalogだけで決める契約です。公開済みversionは
+現在ソース版は`gpt-connector@0.5.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
+実行可能なmodel／effortは`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
 
@@ -47,43 +47,62 @@ MarkItDownは別区分の第三者CLIです。
 
 ## 前提
 
-- macOS
-- Google Chrome
-- Node.js 22以上
-- ChatGPTへログインできるaccount
+- Node.js 22以上とnpm（macOS・Windows・Linux）。
+- liveブラウザ機能にはmacOS、Google Chrome、ChatGPTへログインできるaccount。
+- Windowsの操作シェルはPowerShell 7。
 
 sourceからbuildする場合だけpnpm 11以上も必要。
 
-## npm global install
+## 導入・更新
 
 ```bash
-npm install --global gpt-connector
+npx --yes gpt-connector@latest setup
 ```
 
-専用Chromeを起動する。通常ChromeとOracle profileは使用しない。
-true headlessは使わず、cold startでは窓なしで専用profileのheadful Chromeを起動する。CDP browser endpointからbackground ChatGPT targetを作成し、target/windowの存在とschemaを確認する。CDPの`minimized`指定はcold target作成時のhintであり、公開する画面非表示状態ではない。画面非表示の正本は、正規専用PIDのAppKit `hidden`状態とWindowServer layer 0 window数である。
+初回も更新も同じ入口を使う。実行した版を公式npmでglobal installしてから、導入済みCLIへ処理を引き継ぐ。
+Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録し、MCP initialize／7 tools／診断応答とstate読取りを確認する。
+既存command、args、env、モデル、認証、他MCP、利用者のtimeout・無効化・ツール制限は保持する。
+変更前の設定は`~/.gpt-connector/setup-backups/`へtarで保存する。
 
-`browser start`は正規専用PIDだけをhiddenへ移行し、ChatGPTの公式origin、認証、page bridge、WindowServer表示window 0件を確認してから成功を返す。CDPのwindow state要求が成功応答後も収束しないChromeでも、実画面状態を優先する。別profileや別PIDへは作用しない。
+Macでは既存の`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、
+`action_required`で停止する。そのChromeで手動ログインしてから同じコマンドを再実行する。
+パスワード入力や認証challengeの自動化はしない。
 
-認証が必要になった場合だけwindowを表示へ戻す。手動でログイン／確認するには次を使う。
-
-表示／非表示の最終判定は正規PIDのAppKit `hidden`状態とWindowServer layer 0 window数で行う。start成功時はhiddenかつ表示window 0件、show成功時はunhiddenかつ1件以上である。Chrome 150ではCDPの`normal`／`minimized`要求が成功応答を返しても`maximized`から変化しない実例を確認したため、CDP stateだけを可視性の証拠にしない。
+導入済み版での再実行と、読み取り専用の診断:
 
 ```bash
-gpt-connector browser show
+gpt-connector setup
+gpt-connector setup --check
 ```
 
-Chrome更新時はrelease smokeとして`browser start`、`models`、hidden中の`chat`、必要時の`browser show`を確認する。
+| 機能 | macOS | Windows / Linux |
+| --- | --- | --- |
+| npm導入・4AIへのMCP登録 | 対応 | 対応 |
+| MCP initialize・tools list・診断応答 | 対応 | 対応 |
+| `sessions`による既存job読取り・state診断 | 対応 | 対応 |
+| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 未対応 |
+
+`setup`は`ready`で終了0、ログイン待ち・失敗で終了1、非Macで対応機能の確認が済みliveだけ未対応なら
+`partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
+各AIは新しいセッションで設定を読み込む。setupのMCP確認と、既存AIセッションへの反映は別の確認項目である。
+
+対象AIや既存Codex project設定を指定できる。
 
 ```bash
-gpt-connector browser start
+gpt-connector setup --ai claude,codex,grok,cursor
+gpt-connector setup --ai codex --codex-config /absolute/project/.codex/config.toml
 ```
 
-初回だけ、開いた専用ChromeでChatGPTへ手動ログインする。connectorはpassword、cookie、tokenを読み出さない。
+詳しい保存先、停止条件、移行契約は[AI installer向けセットアップ契約](docs/ai-installer-setup-contract.md)を参照。
 
-### AI installer向けセットアップ
+### 専用Chromeの運用
 
-CodexなどのAIが導入する場合は、[AI installer向けセットアップ契約](docs/ai-installer-setup-contract.md)に従う。AIはinstall、専用Chrome起動、read-only診断、MCP設定を担当し、人間には専用ChromeでのChatGPTログインだけを依頼する。通常ChromeやOracleのprofile、認証情報は使用しない。
+`browser start`は正規専用PIDだけをAppKit `hidden`へ移し、公式origin・認証・page bridge・WindowServer表示window 0件を確認する。
+cold startでは窓なしChromeのCDP browser endpointからbackground ChatGPT targetを作る。
+CDP `minimized`は作成時のhintだけで、非表示の最終判定には使わない。通常ChromeやOracle profileは使用しない。
+
+`gpt-connector browser show`は正規専用PIDを表示し、unhiddenかつ表示window 1件以上を確認する。
+Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必要時の`browser show`で行う。
 
 ## source setup
 
@@ -163,9 +182,8 @@ gpt-connector --version
 通常更新は公式npm packageだけを使います。更新後はversionと診断を確認し、Chromeを重複起動しません。
 
 ```bash
-npm install --global gpt-connector@latest
-gpt-connector --version
-gpt-connector doctor
+npx --yes gpt-connector@latest setup
+gpt-connector setup --check
 ```
 
 `doctor`が`cdp_unavailable`なら`browser start`を使います。`auth_required`なら`browser show`で専用Chromeを表示し、そこで手動ログインします。
@@ -215,9 +233,11 @@ stateは製品所有directoryへ owner-only atomic writeし、symlink・権限 d
 prompt、assistant response、file名/内容/digest、conversation/session/job ID、cookie/token、CDP dump、
 絶対path、生stack/stderrは入力・保存・出力できません。
 
-## Codex MCP
+## AIクライアントとMCP
 
-Codexはtrusted projectの`.codex/config.toml`を読み、stdio serverは`command`と`env`で構成できる。npm global install後は、利用するprojectへ次の設定を置く。
+Claude・Codex・Grok・Cursorへの登録は`setup`が担当する。Codexの既定登録先はユーザー設定。
+trusted projectの`.codex/config.toml`へ登録済みの場合は`--codex-config`にその絶対pathを指定する。
+Codexへ不足時に補う設定の例（既存値は優先する）:
 
 ```toml
 [mcp_servers.gpt_connector]
@@ -237,9 +257,9 @@ GPT_CONNECTOR_STATE_DIR = "/absolute/product-owned/state/gpt-connector"
 
 設定の正本はOpenAI公式の[Model Context Protocol設定](https://learn.chatgpt.com/docs/extend/mcp#configure-with-configtoml)。
 
-1. `npm install --global gpt-connector`を実行する。
-2. 専用Chromeを起動してログインする。
-3. `.codex/config.toml`を置いたprojectで新しいCodex taskを開く。
+1. `npx --yes gpt-connector@latest setup`を実行する。
+2. ログインを求められたら専用Chromeでログインし、同じ入口を再実行する。
+3. 対象AIを新しいセッションで起動する。Codex project設定ではそのprojectを開く。
 4. `chatgpt_models`でlive catalogを確認する。
 5. second opinionはcaller既知slugを付けて`consult`を呼ぶ。
 6. 画像生成はcaller既知slug、model、absolute `workspaceRoot`、relative `output`を付けて`chatgpt_image`を呼ぶ。
@@ -262,7 +282,7 @@ Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない
 read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Chat、consult、画像生成など実操作の
 接続失敗は、引き続きruntime-error storeへ記録する。
 
-移行期間にCodex側のMCP server idを`oracle`へすれば、tool名は`oracle.consult`／`oracle.sessions`になる。別adapter packageやOracleへの自動fallbackは使わない。
+正規server IDは`gpt_connector`。既存の別名登録はsetupが削除・改名しない。
 
 ## attachment contract
 
@@ -366,7 +386,7 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 ## architecture
 
 ```text
-Codex ──stdio MCP──> resolver／job store ──> GptConnector core ──raw CDP──> ChatGPT page main world
+AI client ──stdio MCP──> resolver／job store ──> GptConnector core ──raw CDP──> ChatGPT page main world
                             │                                      │
                             └─ slug status                         ├─ official upload client
                                                                    ├─ builder／sender
