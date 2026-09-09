@@ -48,6 +48,11 @@ setup本体と同じnpm起動処理を試験でも使うよう修正し、SSH先
 npm公開だけがE404で停止。公開設定の照会もCLI E401／Web Sign Inのため、npmログイン・2FAが再開条件となった。
 最新の[検証状況](2026-09-10-setup-verification.md)に実測・未実施と再開手順をまとめた。公開版実機受入は未完了のまま保持する。
 
+2026-09-10追記: npmのTrusted Publisher未登録を所有者ログイン後に確認。承認と2FAを経て公式CLIで登録し、0.5.2の公開CI再実行が成功した。registry・provenance・GitHub Releaseを確認済み。
+Aiterm SSH経由でLinuxとWindowsへ公開npm版を導入し、全4AIの初回登録、既存設定保持、再実行unchanged、MCP initialize・7 tools・diagnostics・state読取りが成功した。
+CLI/MCP sessionsの終端fixture読取りとstate hash不変も確認した。ClaudeとGrokの実接続、Linux Codexの登録認識も成功した。
+残る受入はMacの公開版SSH試験。接続先未確定のため未実施を保持し、ゴールをactiveのまま継続する。
+
 ## 反証と修正
 
 - Grokによる境界反証: `node + mcp.js`への登録置換は既存工場のcommand照合から外れ、工場の再適用でenv等が失われ得る。採用し、既存command/argsを保持、新規も工場と同名commandへ修正。
