@@ -39,6 +39,11 @@ MacへのSSH接続先は未確定（localhost:22接続拒否）、fox-wslは既�
 setup本体と同じnpm起動処理を試験でも使うよう修正し、SSH先WindowsのPowerShell 7で対象試験が成功した。
 0.5.0は未公開のままCIを停止し、タグを移動せず0.5.1へ進める。
 
+0.5.1のWindows CIは24秒で成功した。残るqueueを調べた結果、工場正典`factory-ci` runbookと生成済み`factory-current-state.md`では
+`linux-native`と`wsl2`が現役集合に存在せず、Linux full CIは`linux-workstation`、WSL専用runnerは退役済みだった。
+製品所有workflowの指定を現役Mac・Linux・Windowsへ修正する。runtimeの対応OS・4AI・試験commandは維持し、dotagentsとrunner配置は変更しない。
+0.5.1も未公開のまま停止し、0.5.2へ進める。Linuxサービスの稼働だけでは要求labelへの割当を保証しないことを実測した。
+
 ## 反証と修正
 
 - Grokによる境界反証: `node + mcp.js`への登録置換は既存工場のcommand照合から外れ、工場の再適用でenv等が失われ得る。採用し、既存command/argsを保持、新規も工場と同名commandへ修正。

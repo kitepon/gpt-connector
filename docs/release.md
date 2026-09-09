@@ -28,7 +28,7 @@ npm pack --dry-run --json
 ```
 
 `test:release-gate`はrelease commit gateの単体試験であり、fixture repository内の成功・拒否条件だけを検査する。現在のworktreeは判定しない。
-対象commitを`main`へpushすると、CIの`release-commit` jobが4環境の製品試験後にclean checkoutで実gateを通す。
+対象commitを`main`へpushすると、CIの`release-commit` jobがMac・Linux・Windowsの製品試験後にclean checkoutで実gateを通す。
 手元でも同じ入口を実行できる。
 
 ```bash
@@ -46,7 +46,7 @@ npmのprovenanceはGitHub ActionsのOIDCから作る。local shellでは`npm pub
 npm Trusted Publisherはrepository `kitepon/gpt-connector`、workflow `.github/workflows/ci.yml`へ設定する。
 
 1. `package.json`と同じversionの`v<version>` tagを、検証済みのmain commitへ付けてpushする。
-2. tag起点のCIが4環境のfull gateを再実行する。
+2. tag起点のCIがMac・Linux・Windowsのfull gateを再実行する。
 3. full gate後、同じworkflowの`publish` jobがtagとpackage version、`origin/main`祖先、pack payloadを検証し、`npm publish --provenance --access public`を実行する。
 4. npmに同versionが既に存在する再実行ではpublishだけをskipし、versionを上書きしない。
 5. tag CIとnpm registryを確認した後、同じtagへGitHub Releaseを公開する。

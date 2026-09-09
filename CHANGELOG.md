@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 - 2026-09-10
+
+- 製品CIのLinux指定を現役のlinux-workstationへ更新し、退役済みWSL専用runnerへの待機を除去した。Mac・Linux・Windowsの製品試験と、全OSのMCP/state機能を維持する。
+- 0.5.1はWindows試験を通過したが退役runner待ちで公開できず、npmへ公開していない。
+
 ## 0.5.1 - 2026-09-10
 
 - Windowsの配布物検査でnpm.cmdの直接起動がEINVALになる問題を修正。setupと検査は同じ製品内npm起動処理を使う。
