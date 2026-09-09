@@ -10,7 +10,7 @@
 2. setupとAI別設定アダプタ、初回・再実行・移行・失敗のfocused試験。
 3. 全Markdown点検と必要な更新、別ベンダーによる境界・設定保存の反証。
 4. 製品release gate、main統合、push、tag CIでnpm公開、GitHub Release。
-5. Aiterm永続PTYのSSHセッションで公開npm版を公式導入し、同じセッションでsetupとOS・AI別smoke。共有AI設定は端末ごとに直列で変更する。
+5. Aiterm永続PTYで公開npm版を公式導入し、同じセッションでsetupとOS・AI別smoke。Macはこの端末でローカル実行、Linux・WindowsはSSHで実行する（オーナーの2026-09-10裁定）。共有AI設定は端末ごとに直列で変更する。
 
 ログインが必要なら専用Chromeを表示し、人のログイン後に同じ入口を再実行する。失敗・未対応・未検証は成功と別の状態で返す。通し試験はfocused試験完了後の最終gateだけに使う。
 
@@ -26,6 +26,8 @@
 - 他製品repoの改修、daemon追加、認証情報の取得、setupのためのChat送信はしない。
 
 ## 現在地
+
+全工程完了。公開版0.5.2を3OSで実機受入した。以下は各時点の経過記録であり、最終結果は末尾の「完了」と検証表を正とする。
 
 fetch済みmainはorigin/mainと一致、dirty・stashなし。既存focused試験44件成功。工場の4AI登録を実ファイルで確認済み。
 
@@ -65,3 +67,8 @@ CLI/MCP sessionsの終端fixture読取りとstate hash不変も確認した。Cl
 追跡対象Markdown全47件を目録で確認。現行6件（README、CHANGELOG、docsの地図・installer・attachment・release）を設定入口と突合し、必要箇所を更新した。
 archive 13件とrag 26件は当時の証拠、fixture 2件は試験入力として保持する。現行案内は文書地図の6件へ限定する。
 packageに同梱するMarkdownは既存の目録・link検査で、参照先まで配布物に含まれることを確認する。
+
+## 完了
+
+2026-09-10: オーナーが、このMacの実機受入はローカル実行でよいと明示した。公開版0.5.2をAiterm永続PTYから導入し、全4AIの登録・既存値保持・再実行unchanged・MCP/state・live readinessが成功した。CLI/MCP sessions読取りでstate不変、Claude/Grok/Cursorの実接続、Codexの登録認識を確認した。
+公開・3OS実機受入・公開文書への還流が成立したため、本工程を完了とする。AI本体未導入による未実施と、非Mac live未対応は検証表へ明記した。

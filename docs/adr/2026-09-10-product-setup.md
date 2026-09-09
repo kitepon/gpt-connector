@@ -1,6 +1,6 @@
 # 製品所有のsetup入口
 
-状態: 実装と公開前検証を受入。公開後の実機受入は工程記録で追跡する。
+状態: 公開版0.5.2と3OSの実機受入を完了。詳細は公開後の最終受入に記録した。
 
 ## 判断
 
@@ -24,3 +24,9 @@ npm prefixとNode配置が異なる条件でPATH不足を再現・修正し、�
 pack内Markdownの参照検査はnpm 12のJSON形式とdry-run継承を修正して通過した。
 
 公開前のコード受入を可とする。SSH先の公開npm版導入、AI本体からの確認、Mac liveは未実施の段階では成功へ含めない。
+
+## 公開後の最終受入
+
+2026-09-10、公開版0.5.2をMacのローカルAiterm永続PTYとLinux・WindowsのSSHで確認した。Macをローカルで確認することはオーナーが明示した。
+全3OSの4AI登録、既存設定保持、再実行、MCP/state/sessionsが成立し、Macのlive readinessもreadyだった。詳細とAI本体未導入による未実施は[検証表](../2026-09-10-setup-verification.md)へ記録した。
+公開commit・3OS CI・provenance・実機結果を突合し、製品所有setupの最終受入を可とする。工場や別製品への書込みは行っていない。
