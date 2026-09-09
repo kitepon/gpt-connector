@@ -2,6 +2,9 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [setup/npm-publish-auth-20260910.md](setup/npm-publish-auth-20260910.md) — 3OS gate通過後のnpm E404とtrust list E401を分離し、公開設定を所有者ログイン後に確認する（2026-09-10・公式資料＋CI実測）
+- [setup/raw/npm-trust-20260910.md](setup/raw/npm-trust-20260910.md) — npm trustの公式原文抜粋（2026-09-10・MarkItDown取得）
+
 - [chatgpt-app/chatgpt-desktop-oracle-route-20260713.md](chatgpt-app/chatgpt-desktop-oracle-route-20260713.md) — 新 ChatGPT desktop app を Oracle の非 UI 代替にできるか: Codex-native consultation は可能だが quota は `codex`、consumer Chat は private integrity API のため非採用。Chat 枠分離が必要なら Oracle 継続（2026-07-13・公式資料＋ローカル実測）
 - [chatgpt-app/chatgpt-cdp-bridge-static-discovery-20260713.md](chatgpt-app/chatgpt-cdp-bridge-static-discovery-20260713.md) — consumer client、`/f/conversation/*`、live `AppScope`、CDP runtime の静的 discovery。理想順位1は候補維持、次は専用のログイン済みCDP runtimeが必要（2026-07-13・ローカル実測）
 - [chatgpt-app/chatgpt-web-client-runtime-discovery-20260713.md](chatgpt-app/chatgpt-web-client-runtime-discovery-20260713.md) — 公式factory→initThread→`DP`→`kF`で、DOM／React fiberなしの新規・2turn継続・公式state応答回収を実証。plain UUID失敗もnegative characterizationとして記録（2026-07-13・ローカル実測）

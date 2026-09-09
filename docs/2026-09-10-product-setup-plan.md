@@ -44,6 +44,10 @@ setup本体と同じnpm起動処理を試験でも使うよう修正し、SSH先
 製品所有workflowの指定を現役Mac・Linux・Windowsへ修正する。runtimeの対応OS・4AI・試験commandは維持し、dotagentsとrunner配置は変更しない。
 0.5.1も未公開のまま停止し、0.5.2へ進める。Linuxサービスの稼働だけでは要求labelへの割当を保証しないことを実測した。
 
+0.5.2はmain `30971db`に着地し、Mac・Linux・Windowsとrelease commit gateが成功した。
+npm公開だけがE404で停止。公開設定の照会もCLI E401／Web Sign Inのため、npmログイン・2FAが再開条件となった。
+最新の[検証状況](2026-09-10-setup-verification.md)に実測・未実施と再開手順をまとめた。公開版実機受入は未完了のまま保持する。
+
 ## 反証と修正
 
 - Grokによる境界反証: `node + mcp.js`への登録置換は既存工場のcommand照合から外れ、工場の再適用でenv等が失われ得る。採用し、既存command/argsを保持、新規も工場と同名commandへ修正。
