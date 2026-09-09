@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -7,16 +6,16 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { missingPackedMarkdownTargets } from "../scripts/markdown-link-targets.mjs";
+import { runNpm } from "../src/platform/setup-package.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("実npm pack内の全Markdownは相対linkをpack内だけで解決する", async (t) => {
   const outputDirectory = await mkdtemp(join(tmpdir(), "gpt-connector-pack-contract-"));
   t.after(async () => rm(outputDirectory, { recursive: true, force: true }));
-  const output = execFileSync(
-    process.platform === "win32" ? "npm.cmd" : "npm",
+  const output = runNpm(
     ["pack", "--dry-run=false", "--ignore-scripts", "--json", "--pack-destination", outputDirectory],
-    { cwd: projectRoot, encoding: "utf8" },
+    projectRoot,
   );
   // npm 11の配列とnpm 12のpackage名をkeyにしたobjectは、同じentryとして検査する。
   const pack = Object.values(JSON.parse(output)) as Array<{ filename: string; files: Array<{ path: string }> }>;

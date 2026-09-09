@@ -5,15 +5,15 @@ import { realpathSync } from "node:fs";
 import { packageVersion } from "../version.js";
 import type { SetupClient } from "../setup-registration.js";
 
-function npm(args: string[]): string {
+export function runNpm(args: string[], cwd?: string): string {
   const cli = process.env.npm_execpath;
-  if (cli && basename(cli) === "npm-cli.js") return execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
-  if (process.platform === "win32") return execFileSync(process.execPath, [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), ...args], { encoding: "utf8" });
-  return execFileSync("npm", args, { encoding: "utf8" });
+  if (cli && basename(cli) === "npm-cli.js") return execFileSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8" });
+  if (process.platform === "win32") return execFileSync(process.execPath, [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), ...args], { cwd, encoding: "utf8" });
+  return execFileSync("npm", args, { cwd, encoding: "utf8" });
 }
 
 export function setupLaunchDefaults(client: SetupClient) {
-  const prefix = npm(["prefix", "--global"]).trim();
+  const prefix = runNpm(["prefix", "--global"]).trim();
   const bin = process.platform === "win32" ? prefix : join(prefix, "bin");
   const command = client === "grok" || client === "cursor" ? join(bin, process.platform === "win32" ? "gpt-connector-mcp.cmd" : "gpt-connector-mcp") : "gpt-connector-mcp";
   const windows = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
@@ -23,7 +23,7 @@ export function setupLaunchDefaults(client: SetupClient) {
 
 /** npxの一時ディレクトリを登録せず、同じ公開版を公式npmで導入してから引き継ぐ。 */
 export function installSetupPackage(args: string[]): number | null {
-  const globalRoot = npm(["root", "--global"]).trim();
+  const globalRoot = runNpm(["root", "--global"]).trim();
   const installed = join(globalRoot, "gpt-connector");
   const current = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
   let installedReal: string | undefined;
@@ -32,7 +32,7 @@ export function installSetupPackage(args: string[]): number | null {
   }
   if (installedReal === realpathSync(current)) return null;
   process.stderr.write(`gpt-connector@${packageVersion}をnpm globalへ導入します。\n`);
-  npm(["install", "--global", `gpt-connector@${packageVersion}`]);
+  runNpm(["install", "--global", `gpt-connector@${packageVersion}`]);
   const result = spawnSync(process.execPath, [join(installed, "dist/src/cli.js"), "setup", ...args], { stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status === null) throw new Error("導入後のsetupが中断しました。");

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 - 2026-09-10
+
+- Windowsの配布物検査でnpm.cmdの直接起動がEINVALになる問題を修正。setupと検査は同じ製品内npm起動処理を使う。
+- 0.5.0はWindowsの公開前gateで停止し、npmへ公開していない。
+
 ## 0.5.0 — 2026-09-10
 
 - `npx --yes gpt-connector@latest setup`で、実行版のnpm global導入、Claude・Codex・Grok・CursorへのMCP登録、state読取りとMCP接続確認、Macの専用Chrome準備を連続実行する。

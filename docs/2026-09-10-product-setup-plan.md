@@ -35,6 +35,10 @@ fetch済みmainはorigin/mainと一致、dirty・stashなし。既存focused試�
 MacへのSSH接続先は未確定（localhost:22接続拒否）、fox-wslは既存接続先へ2回timeout。LinuxとWindowsのSSH／PowerShell 7は接続済み。
 公開・公開版の実機導入は未完了。
 
+`8a50391`をmainへ統合・pushし、`v0.5.0`の公開CIを起動した。Windowsの配布物試験で`spawnSync npm.cmd EINVAL`を確認。
+setup本体と同じnpm起動処理を試験でも使うよう修正し、SSH先WindowsのPowerShell 7で対象試験が成功した。
+0.5.0は未公開のままCIを停止し、タグを移動せず0.5.1へ進める。
+
 ## 反証と修正
 
 - Grokによる境界反証: `node + mcp.js`への登録置換は既存工場のcommand照合から外れ、工場の再適用でenv等が失われ得る。採用し、既存command/argsを保持、新規も工場と同名commandへ修正。
