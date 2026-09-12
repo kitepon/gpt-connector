@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 - 2026-09-12
+
+- WindowsのsetupがGit付属tarを選ぶと、バックアップ先のドライブ文字を接続先と解釈して登録に失敗する欠陥を修正した。製品のplatform処理がWindows標準tarを直接選び、呼出し元のPATHに依存せず設定を保存する。
+- Gitのtarを優先するWindows環境で、旧処理の失敗と修正後のバックアップ内容の一致を検証する回帰試験を追加した。既存設定の保持、MCPの7 tools、state schemaは変更していない。
+
 ## 0.5.2 - 2026-09-10
 
 - 製品CIのLinux指定を現役のlinux-workstationへ更新し、退役済みWSL専用runnerへの待機を除去した。Mac・Linux・Windowsの製品試験と、全OSのMCP/state機能を維持する。

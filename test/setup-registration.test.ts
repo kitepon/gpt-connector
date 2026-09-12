@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile, rm, symlink } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { parse } from "smol-toml";
 import { mergeRegistration, registerClient, registrationPath, setupClients, setupTools } from "../src/setup-registration.js";
 
@@ -91,6 +92,22 @@ test("既存設定をtarへ保存し、再実行では追加書込みしない",
 test("設定ディレクトリの環境変数を尊重する", () => {
   assert.equal(registrationPath("codex", "/home/user", { CODEX_HOME: "/custom/codex" }), join("/custom/codex", "config.toml"));
   assert.equal(registrationPath("grok", "/home/user", { GROK_HOME: "/custom/grok" }), join("/custom/grok", "config.toml"));
+});
+
+test("Windows: GitのtarがPATHの先頭でも設定を標準tarへ正しく保存する", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "gpt-backup-"));
+  const previousPath = process.env.PATH;
+  t.after(async () => { process.env.PATH = previousPath; await rm(root, { recursive: true, force: true }); });
+  process.env.PATH = `${join(process.env.ProgramFiles!, "Git", "usr", "bin")};${previousPath}`;
+  const source = 'model = "利用者のモデル"\n';
+  const path = join(root, "config.toml");
+  await writeFile(path, source);
+  // 同じ引数でGit付属tarがドライブ文字を接続先と解釈することを先に確認する。
+  assert.throws(() => execFileSync("tar", ["-cf", join(root, "broken.tar"), "-C", root, "config.toml"], { stdio: "pipe" }), /Cannot connect to/);
+  const result = await registerClient("codex", process.execPath, [], path, join(root, "backups"));
+  assert.equal(result.status, "registered");
+  const archived = execFileSync(join(process.env.SystemRoot!, "System32", "tar.exe"), ["-xOf", result.backup!, "config.toml"], { encoding: "utf8" });
+  assert.equal(archived, source);
 });
 
 test("symlinkの登録先はリンクを保ったまま実体へ反映する", { skip: process.platform === "win32" }, async (t) => {

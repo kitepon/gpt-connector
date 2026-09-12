@@ -65,7 +65,7 @@ gh release create "v$release_version" --target "$release_commit" --generate-note
 
 ## 公開後smoke
 
-公開npm packageをAitermの永続PTYから対象hostへSSH接続した同じセッションで公式導入し、setupと診断を確認する。
+公開npm packageをAitermの永続PTYから公式導入し、setupと診断を確認する。現在の端末はローカルで操作し、別端末に限りSSH接続する。
 WindowsではPowerShell 7を使う。同一端末の共有AI設定への導入は他製品と並行しない。
 
 ```bash

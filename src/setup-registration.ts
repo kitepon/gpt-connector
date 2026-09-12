@@ -1,10 +1,10 @@
 import { readFile, mkdir, writeFile, rename, lstat, realpath, unlink } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { parse } from "smol-toml";
-import { execFileSync } from "node:child_process";
+import { archiveSetupConfig } from "./platform/setup-backup.js";
 import { ensurePrivateDirectory, makeFilePrivate } from "./platform/state.js";
 import { addTomlValues } from "./setup-toml.js";
 
@@ -74,7 +74,7 @@ export async function registerClient(client: SetupClient, command: string, args:
       backup = join(backupDirectory, `${client}-${randomUUID()}.tar`);
       await writeFile(backup, "", { mode: 0o600, flag: "wx" });
       makeFilePrivate(backup);
-      execFileSync("tar", ["-cf", backup, "-C", dirname(target), basename(target)], { stdio: "pipe" });
+      archiveSetupConfig(backup, target);
     }
     const temporary = `${target}.gpt-connector-${randomUUID()}.tmp`;
     await writeFile(temporary, merged.text, { mode, flag: "wx" });
