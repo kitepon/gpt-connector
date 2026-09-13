@@ -62,6 +62,16 @@ test("CDP以外の失敗ではconnectorを入れ替えない", async () => {
   assert.equal(closeCount, 0);
 });
 
+test("終了時の相談結果の保存失敗を呼出し元へ返す", async () => {
+  const connector = {
+    ...fakeConnector(() => {}),
+    shutdown: async () => { throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "相談結果を保存できませんでした。"); },
+  };
+  const host = new LazyConnectorHost("http://127.0.0.1:9223", undefined, async () => connector);
+  await host.get();
+  await assert.rejects(host.shutdown(), { code: "JOB_RECOVERY_UNAVAILABLE" });
+});
+
 test("diagnosticsは未知の実装errorをdoctor fallbackで隠さない", async () => {
   let doctorCount = 0;
   const connector = {

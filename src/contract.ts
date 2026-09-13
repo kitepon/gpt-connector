@@ -22,6 +22,13 @@ export const chatgptModelFieldDescription =
 export const chatgptEffortFieldDescription =
   "chatgpt_modelsが当該ChatGPT modelに対して返したthinking effortだけを指定する。";
 
+export const chatgptSessionFieldDescription =
+  "同じChatGPT会話を続けるためのID。初回は省略し、keepOpen=trueで返されたsessionIdを次回も指定する。" +
+  "継続時は既に渡した前提・資料の再送は不要で、追加質問・変更点を渡す。専用Chromeのpage再読込・終了・bridge更新後は無効。";
+
+export const chatgptKeepOpenFieldDescription =
+  "会話を継続する場合はtrue。sessionIdを返して会話を保持する。falseは今回の回答後にarchiveする。最後はchatgpt_closeで閉じる。";
+
 export const consultInputSchema = z
   .object({
     prompt: z.string().min(1),
@@ -31,7 +38,11 @@ export const consultInputSchema = z
     model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
     effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
     slug: consultSlugSchema,
-    keepOpen: z.boolean().default(false),
+    sessionId: z.string().uuid().optional().describe(chatgptSessionFieldDescription),
+    keepOpen: z.boolean().default(false).describe(chatgptKeepOpenFieldDescription),
+    wait: z.boolean().default(true).describe(
+      "falseは回答完了を待たず、受付時のslug・状態・sessionId（keepOpen=true時）を返す。結果はsessionsで同じslugから取得する。自動通知は行わない。trueは従来どおり回答まで待つ。",
+    ),
     dryRun: z.boolean().default(false),
   })
   .strict()
@@ -129,8 +140,8 @@ export const chatInputSchema = z
     level: z.string().min(1).optional().describe(chatgptLevelFieldDescription),
     model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
     effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
-    sessionId: z.string().uuid().optional(),
-    keepOpen: z.boolean().default(false),
+    sessionId: z.string().uuid().optional().describe(chatgptSessionFieldDescription),
+    keepOpen: z.boolean().default(false).describe(chatgptKeepOpenFieldDescription),
   })
   .strict();
 
@@ -268,6 +279,8 @@ export interface ConsultFailure {
 
 export interface ConsultSnapshot {
   readonly slug: string;
+  /** 会話を保持する問い合わせは、受付時から継続用IDを返す。 */
+  readonly sessionId?: string;
   readonly state: ConsultJobState;
   readonly createdAt: string;
   readonly updatedAt: string;

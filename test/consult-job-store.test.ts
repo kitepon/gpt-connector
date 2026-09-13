@@ -163,6 +163,43 @@ test("terminal resultをstate transitionと再initialize後にも保持する", 
   });
 });
 
+test("旧台帳は読取りで変更せず、初回書込みだけ退避して受付IDを保存できる形式へ移行する", async () => {
+  await withStateDirectory(async (stateDirectory) => {
+    const path = join(stateDirectory, "consult-jobs.json");
+    const legacy = JSON.stringify({ version: 1, jobs: [{ fingerprint, snapshot: {
+      slug, state: "succeeded", createdAt: "2026-09-13T00:00:00.000Z", updatedAt: "2026-09-13T00:00:01.000Z",
+      result: succeededResult, error: null,
+    } }] });
+    await writeFile(path, legacy, { mode: 0o600 });
+    const reader = createStore(stateDirectory, true);
+    await reader.initialize();
+    assert.deepEqual(reader.get(slug).result, succeededResult);
+    assert.equal(await readFile(path, "utf8"), legacy);
+    assert.equal((await readdir(stateDirectory)).includes("consult-jobs.json.v1-backup"), false);
+    reader.close();
+
+    const writer = new ConsultJobStore({ stateDirectory });
+    await writer.initialize();
+    await writer.reserve("new-question", "new-fingerprint");
+    await writer.transition("new-question", "submitted");
+    const sessionId = "c117bb31-51db-4f8e-94d1-32e1d53c6692";
+    await writer.transition("new-question", "running", { sessionId });
+    await writer.transition("new-question", "failed", {
+      error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
+    });
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 2);
+    assert.equal(await readFile(`${path}.v1-backup`, "utf8"), legacy);
+    if (process.platform !== "win32") assert.equal((await stat(`${path}.v1-backup`)).mode & 0o777, 0o600);
+    writer.close();
+
+    const reopened = new ConsultJobStore({ stateDirectory, readOnly: true });
+    await reopened.initialize();
+    assert.equal(reopened.get("new-question").sessionId, sessionId);
+    assert.deepEqual(reopened.get(slug).result, succeededResult);
+    reopened.close();
+  });
+});
+
 test("image jobはuploadingなしでsubmittedへ進み生成画像metadataを保持する", async () => {
   await withStateDirectory(async (stateDirectory) => {
     const store = createStore(stateDirectory);

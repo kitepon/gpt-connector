@@ -52,7 +52,11 @@ import { evaluateByValue } from "./runtime-evaluate.js";
 import { SessionRegistry } from "./session-registry.js";
 import { packageVersion } from "./version.js";
 
-const operationStartSchema = z.object({ operationId: z.string().uuid() });
+const operationStartSchema = z.object({
+  operationId: z.string().uuid(),
+  sessionId: z.string().uuid().optional(),
+});
+type OperationStart = z.output<typeof operationStartSchema>;
 
 const operationErrorSchema = z.object({
   code: z.string(),
@@ -198,6 +202,7 @@ export class GptConnector {
   readonly #client: CdpClient;
   readonly #sessions = new SessionRegistry();
   readonly #jobs: ConsultJobStore;
+  readonly #consultTasks = new Map<string, Promise<ConsultSnapshot>>();
   readonly #operationTimeoutMs: number;
   readonly #pollIntervalMs: number;
 
@@ -343,13 +348,32 @@ export class GptConnector {
       model: parsed.model ?? null,
       effort: parsed.effort ?? null,
       keepOpen: parsed.keepOpen,
+      sessionId: parsed.sessionId,
     });
-    const reservation = await this.#jobs.reserve(parsed.slug, fingerprint);
+    let reservation;
+    try {
+      reservation = await this.#jobs.reserve(parsed.slug, fingerprint);
+    } catch (error) {
+      for (const file of prepared.files) file.content.fill(0);
+      throw error;
+    }
     if (!reservation.created) {
       for (const file of prepared.files) file.content.fill(0);
-      return reservation.snapshot;
+      return parsed.wait ? this.#consultTasks.get(parsed.slug) ?? reservation.snapshot : reservation.snapshot;
     }
-    return this.#runConsultJob(parsed, prepared.files);
+    let accept!: (snapshot: ConsultSnapshot) => void;
+    const accepted = new Promise<ConsultSnapshot>((resolve) => { accept = resolve; });
+    const task = this.#runConsultJob(parsed, prepared.files, accept);
+    this.#consultTasks.set(parsed.slug, task);
+    void task.then(
+      () => { this.#consultTasks.delete(parsed.slug); },
+      () => {
+        this.#consultTasks.delete(parsed.slug);
+        // 台帳への記録自体が失敗した場合は、バックグラウンド処理でも無音にしない。
+        process.stderr.write("gpt-connector: JOB_RECOVERY_UNAVAILABLE（相談結果を保存できませんでした）\n");
+      },
+    );
+    return parsed.wait ? task : Promise.race([accepted, task]);
   }
 
   async image(input: ImageInput): Promise<ImageSnapshot> {
@@ -387,6 +411,7 @@ export class GptConnector {
   async #runConsultJob(
     parsed: z.output<typeof consultInputSchema>,
     files: readonly PreparedAttachmentFile[],
+    accepted: (snapshot: ConsultSnapshot) => void,
   ): Promise<ConsultSnapshot> {
     let uploadHandles: readonly string[] = [];
     try {
@@ -394,16 +419,22 @@ export class GptConnector {
       await this.#jobs.transition(parsed.slug, "uploading");
       uploadHandles = await this.#uploadAttachments(files);
       await this.#jobs.transition(parsed.slug, "submitted");
-      await this.#jobs.transition(parsed.slug, "running");
       const result = await this.#chatParsed(
         {
           prompt: parsed.prompt,
           model: parsed.model,
           effort: parsed.effort,
+          sessionId: parsed.sessionId,
           keepOpen: parsed.keepOpen,
         },
         uploadHandles,
         selection,
+        async (started) => {
+          const snapshot = await this.#jobs.transition(parsed.slug, "running", {
+            ...(parsed.keepOpen && started.sessionId !== undefined ? { sessionId: started.sessionId } : {}),
+          });
+          accepted(snapshot);
+        },
       );
       return this.#jobs.transition(parsed.slug, "succeeded", {
         result: {
@@ -766,35 +797,47 @@ export class GptConnector {
     parsed: z.output<typeof chatInputSchema>,
     attachmentHandles: readonly string[],
     selection?: ChatSelection,
+    onStarted?: (started: OperationStart) => Promise<void>,
   ): Promise<BridgeChatResult> {
     const selected = selection ?? resolveChatSelection(await this.models(), parsed);
 
     const existingSession = parsed.sessionId;
-    if (existingSession !== undefined) this.#sessions.acquire(existingSession);
+    if (existingSession !== undefined) await this.#acquireSession(existingSession);
+    let activeSession = existingSession;
 
     try {
       const raw = await this.#runOperation("startChat", [
         { ...parsed, ...selected, attachmentHandles },
-      ]);
+      ], undefined, async (started) => {
+        if (parsed.keepOpen && started.sessionId === undefined) {
+          throw new ConnectorError("RUNTIME_DRIFT", "会話を保持する受付結果にsessionIdがありません。");
+        }
+        if (existingSession === undefined && started.sessionId !== undefined) {
+          activeSession = started.sessionId;
+          this.#sessions.register(activeSession);
+          this.#sessions.acquire(activeSession);
+        }
+        await onStarted?.(started);
+      });
       const result = bridgeChatResultSchema.parse(raw);
 
-      if (existingSession !== undefined) {
-        if (parsed.keepOpen) this.#sessions.release(existingSession);
-        else this.#sessions.delete(existingSession);
+      if (activeSession !== undefined) {
+        if (parsed.keepOpen) this.#sessions.release(activeSession);
+        else this.#sessions.delete(activeSession);
       } else if (result.sessionId !== undefined) {
         this.#sessions.register(result.sessionId);
       }
 
       return result;
     } catch (error) {
-      if (existingSession !== undefined && this.#sessions.has(existingSession)) {
+      if (activeSession !== undefined && this.#sessions.has(activeSession)) {
         if (
-          parsed.keepOpen ||
+          (existingSession !== undefined && parsed.keepOpen) ||
           (error instanceof ConnectorError && error.code === "ARCHIVE_FAILED")
         ) {
-          this.#sessions.release(existingSession);
+          this.#sessions.release(activeSession);
         } else {
-          this.#sessions.delete(existingSession);
+          this.#sessions.delete(activeSession);
         }
       }
       throw error;
@@ -922,7 +965,7 @@ export class GptConnector {
 
   async closeSession(input: CloseInput): Promise<CloseResult> {
     const parsed = closeInputSchema.parse(input);
-    this.#sessions.acquire(parsed.sessionId);
+    await this.#acquireSession(parsed.sessionId);
 
     try {
       const raw = await this.#runOperation("startClose", [parsed]);
@@ -944,26 +987,24 @@ export class GptConnector {
   }
 
   async shutdown(): Promise<void> {
-    const failures: string[] = [];
-    for (const sessionId of this.#sessions.ids()) {
-      try {
-        await this.closeSession({ sessionId });
-      } catch (error) {
-        failures.push(error instanceof ConnectorError ? error.code : "CHAT_FAILED");
-      }
-    }
-    try {
-      this.#jobs.close();
-    } finally {
-      this.#client.close();
-    }
-    if (failures.length > 0) {
-      throw new ConnectorError(
-        "ARCHIVE_FAILED",
-        "shutdown時に一部sessionをarchiveできませんでした。",
-        { failureCount: failures.length },
+    // keepOpenで保持した会話はMCP再接続後も使う。archiveは明示closeが所有する。
+    const results = await Promise.allSettled(this.#consultTasks.values());
+    this.close();
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  }
+
+  async #acquireSession(sessionId: string): Promise<void> {
+    if (!this.#sessions.has(sessionId)) {
+      const session = z.object({ sessionId: z.string().uuid(), busy: z.boolean() }).nullable().parse(
+        await evaluateByValue<unknown>(this.#client, createBridgeCallExpression("sessionInfo", [sessionId]), false),
       );
+      if (session === null) throw new ConnectorError("SESSION_NOT_FOUND", "sessionが見つかりません。専用Chromeのpage再読込・終了・bridge更新後は継続できません。");
+      if (session.sessionId !== sessionId) throw new ConnectorError("RUNTIME_DRIFT", "会話IDの照合に失敗しました。");
+      if (session.busy) throw new ConnectorError("SESSION_BUSY", "sessionは別turnを処理中です。");
+      if (!this.#sessions.has(sessionId)) this.#sessions.register(sessionId);
     }
+    this.#sessions.acquire(sessionId);
   }
 
   async #bootstrap(): Promise<void> {
@@ -1045,6 +1086,7 @@ export class GptConnector {
     method: "startModels" | "startUpload" | "startChat" | "startClose",
     args: readonly unknown[],
     timeoutMs = this.#operationTimeoutMs,
+    onStarted?: (started: OperationStart) => Promise<void>,
   ): Promise<unknown> {
     const started = operationStartSchema.parse(
       await evaluateByValue<unknown>(
@@ -1055,6 +1097,7 @@ export class GptConnector {
     );
 
     const deadline = Date.now() + timeoutMs;
+    let reported = false;
     while (Date.now() < deadline) {
       const envelope = operationEnvelopeSchema.parse(
         await evaluateByValue<unknown>(
@@ -1064,10 +1107,6 @@ export class GptConnector {
         ),
       );
 
-      if (envelope.state === "succeeded") {
-        await this.#consumeOperation(started.operationId);
-        return envelope.result;
-      }
       if (envelope.state === "failed") {
         await this.#consumeOperation(started.operationId);
         const error = envelope.error;
@@ -1075,6 +1114,15 @@ export class GptConnector {
           toConnectorErrorCode(error?.code),
           error?.message ?? "ChatGPT runtime operationが失敗しました。",
         );
+      }
+
+      if (!reported) {
+        await onStarted?.(started);
+        reported = true;
+      }
+      if (envelope.state === "succeeded") {
+        await this.#consumeOperation(started.operationId);
+        return envelope.result;
       }
 
       await delay(this.#pollIntervalMs);
@@ -1121,6 +1169,7 @@ function consultFingerprint(input: {
   readonly model: string | null;
   readonly effort: string | null;
   readonly keepOpen: boolean;
+  readonly sessionId?: string;
 }): string {
   return createHash("sha256")
     .update(JSON.stringify({
@@ -1134,6 +1183,7 @@ function consultFingerprint(input: {
       effort: input.effort,
       keepOpen: input.keepOpen,
       ...(input.level === undefined ? {} : { level: input.level }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     }))
     .digest("hex");
 }

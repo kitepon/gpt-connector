@@ -24,6 +24,7 @@ test("consult inputは既定値とslugを正規化する", () => {
       prompt: "見解をください",
       slug: "review-001",
       keepOpen: false,
+      wait: true,
       dryRun: false,
     },
   );

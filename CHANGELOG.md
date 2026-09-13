@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - 2026-09-13
+
+- `consult`に`sessionId`と`wait`を追加した。`keepOpen=true`・`wait=false`で回答完了前に会話IDを返し、同じIDと新しいslugで前提を再送せず相談を続けられる。既定の同期応答とone-shot archiveは維持する。
+- 会話を専用Chromeのpage bridgeで保持し、MCP再接続後も継続・明示closeできるようにした。page再読込・Chrome終了・bridge更新でIDは無効になる。結果の自動通知は含まない。
+- MCP説明と入力schemaに、会話IDと問い合わせslugの区別、前提の再送省略、結果回収と終了方法を明記した。CLIの`consult --session-id`にも対応した。
+- 受付IDの保存に伴いjob台帳をversion 2へ更新した。version 1は読取り可能で、初回書込み前の台帳を`consult-jobs.json.v1-backup`へ保存する。
+- 巻き戻し: 旧版はversion 2を読めない。全MCPを停止し、version 2の台帳を別途退避してからversion 1のbackupを復元するか、旧版専用の空state directoryを指定する。backup以降のjobは旧版で回収できず、version 2の台帳をこの版以降で読む必要がある。新旧版のMCPを同じstate directoryで併用しない。
+
 ## 0.6.1 - 2026-09-13
 
 - MCPの共通説明とChat・相談・画像生成のツール説明に、呼び出し元AIの会話・作業前提・ローカルファイル・リポジトリの知識がChatGPTへ自動共有されない警告を追加した。
