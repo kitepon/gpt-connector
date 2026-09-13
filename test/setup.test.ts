@@ -55,7 +55,7 @@ function setupPorts(platform: NodeJS.Platform) {
   };
 }
 
-for (const platform of ["win32", "linux"] as const) {
+for (const platform of ["linux"] as const) {
   test(`${platform}: live未対応でも4AI登録・MCP・stateを実行する`, async () => {
     const deps = setupPorts(platform);
     deps.browser = async () => { throw new Error("非Macでbrowserを起動しました"); };
@@ -69,6 +69,17 @@ for (const platform of ["win32", "linux"] as const) {
     }
   });
 }
+
+test("Windows: 4AIの登録から共通のlive準備へ進み、readyを確認する", async () => {
+  const deps = setupPorts("win32");
+  let browserCalls = 0;
+  deps.browser = async () => { browserCalls++; return { status: "ready", reason: "ready" }; };
+  const result = await setup({}, deps);
+  assert.equal(result.overall, "ready");
+  assert.equal(result.live.supported, true);
+  assert.equal(browserCalls, 1);
+  assert.ok(result.registrations.every(item => (item.live as { status: string }).status === "ready"));
+});
 
 test("登録失敗は他AIの結果と分離し、全体を失敗にする", async () => {
   const deps = setupPorts("linux");

@@ -12,6 +12,7 @@ import { codexRelayLauncher } from "./codex-steer-launcher.js";
 import { withCodexSocket as withCodexRelay } from "./codex-parent.js";
 import { processSocket, readCodexProcesses as readRuntimeProcesses } from "./codex-steer-config.js";
 import { installRelayLogin, removeRelayLogin } from "./codex-steer-login.js";
+import { codexSteerPlatform } from "./platform/codex.js";
 
 export type CodexSteerAction = "enable" | "disable" | "status";
 export type CodexSteerResult = {
@@ -129,6 +130,8 @@ function writeConfig(directory: string, config: RelayConfig): void {
 }
 
 export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<Runtime> = {}): Promise<CodexSteerResult> {
+  const platformSetup = codexSteerPlatform(overrides.platform);
+  if (platformSetup) return platformSetup(action, overrides);
   const runtime: Runtime = {
     platform: process.platform, directory: relayConfigDirectory(), socket_root: `/tmp/gpt-connector-codex-${process.getuid?.() ?? 0}`,
     node: process.execPath, relay: fileURLToPath(new URL("./codex-stdio-relay.js", import.meta.url)),

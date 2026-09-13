@@ -75,7 +75,7 @@ test("導入後に別の起動設定へ変わった場合は解除で上書き�
 
 test("対象外OSは設定に触れず対応外を返す", async t => {
   const f = await fixture(t);
-  assert.equal((await configureCodexSteer("enable", { ...f.runtime, platform: "win32" })).status, "unsupported");
+  assert.equal((await configureCodexSteer("enable", { ...f.runtime, platform: "linux" })).status, "unsupported");
   assert.deepEqual(f.events, []);
   assert.deepEqual(await readdir(f.root), []);
 });

@@ -9,6 +9,8 @@ import { registerClient, readRegistration, registrationPath, setupClients, setup
 import { setupLaunchDefaults } from "./platform/setup-package.js";
 import { configureCodexSteer } from "./setup-codex-steer.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
+import { supportsLiveBrowser } from "./platform/browser.js";
+import { supportsCodexSteer } from "./platform/codex.js";
 
 export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
@@ -100,7 +102,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
       item.mcp = await deps.verify(server.command, server.args, server.env, typeof server.cwd === "string" ? server.cwd : undefined);
       item.clientActivation = "new_client_session_required";
       item.enabledTools = availableTools(server);
-      if (client === "codex" && deps.platform === "darwin") {
+      if (client === "codex" && supportsCodexSteer(deps.platform)) {
         stage = "codex_steer";
         const steer = await deps.steer(options.check ? "status" : "enable");
         item.codexSteer = steer;
@@ -108,7 +110,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         else if (steer.status !== "ready") failed = true;
       }
       stage = "browser";
-      if (deps.platform === "darwin") {
+      if (supportsLiveBrowser(deps.platform)) {
         const key = JSON.stringify([server.env.GPT_CONNECTOR_CDP_ENDPOINT, server.env.GPT_CONNECTOR_STATE_DIR]);
         if (!browsers.has(key)) browsers.set(key, await deps.browser(server.env, options.check ?? false));
         const live = browsers.get(key)!;
@@ -123,8 +125,8 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }
-  const overall = failed ? "failed" : actionRequired ? "action_required" : deps.platform === "darwin" ? "ready" : "partial";
-  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: deps.platform === "darwin" }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
+  const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) ? "ready" : "partial";
+  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }
 
 function availableTools(server: SetupServer) {

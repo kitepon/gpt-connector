@@ -5,14 +5,14 @@ Codex Desktopから`consult`を呼ぶと、受付結果が返った後もMCPの�
 
 ## 単独導入
 
-前提はNode.js 22以上、macOSの公式Codex Desktop（同梱CLI 0.154以上）と、通常のChatGPT接続環境。
+前提はNode.js 22以上、macOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）と、通常のChatGPT接続環境。
 起動中継・接続・監視・配送は本packageに同梱する。Aitermのインストール、コマンド、設定ファイルは使わない。
 
 ```bash
 npx --yes gpt-connector@latest setup
 ```
 
-Codexを登録するMacではSteer接続も準備する。再起動が必要なら`codexSteer.status=restart_required`を返す。
+Codexを登録するMacとWindowsではSteer接続も準備する。再起動が必要なら`codexSteer.status=restart_required`を返す。
 Codexを完全終了して再起動し、次で`ready`を確認する。
 
 ```bash
@@ -20,12 +20,20 @@ gpt-connector setup --check
 gpt-connector setup --codex-steer status
 ```
 
-設定は`~/.gpt-connector/codex-steer/`、ログイン時の起動設定は`~/Library/LaunchAgents/dev.kitepon.gpt-connector-codex-relay.plist`が所有する。
+設定は`~/.gpt-connector/codex-steer/`が所有する。Macのログイン時設定は`~/Library/LaunchAgents/dev.kitepon.gpt-connector-codex-relay.plist`へ置く。
 専用launcherをGUIの`CODEX_CLI_PATH`へ設定し、公式署名binaryを変更せずに起動する。
 元の起動設定を保存し、候補のinitialize・終了を確認してから設定を有効にする。
-socketは本人所有の0700 directory内に0600で作り、外部TCP portは開かない。
+Macのsocketは本人所有の0700 directory内に0600で作り、TCP portは開かない。
 
-既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
+WindowsではPowerShell 7と標準.NET Frameworkを使い、同じ保存先へ専用の起動exeを作る。
+公式Desktopが展開した実行用コピーを、インストール済みMSIXの4実行fileとSHA-256で照合して使う。
+Desktopをまだ一度も起動していない場合は、公式Desktopを起動してからsetupを実行する。
+ユーザー環境変数`CODEX_CLI_PATH`を設定し、公式CLIへ認証付きのloopback WebSocketで接続する。
+外部addressでは待ち受けない。接続ごとの認証情報は製品専用directoryにACLで保護して保存し、終了時に削除する。
+親のPID・生成時刻・実行file・接続引数・MCPの祖先processを照合する。短い要求もEOFを待たず転送する。
+初回導入・起動exeの更新後は、Codexを完全終了してスタートメニューから起動する。通常の相談ごとの再起動は不要。
+
+Macで既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
 互換性を確認できない別設定は`codex_steer_configuration_conflict`で止まる。他製品のファイルへは書き込まない。
 既存受付がなくなった場合は配送エラーとし、本製品のsetupで再準備する。
 
@@ -40,7 +48,7 @@ gpt-connector setup --codex-steer disable
 
 ## 受付・監視・配送
 
-宛先は、MCP client名`codex-mcp-client`とCodexが付ける要求metadataの`threadId`、MCPを起動した親processの公式Unix socketから決める。
+宛先は、MCP client名`codex-mcp-client`とCodexが付ける要求metadataの`threadId`、MCPを起動した親processの公式接続から決める。
 利用AIへ親IDやsocketの指定を要求しない。同じApp Serverで既に読み込まれた親だけに送り、native sub-agentは対象外とする。
 相談送信前に宛先を確認し、未設定・対応外・宛先不明は`PARENT_DELIVERY_UNAVAILABLE`で止める。
 
@@ -80,6 +88,16 @@ MCP processが終了している間の監視は行わない。
 ```bash
 GPT_CONNECTOR_TEST_CODEX_BINARY=/absolute/Codex.app/Contents/Resources/codex npm run test:codex-steer
 ```
+
+Windowsでは`test/windows-codex.test.ts`が引数保持、EOF前の転送、公式CLIのinitialize、
+認証付きの追加接続、EOF後のprocess終了と接続情報削除を確認する。公式CLIを使う試験はbuild後に実行する。
+
+```powershell
+$env:GPT_CONNECTOR_TEST_CODEX_BINARY = 'C:\path\to\codex.exe'
+pnpm exec tsx --test test/windows-codex.test.ts
+```
+
+Windowsの接続仕様は[公式App Server](https://learn.chatgpt.com/docs/app-server)とWindows同梱CLIで確認する。
 
 launcher・stdio中継・setupと公式binary試験は、[Aiterm](https://github.com/kitepon/aiterm-mcp)のMIT実装を参考に移植した。
 移植元のCopyright (c) 2026 kiteponとMIT許諾は本packageの[LICENSE](../LICENSE)にも含まれる。

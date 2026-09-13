@@ -1,10 +1,10 @@
-import { createConnection } from "node:net";
 import { isAbsolute } from "node:path";
 import WebSocket from "ws";
 import { z } from "zod";
 import { ConnectorError } from "./errors.js";
 import { packageVersion } from "./version.js";
 import { processSocket, readCodexProcesses, verifyRelaySocket, type CodexProcess } from "./codex-steer-config.js";
+import { parentSocketForPlatform, codexSocketConnection } from "./platform/codex.js";
 
 export const codexParentSchema = z.object({ threadId: z.string().uuid(), socketPath: z.string().refine(isAbsolute) }).strict();
 export type CodexParent = z.infer<typeof codexParentSchema>;
@@ -20,8 +20,7 @@ export function parentFromRequest(clientName: string | undefined, metadata: unkn
   if (clientName !== "codex-mcp-client") return null;
   const parsed = z.object({ threadId: z.string().uuid() }).safeParse(metadata);
   if (!parsed.success) throw new CodexDeliveryError("CodexのMCP要求に親タスクIDがありません。対応するCodexを使ってください。");
-  if (process.platform !== "darwin") throw new CodexDeliveryError("Codex親へのSteerは現在macOS Desktopに対応しています。");
-  return { threadId: parsed.data.threadId, socketPath: findParentSocket(readCodexProcesses(), process.pid) };
+  return { threadId: parsed.data.threadId, socketPath: parentSocketForPlatform(() => findParentSocket(readCodexProcesses(), process.pid)) };
 }
 
 export function findParentSocket(processes: readonly CodexProcess[], pid: number): string {
@@ -50,12 +49,13 @@ export async function withCodexParent<T>(parent: CodexParent, action: (request: 
 }
 
 export async function withCodexSocket<T>(socketPath: string, action: (request: Request) => Promise<T>, timeoutMs = 15_000): Promise<T> {
-  try { verifyRelaySocket(socketPath); } catch (error) {
+  let connection: ReturnType<typeof codexSocketConnection>;
+  try { connection = codexSocketConnection(socketPath); } catch (error) {
     if (error instanceof CodexDeliveryError) throw error;
     throw new CodexDeliveryError("CodexのSteer socketへ接続できません。");
   }
-  const socket = new WebSocket("ws://localhost/rpc", {
-    createConnection: () => createConnection(socketPath), handshakeTimeout: timeoutMs, perMessageDeflate: false,
+  const socket = new WebSocket(connection.url, {
+    ...connection.options, handshakeTimeout: timeoutMs, perMessageDeflate: false,
   });
   let sequence = 0;
   let failed = false;

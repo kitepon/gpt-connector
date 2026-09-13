@@ -29,7 +29,7 @@ test("factory diagnosticsはChrome起動中のCDP異常（HTTP error）をnot_re
 });
 
 test("factory diagnosticsはlive browser非対応hostをCDP不備でなくunsupportedにする", async () => {
-  for (const platform of ["linux", "win32"] as const) {
+  for (const platform of ["linux"] as const) {
     const result = await factoryDiagnostics({ endpoint: "https://example.com", platform });
     assert.equal(result.overall, "unsupported");
     assert.deepEqual(result.checks.map((check) => check.id), ["version", "state_schema", "job_schema", "migration", "cdp", "official_origin", "auth", "runtime_bridge", "mcp_contract"]);

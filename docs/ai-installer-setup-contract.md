@@ -3,7 +3,7 @@
 ## 正規入口
 
 初回導入・更新はこの一回の入口で行う。Node.js 22以上とnpmが前提。WindowsではPowerShell 7を使う。
-live機能にはmacOSとインストール済みGoogle Chrome、ChatGPT accountが必要。
+live機能にはmacOSまたはWindowsとインストール済みGoogle Chrome、ChatGPT accountが必要。
 
 ```bash
 npx --yes gpt-connector@latest setup
@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.8.0"
+gpt_connector_version="0.9.0"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -28,7 +28,7 @@ gpt-connector setup --check
 `--check`はnpm導入・設定書込み・browser start/showを実行しない。Chromeの表示状態も変えず、
 現在の登録・MCP応答・state・live・Codex Steerの状態を診断する。setup確認のためにChat、upload、conversationは作らない。
 
-MacでCodexを登録する時は、同梱コードで公式Codex DesktopへのSteer接続も導入する。Aitermは不要。
+MacとWindowsでCodexを登録する時は、同梱コードで公式Codex DesktopへのSteer接続も導入する。Aitermは不要。
 `registrations[].codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 既存の公式受付が利用可能なら設定を保って共存し、互換性を確認できない設定は上書きせず失敗する。
 所有ファイル・確認・解除は[Codexへの自動Steer](codex-steer.md)を参照。
@@ -84,13 +84,14 @@ GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 
 ## OS・機能別の完了判定
 
-| 機能 | macOS | Windows / Linux |
-| --- | --- | --- |
-| npm package導入、4AIへの設定保存 | 対応 | 対応 |
-| stdio initialize、公開版照合、7 tools list | 対応 | 対応 |
-| `diagnostics`の診断応答、既存state読取り | 対応 | 対応 |
-| `sessions`の既存job読取り | 対応 | 対応 |
-| browser起動・表示、models、Chat、画像・添付 | 対応 | 未対応 |
+| 機能 | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| npm package導入、4AIへの設定保存 | 対応 | 対応 | 対応 |
+| stdio initialize、公開版照合、7 tools list | 対応 | 対応 | 対応 |
+| `diagnostics`の診断応答、既存state読取り | 対応 | 対応 | 対応 |
+| `sessions`の既存job読取り | 対応 | 対応 | 対応 |
+| browser起動・表示、models、Chat、画像・添付 | 対応 | 対応 | 未対応 |
+| Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 
 setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと7 toolsを確認する。
 `diagnostics`が`not_ready`を返す場合も、MCP通信の成立とlive readinessを別に記録する。
@@ -98,10 +99,10 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 
 | `overall` | 終了code | 意味 |
 | --- | --- | --- |
-| `ready` | 0 | 指定した登録、MCP、state、Mac liveの確認が完了 |
+| `ready` | 0 | 指定した登録、MCP、state、live、Codex登録時のSteerの確認が完了 |
 | `action_required` | 1 | 手動ログイン、Codex再起動、または利用者の無効化設定への対応が必要 |
 | `failed` | 1 | 導入・登録・MCP・state・browserのいずれかが失敗 |
-| `partial` | 2 | Windows/Linuxの対応機能は完了、liveブラウザ操作は未対応 |
+| `partial` | 2 | Linuxの対応機能は完了、liveブラウザ操作は未対応 |
 
 非Macの`partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
 `registrations`にAI別の保存先、backup、MCP、state、live、失敗段階を返す。秘密値や構文errorの生内容は出力しない。

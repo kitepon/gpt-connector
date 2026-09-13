@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.8.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.9.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -49,9 +49,9 @@ MarkItDownは別区分の第三者CLIです。
 ## 前提
 
 - Node.js 22以上とnpm（macOS・Windows・Linux）。
-- liveブラウザ機能にはmacOS、Google Chrome、ChatGPTへログインできるaccount。
+- liveブラウザ機能にはmacOSまたはWindows、Google Chrome、ChatGPTへログインできるaccount。
 - Windowsの操作シェルはPowerShell 7。
-- Codexへの自動SteerにはmacOSの公式Codex Desktop（同梱CLI 0.154以上）。接続用コードは本packageに同梱。
+- Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。Windowsでは標準.NET Frameworkも使う。接続用コードは本packageに同梱。
 
 sourceからbuildする場合だけpnpm 11以上も必要。
 
@@ -66,11 +66,13 @@ Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録�
 既存command、args、env、モデル、認証、他MCP、利用者のtimeout・無効化・ツール制限は保持する。
 変更前の設定は`~/.gpt-connector/setup-backups/`へtarで保存する。
 
-Macでは既存の`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、
+MacとWindowsでは`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、
 `action_required`で停止する。そのChromeで手動ログインしてから同じコマンドを再実行する。
 パスワード入力や認証challengeの自動化はしない。
+ログイン状態は`~/.gpt-connector/browser-profile/`へ保存し、通常の起動・更新では再利用する。
+ログアウトやChatGPTの認証失効時だけ再ログインする。
 
-Codexを登録するMacではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
+Codexを登録するMacとWindowsではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。
 詳細は[Codexへの自動Steer](docs/codex-steer.md)を参照。
 
@@ -81,14 +83,15 @@ gpt-connector setup
 gpt-connector setup --check
 ```
 
-| 機能 | macOS | Windows / Linux |
-| --- | --- | --- |
-| npm導入・4AIへのMCP登録 | 対応 | 対応 |
-| MCP initialize・tools list・診断応答 | 対応 | 対応 |
-| `sessions`による既存job読取り・state診断 | 対応 | 対応 |
-| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 未対応 |
+| 機能 | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| npm導入・4AIへのMCP登録 | 対応 | 対応 | 対応 |
+| MCP initialize・tools list・診断応答 | 対応 | 対応 | 対応 |
+| `sessions`による既存job読取り・state診断 | 対応 | 対応 | 対応 |
+| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 対応 | 未対応 |
+| Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 
-`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、非Macで対応機能の確認が済みliveだけ未対応なら
+`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、Linuxで対応機能の確認が済みliveだけ未対応なら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
 各AIは新しいセッションで設定を読み込む。setupのMCP確認と、既存AIセッションへの反映は別の確認項目である。
 
@@ -103,12 +106,15 @@ gpt-connector setup --ai codex --codex-config /absolute/project/.codex/config.to
 
 ### 専用Chromeの運用
 
-`browser start`は正規専用PIDだけをAppKit `hidden`へ移し、公式origin・認証・page bridge・WindowServer表示window 0件を確認する。
+Macの`browser start`は正規専用PIDだけをAppKit `hidden`へ移し、公式origin・認証・page bridge・WindowServer表示window 0件を確認する。
 cold startでは窓なしChromeのCDP browser endpointからbackground ChatGPT targetを作る。
 CDP `minimized`は作成時のhintだけで、非表示の最終判定には使わない。通常ChromeやOracle profileは使用しない。
 
 `gpt-connector browser show`は正規専用PIDを表示し、unhiddenかつ表示window 1件以上を確認する。
 Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必要時の`browser show`で行う。
+
+Windowsでは標準導入先のChromeを専用profileで起動する。9223の所有PID・実行file・ネイティブ解析した引数を照合し、
+そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。所有確認と表示状態の読戻しが成立してから成功を返す。
 
 ## source setup
 

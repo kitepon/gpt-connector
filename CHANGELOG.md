@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 - 2026-09-13
+
+- Windowsで専用Chromeの起動・非表示・ログイン用表示と、setupからlive接続までを利用できるようにした。標準導入先の探索、CIMによる所有PIDと引数の照合、Win32表示制御、ACLはWindows専用コードが所有する。ログイン状態は専用profileに保存し、次回起動でも再利用する。
+- Windowsの公式Codex Desktopへの自動Steerに対応した。Windows標準.NET Frameworkで起動fileを作り、認証付きのloopback WebSocketで公式CLIと接続する。本人の接続記録、PIDと生成時刻、MCPの親子関係を照合する。setupがユーザー環境変数を設定し、初回はCodexの完全再起動が必要。
+- 共通の会話・添付・画像・監視・配送処理を維持した。既存MacのChrome制御とUnix socket中継は変更しない。
+- 巻き戻し: job台帳は0.8.0と同じversion 3。Windowsの中継を解除するときは、この版で`setup --codex-steer disable`を実行し、Codexを再起動してから旧版を導入する。0.8.0へ戻すとWindowsのlive機能は利用できない。
+
 ## 0.8.0 - 2026-09-13
 
 - Codex親の`consult`は受付後に戻り、MCPのコードが10秒ごとにChatGPTの完了を確認して回答または失敗を自動Steerする。利用AIの監視ループを不要にした。実行中は同じターンへ入り、終了後は同じタスクで受信する。

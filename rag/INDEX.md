@@ -2,6 +2,8 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [setup/windows-live-20260913.md](setup/windows-live-20260913.md) — WindowsのChrome制御、認証付きCodex接続、.NET stdin bufferの最小再現と修理（2026-09-13・公式仕様＋実機）
+
 - [chatgpt-app/codex-parent-steer-20260913.md](chatgpt-app/codex-parent-steer-20260913.md) — 同梱中継による単独起動、公式App Serverへの実行中Steer・終了後配送、10秒のコード監視（2026-09-13・公式binary実測）
 
 - [chatgpt-app/latest-slider-20260913.md](chatgpt-app/latest-slider-20260913.md) — 最新スライダー5段階、右端の既定、Proのeffort省略、冪等な結果回収（2026-09-13・公式runtime＋製品実測）

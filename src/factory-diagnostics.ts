@@ -4,7 +4,7 @@ import { ConnectorError } from "./errors.js";
 import { bridgeBuildId } from "./page-bridge.js";
 import { evaluateByValue } from "./runtime-evaluate.js";
 import { packageVersion } from "./version.js";
-import { isDarwin } from "./platform/darwin.js";
+import { supportsLiveBrowser } from "./platform/browser.js";
 
 export const factoryDiagnosticsSchema = "gpt-connector.factory-diagnostics.v1" as const;
 
@@ -25,7 +25,7 @@ interface RuntimeProbe {
 
 /** Read-only product readiness. It never invokes models/chat/consult, upload, archive, or job creation. */
 export async function factoryDiagnostics(options: FactoryDiagnosticsOptions = {}) {
-  if (!isDarwin(options.platform)) return factoryResult("unsupported", [
+  if (!supportsLiveBrowser(options.platform)) return factoryResult("unsupported", [
     check("version", "ready", "package_version_available"),
     check("state_schema", "ready", "consult_jobs_json_v1"),
     check("job_schema", "ready", "consult_job_v1"),
