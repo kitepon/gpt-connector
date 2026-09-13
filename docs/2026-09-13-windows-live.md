@@ -33,4 +33,11 @@
 - 最終のlocal gateはlint・型検査・203試験成功、15件はOS等の条件によりskip。build、release gateの5試験、npm packの136fileも確認。
 - [mainのCI](https://github.com/kitepon/gpt-connector/actions/runs/34756845347)でMac・Windows・Linuxの製品試験とrelease commit gateが成功。
 
-現在地: 0.9.0の公開gateと公開後導入を実施する。最終のDesktop再起動と実機Steerは未確認。
+- [tagのCI](https://github.com/kitepon/gpt-connector/actions/runs/34756973553)とnpm publishが成功し、registryの0.9.0も取得確認。[GitHub Release](https://github.com/kitepon/gpt-connector/releases/tag/v0.9.0)を公開。
+- repository外から`npx --yes gpt-connector@0.9.0 setup`を実行し、global版0.9.0を導入。4AIの既存設定・登録は照合値が一致し、MCPの版・7 tools・診断・state・liveはready。
+- 公開版のmodelsとChatが成功。日本語の入力・返信は正式版CLIのstdoutをUTF-8で直接受け取り、「日本語確認済み」と一致、finished_successfully・endTurn=trueを確認。
+- 公開版の`setup --check`はaction_required。未反映はCodex起動設定だけで、codexSteer=restart_required。他の診断はready。
+
+現在地: 公開・Windows導入・Chatまで確認済み。利用者がCodex Desktopを完全終了し、スタートメニューから再起動する操作を待つ。
+再開時は公開版の`setup --check`でSteer=readyを確認し、このタスクからconsultを一回実行して自動配送を実測する。
+失敗時の解除は公開版の`setup --codex-steer disable`。他製品の設定を直接編集しない。

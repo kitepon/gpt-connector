@@ -18,3 +18,13 @@
 認証情報の複製、通常Chromeの操作、別サービスへの代替送信は行っていない。
 
 確度: 記載した観測はこのWindows端末で再現確認済み。公開後・Desktop再起動後の受入は作業計画へ別記する。
+
+## 公開入口の観測
+
+npmが公開を受け付けても、配信の処理中はregistryのversion照会が404になる。CIの成功だけで導入可能と扱わない。
+また、同名・同versionの開発repository内からnpxを実行すると、npmのlocal tree判定とPATH解決によって既存のglobal版が起動した。
+この端末のnpmログとlibnpmexec/lib/index.jsで確認。公開後のnpx試験はrepository外で実行し、結果のversionを照合する。
+
+PTY内のPowerShellはConsole.OutputEncoding=932であり、npmのPowerShell shimを通したstdoutの保存で日本語が文字化けした。
+公開版CLIのstdoutをNodeからUTF-8で直接受け取ると、Chatの返信は期待した日本語と完全一致した。
+検査logの再符号化と製品から返る本文を混同しない。
