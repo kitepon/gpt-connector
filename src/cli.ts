@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> | sessions --slug <id> | close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] | sessions --slug <id> | close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -169,6 +169,7 @@ async function main(): Promise<void> {
       if (prompt === undefined) throw new Error("chatには--promptが必要です。");
       const result = await connector.chat({
         prompt,
+        level: stringArg(values, "level"),
         model: stringArg(values, "model"),
         effort: stringArg(values, "effort"),
         keepOpen: false,
@@ -213,6 +214,7 @@ async function main(): Promise<void> {
       }
       writeJson(await connector.consult({
         prompt,
+        level: stringArg(values, "level"),
         slug,
         files: stringArgs(values, "file"),
         workspaceRoot: stringArg(values, "workspace-root"),

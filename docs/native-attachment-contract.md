@@ -13,6 +13,7 @@
 ```ts
 interface ConsultInput {
   prompt: string;
+  level?: string;
   files?: string[];
   workspaceRoot?: string;
   model?: string;
@@ -27,9 +28,10 @@ interface ConsultInput {
 - `slug`はcallerが事前に決めるidempotency／recovery key。`^[a-z0-9][a-z0-9._-]{2,63}$`。
 - `files`が1件以上なら`workspaceRoot`必須。`workspaceRoot`はabsolute directory。
 - `files`要素はworkspaceRoot相対のfile pathまたはglob。absolute path、NUL、空文字、`..` segmentを拒否する。
+- `level`は「最新」の段階名。`level`／`model`／`effort`省略時は最新スライダーの右端を選ぶ。`level`と`model`／`effort`は併用できない。
 - `effort`指定時は`model`必須。live catalogにない組合せを拒否する。
 - `keepOpen`既定false。trueの成功時だけ既存のopaque `sessionId`を返せる。
-- `dryRun=true`はpath／glob／MIME／size／model／effortを検証するが、upload、conversation、job予約を行わない。
+- `dryRun=true`はpath／glob／MIME／size／levelから解決したmodel／effortを検証するが、upload、conversation、job予約を行わない。
 
 ### `sessions({ slug })`
 
@@ -39,7 +41,8 @@ interface ConsultInput {
 
 ### `models()`／`close({ sessionId })`
 
-- 現行契約を維持する。
+- `models`は最新の配列順を保つ`levels`、右端の`defaultLevel`／`defaultModel`、互換用`models`を返す。
+- 最新の定義欠落・不正は`RUNTIME_DRIFT`、選択段階が利用不可なら`MODEL_NOT_AVAILABLE`で止まる。
 - `close`はconversation archiveであり、attachment file deleteではない。
 
 ### `doctor`／`diagnostics`
@@ -52,10 +55,10 @@ interface ConsultInput {
 
 ## slug idempotency
 
-- 初回`consult`だけがjobを作る。
+- 初回`consult`だけがjobを作る。modelの解決は新規jobの送信前に行い、解決失敗もtyped errorを持つfailed jobとして残す。保存済みjobの再取得は、その後の段階・モデルの提供状態に依存しない。
 - 同じslugを再度呼んだ場合、同じinput fingerprintなら既存snapshotを返し、upload／sendを再実行しない。
 - 同じslugでinput fingerprintが異なる場合は`JOB_CONFLICT`。
-- fingerprintはprompt hash、解決後fileのrelative path／bytes／SHA-256、requested model／effort／keepOpenから作る。prompt本文、file本文、absolute pathは台帳へ保存しない。
+- fingerprintはprompt hash、解決後fileのrelative path／bytes／SHA-256、requested level（指定時のみ）／model／effort／keepOpenから作る。prompt本文、file本文、absolute pathは台帳へ保存しない。
 - terminal jobも同じslugで再取得できる。
 - 台帳は製品所有のstate directoryへowner-onlyでatomic保存する。既定は`$XDG_STATE_HOME/gpt-connector`、未指定時は`~/.local/state/gpt-connector`。
 - state directory単位のwriter leaseを持ち、別processの新規job作成をfail-closedにする。同一writer内の複数active jobは許可し、最後の非terminal jobがterminalになるまでleaseを保持する。

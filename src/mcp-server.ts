@@ -3,8 +3,7 @@ import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
 import {
-  chatgptEffortFieldDescription,
-  chatgptModelFieldDescription,
+  chatInputSchema,
   consultInputSchema,
   imageInputSchema,
   sessionsInputSchema,
@@ -146,20 +145,21 @@ export const mcpServerVersion = packageVersion;
 // 本serverが実行できるChatGPTの肯定能力だけを書く。
 export const mcpServerInstructions =
   "このserverはログイン済みOpenAI ChatGPT (consumer Web) 専用のconnectorである。" +
-  "実行できるmodelとthinking effortはchatgpt_modelsが返すcatalogだけを正とする。" +
+  "通常Chatは「最新」の5段階をlevelで選ぶ。指定がなければ最新スライダーの右端を使う。" +
+  "段階名と順序はchatgpt_modelsのlevelsが正。内部model/effortの変換はconnectorが行う。" +
   "ChatGPTへ送る場合: second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。" +
-  "caller timeout後は再送せずsessionsで同じslugを確認する。live model/effortはchatgpt_models、" +
+  "caller timeout後は再送せずsessionsで同じslugを確認する。最新の段階と互換model一覧はchatgpt_models、" +
   "既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。";
 
 export const mcpToolDescriptions = {
   chatgpt_models:
-    "ログイン中のOpenAI ChatGPT accountで利用可能な通常Chat modelとthinking effortを返す。",
+    "通常Chatの「最新」の思考量をWebと同じ名前・順序でlevelsに返す。defaultLevelは右端。互換用のmodel一覧も返す。",
   chatgpt_chat:
-    "OpenAI ChatGPT公式Web runtimeの通常ChatへUIなしで送信する。keepOpen=falseなら応答後archiveする。",
+    "OpenAI ChatGPT公式Web runtimeの通常Chatへ送信する。levelで最新の段階を選び、省略時は最新の右端。keepOpen=falseなら応答後archiveする。",
   chatgpt_image:
     "OpenAI ChatGPT通常枠で画像を生成し、Libraryと会話を相関確認してworkspaceRoot配下へno-clobber保存する。slugで冪等化する。",
   consult:
-    "OpenAI ChatGPT公式Web runtimeへ相談する。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。",
+    "OpenAI ChatGPT公式Web runtimeの通常Chatへ相談する。levelで最新の段階を選び、省略時は最新の右端。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。",
   sessions:
     "本serverが所有する既知slug 1件の状態・terminal result・errorを返し、再送は行わない。",
   diagnostics:
@@ -194,15 +194,7 @@ export function createGptConnectorMcpServer(host: LazyConnectorHost): McpServer 
     {
       title: "ChatGPTの通常Chatへ送信",
       description: mcpToolDescriptions.chatgpt_chat,
-      inputSchema: z
-        .object({
-          prompt: z.string().min(1),
-          model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
-          effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
-          sessionId: z.string().uuid().optional(),
-          keepOpen: z.boolean().default(false),
-        })
-        .strict(),
+      inputSchema: chatInputSchema,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import {
   chatgptEffortFieldDescription,
+  chatgptLevelFieldDescription,
+  chatInputSchema,
   chatgptModelFieldDescription,
   consultInputSchema,
   imageInputSchema,
@@ -56,5 +58,13 @@ test("model fieldはChatGPT slug以外を受け付けないとcallerへ明示す
     };
     assert.equal(jsonSchema.properties.model?.description, chatgptModelFieldDescription);
     assert.match(jsonSchema.properties.effort?.description ?? "", /chatgpt_models/u);
+  }
+});
+
+test("公開MCP schemaは最新の段階と省略時の右端を案内する", () => {
+  for (const schema of [chatInputSchema, consultInputSchema]) {
+    const json = z.toJSONSchema(schema, { io: "input" }) as { properties: Record<string, { description?: string }> };
+    assert.equal(json.properties.level?.description, chatgptLevelFieldDescription);
+    assert.match(json.properties.level?.description ?? "", /省略時は最新スライダーの右端/u);
   }
 });

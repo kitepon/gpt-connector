@@ -22,8 +22,8 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.5.3`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
-実行可能なmodel／effortは`chatgpt_models`のlive catalogで確認します。公開済みversionは
+現在ソース版は`gpt-connector@0.6.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
+通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
 
@@ -32,8 +32,8 @@ MarkItDownは別区分の第三者CLIです。
 - 通常Chatのone-shot送信と自動archive。
 - process内opaque sessionによる複数turn継続。
 - explicit closeとserver archive read-back。
-- live model catalog取得。
-- model／thinking effort明示選択。
+- Webの「最新」と一致する5段階の選択と、省略時の右端選択。
+- live catalog取得と、既存のmodel／thinking effort明示選択。
 - ChatGPT通常枠の画像生成、Library相関read-back、安全なローカル保存。
 - Work-only modelの除外。
 - 非対応model／effortの送信前拒否。
@@ -125,10 +125,10 @@ one-shot Chat smoke:
 ```bash
 gpt-connector chat \
   --endpoint http://127.0.0.1:9223 \
-  --model gpt-5-6-thinking \
-  --effort min \
-  --prompt 'Reply with exactly: OK'
+  --prompt '「確認済み」とだけ返信してください'
 ```
+
+`--level 高`のように段階名を指定できます。`--level`を省略すると「最新」の右端を使います。
 
 CLIの`chat`はone-shot専用。`consult` jobはdurable台帳へ残るため、別processの`sessions`から回収できる。複数turnの会話sessionはMCP adapterを使う。
 
@@ -157,8 +157,7 @@ gpt-connector consult \
   --file 'docs/*.md' \
   --prompt '添付資料を監査してください' \
   --slug review-001 \
-  --model gpt-5-6-thinking \
-  --effort extended \
+  --level 高 \
   --dry-run
 ```
 
@@ -270,11 +269,11 @@ MCP tools（すべてOpenAI ChatGPT専用。`consult`／`sessions`／`diagnostic
 Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない。server instructionsと
 各tool descriptionでもこの境界を宣言している）:
 
-- `chatgpt_models`: 通常Chat model／effort一覧。
+- `chatgpt_models`: 「最新」の順序付き`levels`、右端の`defaultLevel`と`defaultModel`、互換用model／effort一覧。
 - `chatgpt_chat`: 新規またはsession継続。既定`keepOpen=false`で応答後archive。
 - `chatgpt_image`: 通常枠で画像を生成し、同一turnのLibrary fileを検証してworkspaceへ保存。
 - `chatgpt_close`: sessionをarchiveしてhandleを破棄。deleteは行わない。
-- `consult`: slug冪等化、任意の正規添付、model／effort、dry-runを持つsecond opinion入口。
+- `consult`: slug冪等化、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。
 - `sessions`: exact slug 1件の状態／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
 
@@ -312,14 +311,16 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
   成功時は`retention=recently_deleted`／`cleanup=soft_deleted`、失敗時は`library`／`failed`、
   複数枚の一部だけ成功した場合は`mixed`／`partial`を返す。
 
-## model／effort contract
+## 最新の段階／model／effort contract
 
-- catalogは毎回公式`/models` runtimeから取得する。
-- `is_work_mode_model=true`は通常Chatから除外する。
-- model未指定なら公式defaultへ委ねる。
-- effort指定時はmodel指定も必須。
-- effortは対象modelのlive `thinking_efforts`と完全一致させる。
-- 非対応組合せをdefaultへfallbackしない。
+- `chat`と`consult`は、`level`・`model`・`effort`を省略すると「最新」のスライダー右端を選ぶ。
+- catalogは公式`/models`の`versions[id=latest].intelligence_presets`を取得し、配列順を保つ。段階IDで並べ替えない。
+- 段階名は`chatgpt_models`の`levels[].level`から選び、`level`へ渡す。内部model／effortへの変換はconnectorが所有する。
+- 各presetの`model_slug`と、定義されている`thinking_effort`だけを送る。effortが無いpresetに値を補わない。
+- 右端が利用不可なら`MODEL_NOT_AVAILABLE`、最新の定義を取得できなければ`RUNTIME_DRIFT`で止まる。
+- 既存の明示`model`／`effort`指定は互換入口として維持し、`level`との併用を拒否する。effort指定時はmodelも必須。
+- 明示effortは対象modelのlive `thinking_efforts`と完全一致させる。`is_work_mode_model=true`は通常Chatから除外する。
+- 実行結果のmodelと指定したeffortを照合し、不一致は`MODEL_RESOLUTION_MISMATCH`で失敗する。別モデルや下位段階へ自動変更しない。
 - `serviceTier`は別軸で、初期版では指定しない。
 
 ## session contract

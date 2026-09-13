@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0 - 2026-09-13
+
+- 通常Chatの最新スライダーに一致する5段階を`level`／CLIの`--level`で選べるようにした。指定を省略すると最新の右端を使う。
+- 段階の順序とmodel／effortを公式runtimeの最新presetから取得し、モデル更新へ追従する。effortが無いpresetには値を補わず、利用不可・定義の変化・実行結果の不一致は明示的に失敗させる。
+- 保存済みconsultを返す前に最新の利用可否を再検証していた処理順を修正した。既存のmodel／effort明示指定と7つのMCP tool、state schemaは維持する。
+
 ## 0.5.3 - 2026-09-12
 
 - WindowsのsetupがGit付属tarを選ぶと、バックアップ先のドライブ文字を接続先と解釈して登録に失敗する欠陥を修正した。製品のplatform処理がWindows標準tarを直接選び、呼出し元のPATHに依存せず設定を保存する。

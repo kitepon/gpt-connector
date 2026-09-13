@@ -1,5 +1,7 @@
+import { z } from "zod";
+
 import { ConnectorError } from "./errors.js";
-import type { ModelCatalog, ModelChoice } from "./contract.js";
+import type { ChatInput, ModelCatalog, ModelChoice } from "./contract.js";
 
 export interface RawThinkingEffort {
   readonly thinking_effort?: unknown;
@@ -18,6 +20,7 @@ export interface RawModel {
 export interface RawModelCatalog {
   readonly default_model_slug?: unknown;
   readonly models?: unknown;
+  readonly versions?: unknown;
 }
 
 function toEfforts(value: unknown): readonly string[] {
@@ -56,13 +59,80 @@ export function normalizeModelCatalog(raw: RawModelCatalog): ModelCatalog {
       })
     : [];
 
-  const defaultModel =
-    typeof raw.default_model_slug === "string" &&
-    models.some((model) => model.id === raw.default_model_slug)
-      ? raw.default_model_slug
-      : null;
+  return withLatestLevels(models, raw.versions);
+}
 
-  return { defaultModel, models };
+export function withLatestLevels(models: readonly ModelChoice[], versions: unknown): ModelCatalog {
+  const candidates = Array.isArray(versions)
+    ? versions.filter((version) => version?.id === "latest") : [];
+  const parsed = latestVersionSchema.safeParse(candidates.length === 1 ? candidates[0] : null);
+  if (!parsed.success) {
+    throw new ConnectorError("RUNTIME_DRIFT", "通常Chatの最新スライダー定義を取得できませんでした。");
+  }
+  const levels = parsed.data.intelligence_presets.map((preset) => ({
+    id: preset.id,
+    level: preset.title,
+    displayVersion: preset.selected_display_version ?? null,
+    model: preset.model_slug,
+    ...(preset.thinking_effort === undefined ? {} : { effort: preset.thinking_effort }),
+    available: preset.preset_type === "available",
+  }));
+  if (new Set(levels.map((level) => level.level)).size !== levels.length) {
+    throw new ConnectorError("RUNTIME_DRIFT", "最新スライダーの段階名が重複しています。");
+  }
+  // 右端は配列の最後。presetのidは順序を表さない。
+  const rightmost = levels[levels.length - 1]!;
+  return { version: "latest", defaultLevel: rightmost.level, defaultModel: rightmost.model, levels, models };
+}
+
+const latestVersionSchema = z.object({
+  id: z.literal("latest"),
+  enabled: z.literal(true),
+  intelligence_presets: z.array(z.object({
+    id: z.number().int(),
+    title: z.string().min(1),
+    selected_display_version: z.string().optional(),
+    model_slug: z.string().min(1),
+    thinking_effort: z.string().min(1).optional(),
+    preset_type: z.string().min(1),
+  })).min(1),
+});
+
+export interface ChatSelection {
+  readonly model: string;
+  readonly effort?: string;
+}
+
+export function resolveChatSelection(
+  catalog: ModelCatalog,
+  input: Pick<ChatInput, "level" | "model" | "effort">,
+): ChatSelection {
+  if (input.level !== undefined && (input.model !== undefined || input.effort !== undefined)) {
+    throw new ConnectorError("INVALID_INPUT", "levelとmodel/effortは併用できません。");
+  }
+  if (input.model !== undefined || input.effort !== undefined) {
+    validateModelSelection(catalog, input.model, input.effort);
+    return { model: input.model!, ...(input.effort === undefined ? {} : { effort: input.effort }) };
+  }
+  const level = input.level === undefined
+    ? catalog.levels[catalog.levels.length - 1]
+    : catalog.levels.find((candidate) => candidate.level === input.level);
+  if (!level || !level.available) {
+    throw new ConnectorError("MODEL_NOT_AVAILABLE", "指定した最新の段階を利用できません。", {
+      level: input.level ?? catalog.defaultLevel,
+    });
+  }
+  validateModelSelection(catalog, level.model, level.effort);
+  return { model: level.model, ...(level.effort === undefined ? {} : { effort: level.effort }) };
+}
+
+export function modelResolutionMatches(
+  model: string,
+  effort: string | undefined,
+  resolvedModel: string | null,
+  resolvedEffort: string | null,
+): boolean {
+  return model === resolvedModel && (effort === undefined || effort === resolvedEffort);
 }
 
 export interface ValidatedModelSelection {

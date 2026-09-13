@@ -2,6 +2,9 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [chatgpt-app/latest-slider-20260913.md](chatgpt-app/latest-slider-20260913.md) — 最新スライダー5段階、右端の既定、Proのeffort省略、冪等な結果回収（2026-09-13・公式runtime＋製品実測）
+- [chatgpt-app/raw/latest-slider-20260913.md](chatgpt-app/raw/latest-slider-20260913.md) — 公式runtimeのlatest preset定義の抜粋（2026-09-13）
+
 - [setup/npm-publish-auth-20260910.md](setup/npm-publish-auth-20260910.md) — 3OS gate通過後のnpm E404とtrust list E401を分離し、公開設定を所有者ログイン後に確認する（2026-09-10・公式資料＋CI実測）
 - [setup/raw/npm-trust-20260910.md](setup/raw/npm-trust-20260910.md) — npm trustの公式原文抜粋（2026-09-10・MarkItDown取得）
 

@@ -9,6 +9,9 @@ import {
 
 const catalog = normalizeModelCatalog({
   default_model_slug: "gpt-chat",
+  versions: [{ id: "latest", enabled: true, intelligence_presets: [
+    { id: 3, title: "Pro", model_slug: "gpt-chat", preset_type: "available" },
+  ] }],
   models: [
     {
       slug: "gpt-chat",

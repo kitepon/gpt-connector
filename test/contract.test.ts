@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   consultInputSchema,
+  chatInputSchema,
   imageInputSchema,
   sessionsInputSchema,
 } from "../src/contract.js";
@@ -71,6 +72,13 @@ test("effort指定時はmodelを必須にする", () => {
     }).effort,
     "extended",
   );
+});
+
+test("chatとconsultは最新の段階を受け取り、省略を内部モデル名で埋めない", () => {
+  assert.equal(chatInputSchema.parse({ prompt: "確認", level: "Pro" }).level, "Pro");
+  assert.equal(consultInputSchema.parse({ prompt: "確認", slug: "level-001", level: "高" }).level, "高");
+  assert.equal(chatInputSchema.parse({ prompt: "確認" }).model, undefined);
+  assert.throws(() => consultInputSchema.parse({ prompt: "確認", slug: "level-002", level: "Pro", model: "gpt-thinking" }));
 });
 
 test("sessions inputはexact slugだけを受ける", () => {

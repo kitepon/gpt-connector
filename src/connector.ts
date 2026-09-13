@@ -40,7 +40,9 @@ import {
   connectorErrorCodes,
   type ConnectorErrorCode,
 } from "./errors.js";
-import { validateModelSelection } from "./model-catalog.js";
+import {
+  withLatestLevels, resolveChatSelection, validateModelSelection, type ChatSelection,
+} from "./model-catalog.js";
 import {
   bridgeBuildId,
   createBridgeBootstrapExpression,
@@ -65,6 +67,7 @@ const operationEnvelopeSchema = z.object({
 
 const modelCatalogSchema = z.object({
   defaultModel: z.string().nullable(),
+  versions: z.array(z.unknown()),
   models: z.array(
     z.object({
       id: z.string(),
@@ -259,7 +262,11 @@ export class GptConnector {
 
   async models(): Promise<ModelCatalog> {
     const result = await this.#runOperation("startModels", []);
-    return modelCatalogSchema.parse(result);
+    const parsed = modelCatalogSchema.safeParse(result);
+    if (!parsed.success) {
+      throw new ConnectorError("RUNTIME_DRIFT", "通常Chatのモデル一覧の形式が変わりました。");
+    }
+    return withLatestLevels(parsed.data.models, parsed.data.versions);
   }
 
   async diagnostics(): Promise<ConnectorDiagnostics> {
@@ -299,9 +306,6 @@ export class GptConnector {
       throw new ConnectorError("INVALID_INPUT", "consult inputが公開schemaに一致しません。");
     }
 
-    const catalog = await this.models();
-    validateModelSelection(catalog, parsed.model, parsed.effort);
-
     const prepared = parsed.files === undefined
       ? { files: [] as readonly PreparedAttachmentFile[], totalBytes: 0 }
       : await prepareAttachmentFiles({
@@ -317,14 +321,15 @@ export class GptConnector {
     }));
 
     if (parsed.dryRun) {
+      const selection = resolveChatSelection(await this.models(), parsed);
       for (const file of prepared.files) file.content.fill(0);
       return {
         dryRun: true,
         slug: parsed.slug,
         files: fileMetadata,
         totalBytes: prepared.totalBytes,
-        requestedModel: parsed.model ?? null,
-        requestedEffort: parsed.effort ?? null,
+        requestedModel: selection.model,
+        requestedEffort: selection.effort ?? null,
         limits: attachmentLimits,
         uploadWouldRun: false,
         conversationWouldRun: false,
@@ -333,6 +338,7 @@ export class GptConnector {
 
     const fingerprint = consultFingerprint({
       prompt: parsed.prompt,
+      level: parsed.level,
       files: fileMetadata,
       model: parsed.model ?? null,
       effort: parsed.effort ?? null,
@@ -384,6 +390,7 @@ export class GptConnector {
   ): Promise<ConsultSnapshot> {
     let uploadHandles: readonly string[] = [];
     try {
+      const selection = resolveChatSelection(await this.models(), parsed);
       await this.#jobs.transition(parsed.slug, "uploading");
       uploadHandles = await this.#uploadAttachments(files);
       await this.#jobs.transition(parsed.slug, "submitted");
@@ -396,7 +403,7 @@ export class GptConnector {
           keepOpen: parsed.keepOpen,
         },
         uploadHandles,
-        true,
+        selection,
       );
       return this.#jobs.transition(parsed.slug, "succeeded", {
         result: {
@@ -447,6 +454,8 @@ export class GptConnector {
           } : {}),
         },
       });
+    } finally {
+      for (const file of files) file.content.fill(0);
     }
   }
 
@@ -756,19 +765,16 @@ export class GptConnector {
   async #chatParsed(
     parsed: z.output<typeof chatInputSchema>,
     attachmentHandles: readonly string[],
-    selectionValidated = false,
+    selection?: ChatSelection,
   ): Promise<BridgeChatResult> {
-    if (!selectionValidated) {
-      const catalog = await this.models();
-      validateModelSelection(catalog, parsed.model, parsed.effort);
-    }
+    const selected = selection ?? resolveChatSelection(await this.models(), parsed);
 
     const existingSession = parsed.sessionId;
     if (existingSession !== undefined) this.#sessions.acquire(existingSession);
 
     try {
       const raw = await this.#runOperation("startChat", [
-        { ...parsed, attachmentHandles },
+        { ...parsed, ...selected, attachmentHandles },
       ]);
       const result = bridgeChatResultSchema.parse(raw);
 
@@ -1106,6 +1112,7 @@ function diagnosticReason(code: ConnectorErrorCode | null): ConnectorDiagnostics
 
 function consultFingerprint(input: {
   readonly prompt: string;
+  readonly level?: string;
   readonly files: readonly {
     readonly relativePath: string;
     readonly bytes: number;
@@ -1126,6 +1133,7 @@ function consultFingerprint(input: {
       model: input.model,
       effort: input.effort,
       keepOpen: input.keepOpen,
+      ...(input.level === undefined ? {} : { level: input.level }),
     }))
     .digest("hex");
 }

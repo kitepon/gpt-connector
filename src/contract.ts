@@ -8,7 +8,13 @@ export const consultSlugSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9._-]{2,63}$/u);
 
-// model/effortはlive ChatGPTのcatalogでfail-closedに検証される。
+// 段階から内部model/effortへの変換はconnectorが所有する。
+export const chatgptLevelFieldDescription =
+  "通常Chatの「最新」の思考量。chatgpt_modelsのlevelsにあるlevelを指定する" +
+  "（例: Instant・中程度・高・極高・Pro）。省略時は最新スライダーの右端。" +
+  "model/effortとの併用は不可。";
+
+// 明示model/effortは既存呼出しと画像生成の互換入口。
 export const chatgptModelFieldDescription =
   "chatgpt_modelsが返すOpenAI ChatGPTのmodel slugだけを指定する（例 gpt-5-5）。" +
   "catalogに無い値はMODEL_NOT_AVAILABLEで失敗する。";
@@ -19,6 +25,7 @@ export const chatgptEffortFieldDescription =
 export const consultInputSchema = z
   .object({
     prompt: z.string().min(1),
+    level: z.string().min(1).optional().describe(chatgptLevelFieldDescription),
     files: z.array(z.string()).min(1).max(20).optional(),
     workspaceRoot: z.string().min(1).optional(),
     model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
@@ -42,6 +49,9 @@ export const consultInputSchema = z
         message: "workspaceRootはabsolute pathで指定してください。",
         path: ["workspaceRoot"],
       });
+    }
+    if (input.level !== undefined && (input.model !== undefined || input.effort !== undefined)) {
+      context.addIssue({ code: "custom", message: "levelとmodel/effortは併用できません。", path: ["level"] });
     }
     if (input.effort !== undefined && input.model === undefined) {
       context.addIssue({
@@ -116,8 +126,9 @@ export interface ConsultDryRunResult {
 export const chatInputSchema = z
   .object({
     prompt: z.string().min(1),
-    model: z.string().min(1).optional(),
-    effort: z.string().min(1).optional(),
+    level: z.string().min(1).optional().describe(chatgptLevelFieldDescription),
+    model: z.string().min(1).optional().describe(chatgptModelFieldDescription),
+    effort: z.string().min(1).optional().describe(chatgptEffortFieldDescription),
     sessionId: z.string().uuid().optional(),
     keepOpen: z.boolean().default(false),
   })
@@ -142,8 +153,20 @@ export interface ModelChoice {
   readonly maxTokens: number | null;
 }
 
+export interface ChatLevel {
+  readonly id: number;
+  readonly level: string;
+  readonly displayVersion: string | null;
+  readonly model: string;
+  readonly effort?: string;
+  readonly available: boolean;
+}
+
 export interface ModelCatalog {
-  readonly defaultModel: string | null;
+  readonly version: "latest";
+  readonly defaultLevel: string;
+  readonly defaultModel: string;
+  readonly levels: readonly ChatLevel[];
   readonly models: readonly ModelChoice[];
 }
 

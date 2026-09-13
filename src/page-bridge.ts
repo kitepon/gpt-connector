@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { modelResolutionMatches } from "./model-catalog.js";
 
 export const bridgeGlobalName = "__gptConnectorBridgeV1";
 
 const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl, uploadUrl, sharedUrl, expectedBuildId) {
   const globalName = "__gptConnectorBridgeV1";
+  const selectionMatches = ${modelResolutionMatches.toString()};
   if (globalThis[globalName]?.version === 1 && globalThis[globalName]?.buildId === expectedBuildId) {
     return globalThis[globalName].summary();
   }
@@ -200,7 +202,8 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       defaultModel: models.some((model) => model.id === raw.default_model_slug)
         ? raw.default_model_slug
         : null,
-      models
+      models,
+      versions: raw.versions
     };
   };
 
@@ -854,6 +857,11 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           // 画像turnの終端assistantメッセージのmodel slugはtool操作サブターン名義。
           // requested modelの照合対象はuserメッセージ側のresolved_model_slugに置き換える(nullなら照合失敗として上位で弾く)。
           if (input.imageMode === true) result.resolvedModel = promptResolvedModel;
+          if (input.imageMode !== true && !selectionMatches(
+            input.model, input.effort, result.resolvedModel, result.resolvedEffort
+          )) {
+            throw new Error("MODEL_RESOLUTION_MISMATCH:通常Chatの実行model/effortが指定と一致しません。");
+          }
           const attachmentSummary = await readBackAttachments(
             session.conversation,
             attachments
@@ -886,6 +894,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           const message = String(error?.message ?? error);
           const code = message.startsWith("MODEL_NOT_AVAILABLE") ? "MODEL_NOT_AVAILABLE"
             : message.startsWith("EFFORT_NOT_SUPPORTED") ? "EFFORT_NOT_SUPPORTED"
+            : message.startsWith("MODEL_RESOLUTION_MISMATCH") ? "MODEL_RESOLUTION_MISMATCH"
             : message.startsWith("STREAM_INCOMPLETE") ? "STREAM_INCOMPLETE"
             : message.startsWith("ARCHIVE_FAILED") ? "ARCHIVE_FAILED"
             : message.startsWith("ATTACHMENT_READBACK_FAILED") ? "ATTACHMENT_READBACK_FAILED"
