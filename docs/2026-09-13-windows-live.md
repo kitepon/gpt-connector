@@ -31,5 +31,6 @@
 - 専用Chromeを終了してcold startし、再ログインなしでstartedを確認。
 - 独立反証でMac挙動差なし。Windows stdinの.NET bufferによる停止を最小試験で再現し、明示Flushで修理した。
 - 最終のlocal gateはlint・型検査・203試験成功、15件はOS等の条件によりskip。build、release gateの5試験、npm packの136fileも確認。
+- [mainのCI](https://github.com/kitepon/gpt-connector/actions/runs/34756845347)でMac・Windows・Linuxの製品試験とrelease commit gateが成功。
 
 現在地: 0.9.0の公開gateと公開後導入を実施する。最終のDesktop再起動と実機Steerは未確認。

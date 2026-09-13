@@ -104,7 +104,7 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 | `failed` | 1 | 導入・登録・MCP・state・browserのいずれかが失敗 |
 | `partial` | 2 | Linuxの対応機能は完了、liveブラウザ操作は未対応 |
 
-非Macの`partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
+Linuxの`partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
 `registrations`にAI別の保存先、backup、MCP、state、live、失敗段階を返す。秘密値や構文errorの生内容は出力しない。
 `SETUP_PACKAGE_FAILED`はnpm導入・引継ぎ、`SETUP_REGISTRATION_FAILED`は設定読取・構文・保存、
 `SETUP_MCP_FAILED`はcommand解決・版・stdio応答、`SETUP_STATE_FAILED`はstate読取、
@@ -113,7 +113,7 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 各AIは新しいセッションで設定を読む。`clientActivation = new_client_session_required`は既存AIセッションへの反映済みを意味しない。
 最終導入確認では対象AI自身から登録・read-only toolを確認する。Codex project設定ではtrusted projectを開く。
 
-## Macのブラウザとログイン
+## MacとWindowsのブラウザとログイン
 
 専用profileは`~/.gpt-connector/browser-profile`、製品が起動・表示を所有するendpointは`http://127.0.0.1:9223`。
 setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しない。`cdp_unavailable`なら既存`startBrowser`を呼び、再診断する。
