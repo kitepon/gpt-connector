@@ -141,10 +141,17 @@ export const mcpToolNames = [
 
 export const mcpServerVersion = packageVersion;
 
+const chatgptContextWarning =
+  "【警告】呼び出し先のChatGPTには、呼び出し元AIの会話・作業前提・ローカルファイル・リポジトリの知識は自動共有されない。" +
+  "前提を知らない相手として、目的・背景・制約と、対象を特定できるGitHub等のURLや必要な資料・コードをpromptまたは添付で明示すること。" +
+  "根拠を渡さないと、存在しない仕様やコードを捏造して回答するおそれがある。" +
+  "URLの指定だけで内容を読めたとはみなさず、参照できない資料は本文または添付で渡すこと。";
+
 // callerが最初に読む境界宣言。検索索引は否定文も一致させるため、他provider固有名を列挙せず
 // 本serverが実行できるChatGPTの肯定能力だけを書く。
 export const mcpServerInstructions =
   "このserverはログイン済みOpenAI ChatGPT (consumer Web) 専用のconnectorである。" +
+  chatgptContextWarning +
   "通常Chatは「最新」の5段階をlevelで選ぶ。指定がなければ最新スライダーの右端を使う。" +
   "段階名と順序はchatgpt_modelsのlevelsが正。内部model/effortの変換はconnectorが行う。" +
   "ChatGPTへ送る場合: second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。" +
@@ -155,11 +162,14 @@ export const mcpToolDescriptions = {
   chatgpt_models:
     "通常Chatの「最新」の思考量をWebと同じ名前・順序でlevelsに返す。defaultLevelは右端。互換用のmodel一覧も返す。",
   chatgpt_chat:
-    "OpenAI ChatGPT公式Web runtimeの通常Chatへ送信する。levelで最新の段階を選び、省略時は最新の右端。keepOpen=falseなら応答後archiveする。",
+    "OpenAI ChatGPT公式Web runtimeの通常Chatへ送信する。levelで最新の段階を選び、省略時は最新の右端。keepOpen=falseなら応答後archiveする。" +
+    chatgptContextWarning,
   chatgpt_image:
-    "OpenAI ChatGPT通常枠で画像を生成し、Libraryと会話を相関確認してworkspaceRoot配下へno-clobber保存する。slugで冪等化する。",
+    "OpenAI ChatGPT通常枠で画像を生成し、Libraryと会話を相関確認してworkspaceRoot配下へno-clobber保存する。slugで冪等化する。" +
+    chatgptContextWarning,
   consult:
-    "OpenAI ChatGPT公式Web runtimeの通常Chatへ相談する。levelで最新の段階を選び、省略時は最新の右端。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。",
+    "OpenAI ChatGPT公式Web runtimeの通常Chatへ相談する。levelで最新の段階を選び、省略時は最新の右端。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。" +
+    chatgptContextWarning,
   sessions:
     "本serverが所有する既知slug 1件の状態・terminal result・errorを返し、再送は行わない。",
   diagnostics:
