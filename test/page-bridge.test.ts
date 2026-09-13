@@ -74,6 +74,24 @@ test("bridgeは公式upload objectとattachment read-backを一意化する", ()
   assert.match(expression, /ATTACHMENT_READBACK_FAILED/u);
 });
 
+test("公式uploadが確定したMIME型を使い、添付identityの食い違いは拒否する", () => {
+  const expression = createBridgeBootstrapExpression("core", "conversation", "upload", "shared");
+  const start = expression.indexOf("const normalizeUploadedAttachment = ");
+  const end = expression.indexOf("const readBackAttachments = ", start);
+  const normalize = vm.runInNewContext(`${expression.slice(start, end)}; normalizeUploadedAttachment`);
+  const input = { name: "source.ts", size: 42, mimeType: "text/plain" };
+  const uploaded = { status: "ready", fileSpec: {
+    id: "file-source", name: "source.ts", size: 42, mimeType: "application/javascript",
+  } };
+  assert.equal(normalize(input, uploaded).mime_type, "application/javascript");
+  assert.equal(normalize(input, uploaded).id, "file-source");
+  for (const [field, value] of [["id", ""], ["name", "different.ts"], ["size", 43], ["mimeType", ""]] as const) {
+    assert.throws(() => normalize(input, { ...uploaded, fileSpec: { ...uploaded.fileSpec, [field]: value } }),
+      new RegExp(`RUNTIME_DRIFT:upload_metadata:${field}`));
+  }
+  assert.throws(() => normalize(input, { ...uploaded, status: "uploading" }), /upload_metadata:status/);
+});
+
 test("bridgeは生成画像をcurrent turnとLibraryの二重IDで相関しchunk回収する", () => {
   const expression = createBridgeBootstrapExpression(
     "https://cdn.oaistatic.com/assets/core.js",

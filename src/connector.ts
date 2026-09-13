@@ -142,6 +142,8 @@ export function imageResolutionMatches(
 // 画像生成は通常Chatより長くかかり、実測で180秒直後にdownloadが揃うことがある。
 // callerの短いoperationTimeoutMsでも、画像だけは生成済み結果を捨てない待機幅を確保する。
 export const imageOperationTimeoutMs = 360_000;
+// Chat Proは実測で4分7秒の推論を要した。接続・uploadの期限と分け、通常Chatの完了を待つ。
+const chatOperationTimeoutMs = 600_000;
 
 const uploadHandleSchema = z.object({ uploadHandle: z.string().uuid() });
 const uploadChunkResultSchema = z.object({ receivedBytes: z.number().int().nonnegative() });
@@ -775,7 +777,7 @@ export class GptConnector {
     try {
       const raw = await this.#runOperation("startChat", [
         { ...parsed, ...selected, attachmentHandles },
-      ]);
+      ], Math.max(this.#operationTimeoutMs, chatOperationTimeoutMs));
       const result = bridgeChatResultSchema.parse(raw);
 
       if (existingSession !== undefined) {
@@ -897,8 +899,7 @@ export class GptConnector {
       if (
         result.uploadHandle !== created.uploadHandle ||
         result.name !== file.name ||
-        result.size !== file.bytes ||
-        result.mimeType !== file.mimeType
+        result.size !== file.bytes
       ) {
         throw new ConnectorError(
           "RUNTIME_DRIFT",

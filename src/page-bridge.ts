@@ -223,17 +223,14 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
   const normalizeUploadedAttachment = (upload, uploaded) => {
     const spec = uploaded?.fileSpec;
     const mimeType = spec?.mimeType ?? uploaded?.file?.type ?? null;
-    if (
-      uploaded?.status !== "ready" ||
-      !spec ||
-      typeof spec.id !== "string" ||
-      spec.id.length === 0 ||
-      spec.name !== upload.name ||
-      spec.size !== upload.size ||
-      mimeType !== upload.mimeType
-    ) {
-      throw new Error("RUNTIME_DRIFT:upload_metadata");
-    }
+    // 外部runtimeの変更箇所だけを示し、添付名や本文はエラーへ含めない。
+    if (uploaded?.status !== "ready") throw new Error("RUNTIME_DRIFT:upload_metadata:status");
+    if (!spec) throw new Error("RUNTIME_DRIFT:upload_metadata:fileSpec");
+    if (typeof spec.id !== "string" || spec.id.length === 0) throw new Error("RUNTIME_DRIFT:upload_metadata:id");
+    if (spec.name !== upload.name) throw new Error("RUNTIME_DRIFT:upload_metadata:name");
+    if (spec.size !== upload.size) throw new Error("RUNTIME_DRIFT:upload_metadata:size");
+    // 公式uploadは拡張子からMIME型を確定するため、送信時の型と異なることがある。
+    if (typeof mimeType !== "string" || mimeType.length === 0) throw new Error("RUNTIME_DRIFT:upload_metadata:mimeType");
     return {
       id: spec.id,
       size: spec.size,
@@ -674,7 +671,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
             uploadHandle: input.uploadHandle,
             name: upload.name,
             size: upload.size,
-            mimeType: upload.mimeType
+            mimeType: upload.attachment.mime_type
           };
         } catch (error) {
           if (timeoutId !== null) clearTimeout(timeoutId);

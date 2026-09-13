@@ -29,6 +29,17 @@ function disable(box: ReturnType<typeof sandbox>) {
   writeFileSync(box.configPath, JSON.stringify({ schema_version: "1.0", host: { id: "test-host", profile: "mac" }, collection: { enabled: false }, reporting: { enabled: false } }), { mode: 0o600 });
 }
 
+test("発生版は直近の発生で更新し、snapshotの実行版から推測しない", () => {
+  const box = sandbox(); enable(box);
+  observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-09-01T00:00:00.000Z" }, { env: box.env, version: "1.0.0" });
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env, version: "2.0.0" }).runtime_errors[0]!.product_version, "1.0.0");
+  observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-09-02T00:00:00.000Z" }, { env: box.env, version: "2.0.0" });
+  const entry = readRuntimeErrorSnapshot({ env: box.env, version: "3.0.0" }).runtime_errors[0]!;
+  assert.equal(entry.product_version, "2.0.0");
+  assert.equal(entry.occurrence_count, 2);
+  assert.equal(entry.last_seen, "2026-09-02T00:00:00.000Z");
+});
+
 test("runtime error storeはcanonical collection.enabled=true以外でstateを作らない", () => {
   const box = sandbox();
   assert.deepEqual(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }), { status: "disabled" });

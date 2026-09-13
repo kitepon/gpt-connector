@@ -15,17 +15,28 @@ test("通常Chatの5段階を送信し、保存済みconsultは後日の利用�
   const stateDirectory = await mkdtemp(join(tmpdir(), "gpt-latest-levels-"));
   const sent: Array<{ model: string; effort?: string }> = [];
   let lastResult: unknown;
+  let clock = Date.now();
+  let proPending = false;
+  t.mock.method(Date, "now", () => clock);
   const bridge = {
     version: 1, buildId: bridgeBuildId,
     summary: () => ({ version: 1, buildId: bridgeBuildId, ready: true }),
     startChat: (input: { model: string; effort?: string }) => {
       sent.push(input);
+      proPending = input.model === 'gpt-pro';
       lastResult = { text: "確認済み", status: "finished_successfully", endTurn: true,
         resolvedModel: input.model, resolvedEffort: input.effort ?? null,
         attachments: { count: 0, names: [], mimeTypes: [], readBack: "confirmed", retention: "unknown", cleanup: "not_supported" } };
       return { operationId: randomUUID() };
     },
-    poll: () => ({ state: "succeeded", result: lastResult }),
+    poll: () => {
+      if (proPending) {
+        proPending = false;
+        clock += 247_000;
+        return { state: "pending" };
+      }
+      return { state: "succeeded", result: lastResult };
+    },
   };
   const client = {
     call: async (method: string, params?: { expression: string }) => {
@@ -40,7 +51,7 @@ test("通常Chatの5段階を送信し、保存済みconsultは後日の利用�
     close: () => {},
   };
   t.mock.method(CdpClient, "connect", async () => client as unknown as CdpClient);
-  const connector = await GptConnector.connect({ stateDirectory, fetch: async () => new Response(JSON.stringify([
+  const connector = await GptConnector.connect({ stateDirectory, pollIntervalMs: 1, fetch: async () => new Response(JSON.stringify([
     { id: "test", type: "page", url: "https://chatgpt.com/", webSocketDebuggerUrl: "ws://127.0.0.1/test" },
   ])) });
   let catalog = normalizeModelCatalog(rawCatalog);

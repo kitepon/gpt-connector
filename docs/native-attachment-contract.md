@@ -115,6 +115,8 @@ workspace境界とfile policyを通過したregular fileは、形式を問わず
 
 text／sourceは原則`text/plain`、既知形式には対応する標準MIMEを使う。未知拡張子または拡張子なしは`application/octet-stream`とする。不正UTF-8を含め、content validationは行わない。
 
+送信後のMIME型は公式uploadが返す値を正とする。公式runtimeが`.ts`を`application/javascript`へ確定する場合も受け付け、ファイルID・名前・サイズの照合を維持する。会話への添付読戻しは、この確定したMIME型と照合する。名前やサイズの不一致、型の欠落は`RUNTIME_DRIFT`で失敗する。
+
 OpenAI公式は一般的なtext、spreadsheet、presentation、documentを対応対象とし、XLSX、XLS、CSV、TSV、DOCX、PPTX、PDF、TXTを例示する。`.gdoc`は公式非対応。archive、audio、video、未知形式へMIMEを付けて送信できることは、ChatGPTが内容を解釈できる保証ではない。公式runtimeが拒否した場合は既存error契約で明示し、変換やfallbackを行わない。
 
 ## limit
@@ -247,6 +249,7 @@ resolve/validate
 - 部分upload済みfileはjob内部へ記録するが、削除成功を保証しない。
 - 部分upload後の失敗は`partialUpload.count`とcleanup状態をterminal errorへ残し、一括失敗の陰に隠さない。
 - caller timeoutはjob cancelを意味しない。`sessions(slug)`で状態を先に確認する。
+- 通常ChatはProの長い処理を含め、内部の応答待機を最低10分確保する。callerの待機期限とは別であり、期限を延ばしたことだけで成功とは扱わない。
 - explicit cancelと細粒度progressは未実装。state遷移とterminal回収で状態を明示し、未実装機能へfallbackしない。
 - CDP切断／process crash時は重複送信の可能性を除外できるまで自動retryしない。
 - prompt本文展開、別transport、別model、別effortへのfallbackはない。
