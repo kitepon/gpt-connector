@@ -73,6 +73,7 @@ const failureSchema = z.object({
 
 const snapshotSchema = z.object({
   slug: consultSlugSchema,
+  sessionId: z.string().uuid().optional(),
   state: z.enum(["queued", "uploading", "submitted", "running", "succeeded", "failed"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -81,7 +82,7 @@ const snapshotSchema = z.object({
 }).strict();
 
 const persistedSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
     snapshot: snapshotSchema,
@@ -116,6 +117,7 @@ export interface ConsultJobStoreDiagnostics {
 }
 
 export interface ConsultJobTransitionUpdate {
+  readonly sessionId?: string;
   readonly result?: ConsultSnapshot["result"];
   readonly error?: null | {
     readonly code: string;
@@ -281,6 +283,7 @@ export class ConsultJobStore {
       }
       const candidate = snapshotSchema.safeParse({
         ...current.snapshot,
+        ...(update.sessionId === undefined ? {} : { sessionId: update.sessionId }),
         state,
         updatedAt: new Date().toISOString(),
         result: state === "succeeded" ? (update.result ?? null) : null,
@@ -340,12 +343,22 @@ export class ConsultJobStore {
       );
     }
     const payload = JSON.stringify({
-      version: 1,
+      version: 2,
       jobs: [...jobs.values()].sort((left, right) =>
         left.snapshot.slug.localeCompare(right.snapshot.slug, "en")),
     });
     const temporaryPath = `${this.#statePath}.${process.pid}.${randomUUID()}.tmp`;
     try {
+      // 旧版のstrict readerは受付IDを読めない。最初の移行前の台帳をそのまま残す。
+      let previous: string | undefined;
+      try { previous = await readFile(this.#statePath, "utf8"); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (previous !== undefined && JSON.parse(previous).version === 1) {
+        try { await writeFile(`${this.#statePath}.v1-backup`, previous, { mode: 0o600, flag: "wx" }); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
+      }
       await writeFile(temporaryPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
       await rename(temporaryPath, this.#statePath);
       await chmodPrivateIfPosix(this.#statePath);

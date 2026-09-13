@@ -8,6 +8,7 @@ import {
   chatgptLevelFieldDescription,
   chatInputSchema,
   chatgptModelFieldDescription,
+  chatgptSessionFieldDescription,
   consultInputSchema,
   imageInputSchema,
 } from "../src/contract.js";
@@ -67,4 +68,17 @@ test("公開MCP schemaは最新の段階と省略時の右端を案内する", (
     assert.equal(json.properties.level?.description, chatgptLevelFieldDescription);
     assert.match(json.properties.level?.description ?? "", /省略時は最新スライダーの右端/u);
   }
+});
+
+test("公開MCP schemaから受付ID・会話の継続・前提の再送省略を認識できる", () => {
+  for (const schema of [chatInputSchema, consultInputSchema]) {
+    const json = z.toJSONSchema(schema, { io: "input" }) as { properties: Record<string, { description?: string }> };
+    assert.equal(json.properties.sessionId?.description, chatgptSessionFieldDescription);
+    assert.match(json.properties.sessionId?.description ?? "", /再送は不要/u);
+    assert.match(json.properties.keepOpen?.description ?? "", /chatgpt_close/u);
+  }
+  const json = z.toJSONSchema(consultInputSchema, { io: "input" });
+  assert.match(JSON.stringify(json.properties?.wait), /受付/u);
+  assert.match(mcpToolDescriptions.consult, /同じsessionId・新しいslug/u);
+  assert.match(mcpServerInstructions, /slugは1問い合わせ.*sessionIdは複数問い合わせ/u);
 });

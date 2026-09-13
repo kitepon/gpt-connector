@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] | sessions --slug <id> | close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -221,6 +221,7 @@ async function main(): Promise<void> {
         model: stringArg(values, "model"),
         effort: stringArg(values, "effort"),
         keepOpen: flagArg(values, "keep-open"),
+        sessionId: stringArg(values, "session-id"),
         dryRun: flagArg(values, "dry-run"),
       }));
       return;

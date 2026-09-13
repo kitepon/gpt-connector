@@ -747,6 +747,10 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       }, (error) => finishFailure(operation, error, "CHAT_FAILED"));
       return { operationId };
     },
+    sessionInfo: (sessionId) => {
+      const session = sessions.get(sessionId);
+      return session ? { sessionId, busy: session.busy } : null;
+    },
     startChat: (input) => {
       const operationId = startOperation("chat");
       const operation = operations.get(operationId);
@@ -776,7 +780,11 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
         return { operationId };
       }
       for (const upload of turnUploads) upload.state = "reserved";
-      if (session) session.busy = true;
+      if (!session) {
+        // 受付IDを返す前に予約し、初回の準備中も同じ会話への重複送信を拒否する。
+        session = { conversation: null, busy: true };
+        sessions.set(sessionId, session);
+      } else session.busy = true;
 
       void (async () => {
         let generatedImages = [];
@@ -784,7 +792,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           await validateSelection(input.model, input.effort);
           const attachments = turnUploads.map((upload) => upload.attachment);
           for (const handle of attachmentHandles) uploads.delete(handle);
-          if (!session) {
+          if (!session.conversation) {
             const conversation = conversationFactory();
             if (!conversation || typeof conversation.id !== "string" || !conversation.id.startsWith("WEB:")) {
               throw new Error("RUNTIME_DRIFT:factory_output");
@@ -794,8 +802,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
               conversationMode: { kind: "primary_assistant" },
               conversationOrigin: null
             });
-            session = { conversation, busy: true };
-            sessions.set(sessionId, session);
+            session.conversation = conversation;
           }
           const prompt = String(input.prompt);
           const params = await builder({
@@ -912,7 +919,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           if (current) current.busy = false;
         }
       })();
-      return { operationId };
+      return { operationId, sessionId };
     },
     startClose: (input) => {
       const operationId = startOperation("close");
@@ -980,6 +987,7 @@ export function createBridgeCallExpression(
     | "diagnostics"
     | "startModels"
     | "startChat"
+    | "sessionInfo"
     | "startClose"
     | "poll",
   args: readonly unknown[],

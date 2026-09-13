@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.6.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
+現在ソース版は`gpt-connector@0.7.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -30,7 +30,7 @@ MarkItDownは別区分の第三者CLIです。
 ## 成立済み機能
 
 - 通常Chatのone-shot送信と自動archive。
-- process内opaque sessionによる複数turn継続。
+- 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
 - live catalog取得と、既存のmodel／thinking effort明示選択。
@@ -263,7 +263,7 @@ GPT_CONNECTOR_STATE_DIR = "/absolute/product-owned/state/gpt-connector"
 5. second opinionはcaller既知slugを付けて`consult`を呼ぶ。
 6. 画像生成はcaller既知slug、model、absolute `workspaceRoot`、relative `output`を付けて`chatgpt_image`を呼ぶ。
 7. timeout時は再送せず、同じslugを`sessions`へ渡す。
-8. 既存互換の複数turnで`keepOpen=true`を使った場合は、最後に`chatgpt_close`を呼ぶ。
+8. 継続相談は`keepOpen=true`で会話を保持し、同じ`sessionId`と新しい`slug`で追加質問する。最後に`chatgpt_close`を呼ぶ。
 
 MCP tools（すべてOpenAI ChatGPT専用。`consult`／`sessions`／`diagnostics`はtool名が中立だが、
 Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない。server instructionsと
@@ -273,8 +273,8 @@ Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない
 - `chatgpt_chat`: 新規またはsession継続。既定`keepOpen=false`で応答後archive。
 - `chatgpt_image`: 通常枠で画像を生成し、同一turnのLibrary fileを検証してworkspaceへ保存。
 - `chatgpt_close`: sessionをarchiveしてhandleを破棄。deleteは行わない。
-- `consult`: slug冪等化、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。
-- `sessions`: exact slug 1件の状態／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
+- `consult`: slug冪等化、会話の継続、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。`wait=false`は回答完了前に受付結果を返す。
+- `sessions`: exact slug 1件の状態／sessionId／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
 
 `diagnostics`は専用Chrome未接続時も`gpt-connector.diagnostics.v1`の`not_ready`結果を正常応答として返し、
@@ -282,6 +282,26 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 接続失敗は、引き続きruntime-error storeへ記録する。
 
 正規server IDは`gpt_connector`。既存の別名登録はsetupが削除・改名しない。
+
+### 同じChatGPT会話で相談を続ける
+
+初回の`consult`で前提を伝え、`keepOpen=true`と`wait=false`を指定する。
+
+```json
+{"slug":"design-review-001","prompt":"この設計の前提は……。問題点を検討して。","keepOpen":true,"wait":false}
+```
+
+受付結果は`state="running"`、`result=null`と会話の`sessionId`を返す。回答は`sessions({"slug":"design-review-001"})`で取得する。
+`succeeded`を確認したら、返されたIDと新しいslugで追加質問する。
+
+```json
+{"slug":"design-review-002","sessionId":"初回に返されたUUID","prompt":"その2案の保守費用を比較して。","keepOpen":true,"wait":false}
+```
+
+同じ会話に送った前提や資料の再送は不要。変更点と追加質問だけを渡せる。最後は`chatgpt_close({"sessionId":"初回に返されたUUID"})`で閉じる。
+`slug`は1問い合わせの重複防止ID、`sessionId`は複数問い合わせで共有する会話ID。
+`wait`の既定は`true`で、従来どおり回答完了まで待つ。`wait=false`でも結果の自動通知は行わない。
+CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`consult --session-id <uuid> --keep-open`へ渡せる。
 
 ## attachment contract
 
@@ -327,7 +347,10 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 
 - session IDはconnector生成のopaque UUID。
 - server conversation IDやclient thread IDを含まない。
-- sessionはMCP server process memory限定。process再起動後は継続できない。
+- `keepOpen=true`の会話は専用Chromeのpage bridgeが保持する。MCP切断・再接続後も同じIDで継続・closeできる。
+- page再読込、Chrome終了、bridge更新でIDは無効になる。`SESSION_NOT_FOUND`を返し、新規会話への自動置換は行わない。
+- `consult`は`keepOpen=true`で受付時からsnapshot直下に`sessionId`を保存する。成功結果の`result.sessionId`も同じ値。
+- 次の質問は前の質問の成功後に送る。生成失敗時も受付IDは記録に残るが、初回生成の失敗では会話が破棄される。
 - 同一sessionへの並行turnは`SESSION_BUSY`。
 - one-shotと`chatgpt_close`はserverの`is_archived=true`をread-backしてから成功を返す。
 - delete機能はない。
@@ -340,6 +363,7 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
 - terminal jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。
 - 再起動前の非terminal jobは完了有無を断定せず`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。
+- 台帳はversion 2。version 1も読め、初回書込み前に`consult-jobs.json.v1-backup`へ元の台帳を保存する。旧版へ戻す条件は[CHANGELOG](CHANGELOG.md)の0.7.0を参照。
 
 ## failure codes
 
