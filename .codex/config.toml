@@ -4,7 +4,7 @@ startup_timeout_sec = 20
 tool_timeout_sec = 240
 enabled = true
 required = false
-enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_close"]
+enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics"]
 
 [mcp_servers.gpt_connector.env]
 GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
