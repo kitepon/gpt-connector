@@ -2,11 +2,11 @@
 import { createConnection } from "node:net";
 import { verifyRelaySocket } from "../codex-steer-config.js";
 import { findWindowsParentSocket, windowsSocketConnection } from "./windows-codex-parent.js";
-import { configureWindowsCodexSteer } from "./windows-codex-setup.js";
+import { windowsCodexRuntime } from "./windows-codex-setup.js";
 import { ConnectorError } from "../errors.js";
 
 export const supportsCodexSteer = (platform: string = process.platform) => platform === "darwin" || platform === "win32";
-export const codexSteerPlatform = (platform: string = process.platform) => platform === "win32" ? configureWindowsCodexSteer : undefined;
+export const codexSteerPlatform = (platform: string = process.platform, directory?: string) => platform === "win32" ? windowsCodexRuntime(directory) : undefined;
 
 export function parentSocketForPlatform(mac: () => string): string {
   if (process.platform === "win32") return findWindowsParentSocket();

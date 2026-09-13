@@ -5,7 +5,8 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, stat, rm, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,9 +16,13 @@ const binary = process.env.GPT_CONNECTOR_TEST_CODEX_BINARY;
 import { codexRelayLauncher } from '../dist/src/codex-steer-launcher.js';
 import { verifyCodexParent, deliverCodexAnswer } from '../dist/src/codex-parent.js';
 import { configureCodexSteer } from '../dist/src/setup-codex-steer.js';
+import { buildWindowsLauncher, windowsLauncherSource } from '../dist/src/platform/windows-codex-setup.js';
+import { ensurePrivateDirectory } from '../dist/src/platform/state.js';
+import { windowsSocketConnection, readWindowsProcesses, readWindowsRelay } from '../dist/src/platform/windows-codex-parent.js';
+const windows = process.platform === 'win32';
 
-test('単独setupの起動確認を公式binaryで行い、元の設定へ解除できる', { timeout: 30_000, skip: process.platform !== 'darwin' || !binary }, async t => {
-  const root = await mkdtemp('/tmp/gpt-connector-setup-test-');
+test('単独setupの起動確認を公式binaryで行い、元の設定へ解除できる', { timeout: 30_000, skip: (!windows && process.platform !== 'darwin') || !binary }, async t => {
+  const root = await mkdtemp(join(windows ? tmpdir() : '/tmp', 'gpt-connector-setup-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   let gui = null;
   const runtime = {
@@ -27,7 +32,7 @@ test('単独setupの起動確認を公式binaryで行い、元の設定へ解除
     persist: () => {}, unpersist: () => {}, live: async () => false, compatible: async () => false,
   };
   assert.equal((await configureCodexSteer('enable', runtime)).status, 'restart_required');
-  assert.equal(gui, join(root, 'config', 'codex'));
+  assert.equal(gui, JSON.parse(await readFile(join(root, 'config', 'config.json'), 'utf8')).launcher);
   assert.equal((await configureCodexSteer('disable', runtime)).status, 'restart_required');
   assert.equal(gui, null);
 });
@@ -80,8 +85,9 @@ function responseEvents(number, item) {
 
 for (const mode of ['delivery', 'active-disconnect']) test(mode === 'delivery'
   ? '公式署名版で中継・接続分離・Steer・終了後再開・終了処理を確認する'
-  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', { timeout: 45_000, skip: process.platform === 'win32' || !binary }, async t => {
-  const root = await mkdtemp('/tmp/gpt-connector-relay-test-');
+  : '実行中のstdio終了は追加接続が残っていても公式サーバーを終了する', { timeout: 45_000, skip: !binary }, async t => {
+  const root = await mkdtemp(join(windows ? tmpdir() : '/tmp', 'gpt-connector-relay-test-'));
+  if (windows) ensurePrivateDirectory(root);
   const home = join(root, 'home');
   const sockets = join(root, 's');
   await mkdir(home, { mode: 0o700 });
@@ -99,9 +105,9 @@ for (const mode of ['delivery', 'active-disconnect']) test(mode === 'delivery'
     const number = requests.length;
     if (number === 1) { firstArrived(); await firstGate; }
     const item = number === 1
-      ? { type: 'function_call', call_id: 'pause_once', name: 'exec_command', arguments: JSON.stringify({ cmd: 'sleep 0.1', yield_time_ms: 1000 }) }
+      ? { type: 'function_call', call_id: 'pause_once', name: 'exec_command', arguments: JSON.stringify({ cmd: windows ? 'Write-Output fixture' : 'sleep 0.1', yield_time_ms: 1000 }) }
       : number === 4
-      ? { type: 'function_call', call_id: 'approval_once', name: 'exec_command', arguments: JSON.stringify({ cmd: 'touch ./must-not-exist', sandbox_permissions: 'require_escalated', justification: '試験専用の書込み要求を拒否して中継を確認する' }) }
+      ? { type: 'function_call', call_id: 'approval_once', name: 'exec_command', arguments: JSON.stringify({ cmd: windows ? 'New-Item ./must-not-exist' : 'touch ./must-not-exist', sandbox_permissions: 'require_escalated', justification: '試験専用の書込み要求を拒否して中継を確認する' }) }
       : { type: 'message', role: 'assistant', id: `message-${number}`, content: [{ type: 'output_text', text: number === 2 ? '実行中の回答を受信' : '終了後の回答を受信' }] };
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.end(responseEvents(number, item));
@@ -124,12 +130,14 @@ supports_websockets = false
 request_max_retries = 0
 stream_max_retries = 0
 `, { mode: 0o600 });
-  const launcher = join(root, 'codex launcher');
-  await writeFile(launcher, codexRelayLauncher({ binary, node: process.execPath, relay: fileURLToPath(new URL('../dist/src/codex-stdio-relay.js', import.meta.url)), socket_root: sockets }), { mode: 0o700 });
+  const launcher = windows
+    ? buildWindowsLauncher(root, windowsLauncherSource(process.execPath, fileURLToPath(new URL('../dist/src/platform/windows-codex-relay.js', import.meta.url)), binary, sockets))
+    : join(root, 'codex launcher');
+  if (!windows) await writeFile(launcher, codexRelayLauncher({ binary, node: process.execPath, relay: fileURLToPath(new URL('../dist/src/codex-stdio-relay.js', import.meta.url)), socket_root: sockets }), { mode: 0o700 });
   const child = spawn(launcher, ['-c', 'model_reasoning_effort="low"', 'app-server', '-c', 'analytics.enabled=false', '--listen', 'stdio://'], {
     cwd: root,
-    env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' },
-    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...(windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA, USERPROFILE: home, TEMP: root, TMP: root } : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' },
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   });
   const stderr = [];
   child.stderr.on('data', chunk => stderr.push(chunk));
@@ -148,13 +156,21 @@ stream_max_retries = 0
   const parent = new Rpc(message => child.stdin.write(`${JSON.stringify(message)}\n`));
   createInterface({ input: child.stdout }).on('line', line => parent.receive(JSON.parse(line)));
   await parent.initialize();
-  const socketPath = join(sockets, `${child.pid}.sock`);
-  assert.equal((await stat(sockets)).mode & 0o777, 0o700);
-  assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
-  assert.equal(Number(execFileSync('ps', ['-p', String(child.pid), '-o', 'ppid='], { encoding: 'utf8' }).trim()), process.pid);
-  assert.equal(execFileSync('ps', ['-p', String(child.pid), '-o', 'comm='], { encoding: 'utf8' }).trim(), binary);
+  const socketPath = windows ? join(sockets, (await readdir(sockets))[0], 'connection.json') : join(sockets, `${child.pid}.sock`);
+  if (windows) {
+    const rows = readWindowsProcesses();
+    const record = readWindowsRelay(socketPath, rows);
+    assert.equal(rows.find(row => row.pid === record.serverPid).parent_pid, process.pid);
+    assert.ok(rows.some(row => row.parent_pid === record.serverPid && row.command.includes('--serve')));
+  } else {
+    assert.equal((await stat(sockets)).mode & 0o777, 0o700);
+    assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
+    assert.equal(Number(execFileSync('ps', ['-p', String(child.pid), '-o', 'ppid='], { encoding: 'utf8' }).trim()), process.pid);
+    assert.equal(execFileSync('ps', ['-p', String(child.pid), '-o', 'comm='], { encoding: 'utf8' }).trim(), binary);
+  }
   const thread = (await parent.request(2, 'thread/start', { cwd: root })).thread;
-  secondary = new WebSocket('ws://localhost/rpc', { createConnection: () => createConnection(socketPath), perMessageDeflate: false });
+  const connection = windows ? windowsSocketConnection(socketPath) : { url: 'ws://localhost/rpc', options: { createConnection: () => createConnection(socketPath) } };
+  secondary = new WebSocket(connection.url, { ...connection.options, perMessageDeflate: false });
   const extra = new Rpc(message => secondary.send(JSON.stringify(message)));
   secondary.on('message', data => extra.receive(JSON.parse(data.toString())));
   await once(secondary, 'open');
@@ -215,7 +231,7 @@ stream_max_retries = 0
   await assert.rejects(stat(socketPath), { code: 'ENOENT' });
   const binaryHashAfter = createHash('sha256').update(await readFile(binary)).digest('hex');
   assert.equal(binaryHashAfter, binaryHashBefore);
-  const receipt = { schema: 'gpt-connector.product-relay-test.v1', binary, binary_sha256: binaryHashAfter, pid_preserved: true, parent_preserved: true, rpc_id_isolation: true, steer_same_turn: true, wake_same_thread: true, markers_once: true, model_received_markers: true, approval_decline_forwarded: true, secondary_disconnect_preserves_parent: true, stdio_shutdown: true, socket_removed: true, model_requests: requests.length, actual_credentials_used: false, desktop_integration_tested: false };
+  const receipt = { schema: 'gpt-connector.product-relay-test.v1', binary, binary_sha256: binaryHashAfter, pid_preserved: !windows, transport: windows ? 'authenticated-loopback' : 'unix-socket', parent_preserved: true, rpc_id_isolation: true, steer_same_turn: true, wake_same_thread: true, markers_once: true, model_received_markers: true, approval_decline_forwarded: true, secondary_disconnect_preserves_parent: true, stdio_shutdown: true, socket_removed: true, model_requests: requests.length, actual_credentials_used: false, desktop_integration_tested: false };
   if (process.env.GPT_CONNECTOR_RELAY_TEST_RECEIPT) await writeFile(resolve(process.env.GPT_CONNECTOR_RELAY_TEST_RECEIPT), `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
   t.diagnostic(JSON.stringify(receipt));
 });

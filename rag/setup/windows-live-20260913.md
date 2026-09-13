@@ -1,5 +1,7 @@
 # Windows live対応の実測（2026-09-13）
 
+> 2026-09-14訂正: この記録は0.9.0の通信成功の履歴であり、Windows対応の完了判定は撤回した。起動・中継・設定判定がMacと異なっていたため、0.9.1でMacの既存動作を共通化する修理を行った。
+
 0.8.0のWindowsは登録・診断だけに対応し、browser startとCodex親のconsultをOS gateで拒否していた。
 0.9.0でWindows adapterを追加する。Mac専用コード、会話runtime、添付、監視と配送RPCの挙動は維持する。
 

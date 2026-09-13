@@ -36,7 +36,7 @@ test("Windows: serverだけを中継し、他コマンドと既存transportを�
   assert.deepEqual(windowsServerArguments(["app-server", "--listen", "stdio://"]), ["app-server"]);
   for (const args of [["--version"], ["exec", "app-server"], ["app-server", "proxy"], ["app-server", "daemon", "status"], ["app-server", "--help"]]) assert.equal(windowsServerArguments(args), null);
   assert.throws(() => windowsServerArguments(["app-server", "--listen", "ws://127.0.0.1:9999"]), /変更できません/);
-  assert.throws(() => windowsServerArguments(["app-server", "--ws-token-file", "secret"]), /変更できません/);
+  assert.deepEqual(windowsServerArguments(["app-server", "--ws-token-file", "secret"]), ["app-server", "--ws-token-file", "secret"]);
 });
 
 test("Windows: native launcherは空白・日本語・引用符・末尾backslashをそのまま子へ渡す", { skip: process.platform !== "win32" }, async () => {
@@ -44,15 +44,17 @@ test("Windows: native launcherは空白・日本語・引用符・末尾backslas
   ensurePrivateDirectory(directory);
   const echo = join(directory, "echo.mjs");
   await writeFile(echo, "console.log(JSON.stringify(process.argv.slice(2)));\n");
+  const prepare = join(directory, "prepare.mjs");
+  await writeFile(prepare, "console.log(JSON.stringify({ directory: null, arguments: process.argv.slice(4) }));\n");
   try {
-    const source = windowsLauncherSource(process.execPath, echo, "binary with space", "root with space");
+    const source = windowsLauncherSource(process.execPath, prepare, process.execPath, "root with space");
     const launcher = buildWindowsLauncher(directory, source);
     const args = ['a"b', "a b", "日本語", "last\\", "", "\\\"quoted"];
-    const child = spawn(launcher, args, { windowsHide: true });
+    const child = spawn(launcher, [echo, ...args], { windowsHide: true });
     let output = "";
     child.stdout.on("data", data => { output += data; });
     assert.equal((await once(child, "close"))[0], 0);
-    assert.deepEqual(JSON.parse(output), ["binary with space", "root with space", ...args]);
+    assert.deepEqual(JSON.parse(output), args);
     assert.equal(buildWindowsLauncher(directory, source), launcher);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -62,8 +64,10 @@ test("Windows: native launcherはstdinをEOF前に転送する", { skip: process
   ensurePrivateDirectory(directory);
   const echo = join(directory, "echo.mjs");
   await writeFile(echo, "process.stdin.on('data', data => process.stdout.write(data));\n");
-  const launcher = buildWindowsLauncher(directory, windowsLauncherSource(process.execPath, echo, "binary", "root"));
-  const child = spawn(launcher, [], { windowsHide: true });
+  const prepare = join(directory, "prepare.mjs");
+  await writeFile(prepare, "console.log(JSON.stringify({ directory: null, arguments: process.argv.slice(4) }));\n");
+  const launcher = buildWindowsLauncher(directory, windowsLauncherSource(process.execPath, prepare, process.execPath, "root"));
+  const child = spawn(launcher, [echo], { windowsHide: true });
   const exited = once(child, "close");
   const reader = createInterface({ input: child.stdout });
   const controller = new AbortController();
@@ -101,6 +105,14 @@ test("Windows: 同梱CLIで中継initializeとEOF後のprocess終了・接続情
     assert.ok(record.serverPid > 0);
     readWindowsRelay(join(root, sessions[0]!, "connection.json"));
     const rows = readWindowsProcesses();
+    assert.equal(rows.find(row => row.pid === record.serverPid)?.parent_pid, process.pid, "公式CLIは呼出し元の直接の子");
+    assert.ok(rows.some(row => row.parent_pid === record.serverPid && row.command.includes("--serve")), "中継は公式CLIの直接の子");
+    assert.notEqual(record.serverPid, child.pid, "Windowsのlauncherは別PIDの終了監視に限る");
+    const connection = join(root, sessions[0]!, "connection.json");
+    const compatible = { ...record, schema: "aiterm.windows-relay.v1", serverStarted: new Date(Date.parse(record.serverStarted)).toISOString() };
+    await writeFile(connection, JSON.stringify(compatible));
+    readWindowsRelay(connection, rows);
+    await writeFile(connection, JSON.stringify(record));
     assert.equal(findWindowsParentSocket([...rows, { pid: 99999999, parent_pid: record.serverPid, command: "MCP fixture", executable: process.execPath, started: "fixture" }], 99999999), join(root, sessions[0]!, "connection.json"));
     assert.throws(() => findWindowsParentSocket(rows, 99999999), /親CodexのSteer接続がありません/);
     const loaded = await withCodexSocket(join(root, sessions[0]!, "connection.json"), request => request("thread/loaded/list", { limit: 1 }));
@@ -122,7 +134,7 @@ test("Windows: setupは検証後に起動設定を保存し、再実行・解除
   const runtime = { directory, node: process.execPath, relay: "fixture.js", findBinary: () => "fixture.exe",
     getGui: (key: string) => key === "CODEX_CLI_PATH" ? gui : null,
     setGui: (_key: string, value: string | null) => { assert.ok(verified > 0); gui = value; },
-    verify: async () => { verified++; }, live: async () => ready };
+    verify: async () => { verified++; }, live: async () => ready, compatible: async () => false };
   try {
     assert.equal((await configureWindowsCodexSteer("enable", runtime)).status, "restart_required");
     const launcher = gui;

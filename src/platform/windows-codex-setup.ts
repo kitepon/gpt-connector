@@ -1,3 +1,5 @@
+import { windowsLauncherSource } from "./windows-codex-launcher.js";
+export { windowsLauncherSource } from "./windows-codex-launcher.js";
 // Windows Desktop用の実行file、ユーザー環境変数、親processの接続確認を所有する。
 import { existsSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -5,13 +7,13 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { relayConfigDirectory, readRelayConfig, CodexSteerSetupError as SetupError, type RelayConfig } from "../codex-steer-config.js";
-import type { CodexSteerAction, CodexSteerResult } from "../setup-codex-steer.js";
-import { verifyRelayLauncher } from "../setup-codex-steer.js";
-import { withCodexSocket } from "../codex-parent.js";
+import { relayConfigDirectory, CodexSteerSetupError as SetupError, type RelayConfig } from "../codex-steer-config.js";
+import type { CodexSteerAction, CodexSteerResult, CodexSteerRuntime } from "../setup-codex-steer.js";
+import { configureCodexSteer } from "../setup-codex-steer.js";
+import { CodexDeliveryError, withCodexSocket } from "../codex-parent.js";
 import { windowsPowerShellSync, quotePowerShell } from "./windows-powershell.js";
 import { ensurePrivateDirectory, makeFilePrivate } from "./state.js";
-import { readWindowsProcesses, readWindowsRelay } from "./windows-codex-parent.js";
+import { readWindowsProcesses, readWindowsRelay, windowsProcessConnection } from "./windows-codex-parent.js";
 
 export function findWindowsCodexCache(resources: string, cache: string): string {
   // Desktopが展開した4実行fileを配布元と照合する。展開・更新はDesktop自身が所有する。
@@ -61,49 +63,6 @@ $result = [UIntPtr]::Zero
 `, 10_000);
 }
 
-export function windowsLauncherSource(node: string, relay: string, binary: string, root: string): string {
-  return `using System;
-using System.Diagnostics;
-using System.Text;
-public static class GptLauncher {
-  static async System.Threading.Tasks.Task Input(Process child) {
-    var input = Console.OpenStandardInput(); var output = child.StandardInput.BaseStream;
-    var buffer = new byte[8192]; int count;
-    while ((count = await input.ReadAsync(buffer, 0, buffer.Length)) > 0) {
-      await output.WriteAsync(buffer, 0, count); await output.FlushAsync();
-    }
-    child.StandardInput.Close();
-  }
-  static string Quote(string text) {
-    var result = new StringBuilder().Append('"'); int slashes = 0;
-    foreach (char c in text) {
-      if (c == '\\\\') { slashes++; continue; }
-      if (c == '"') { result.Append('\\\\', slashes * 2 + 1); result.Append(c); }
-      else { result.Append('\\\\', slashes); result.Append(c); }
-      slashes = 0;
-    }
-    result.Append('\\\\', slashes * 2); return result.Append('"').ToString();
-  }
-  public static int Main(string[] args) {
-    try {
-      var arguments = new StringBuilder();
-      foreach (var value in new string[] { ${[relay, binary, root].map(value => JSON.stringify(value)).join(", ")} }) arguments.Append(Quote(value)).Append(' ');
-      foreach (var value in args) arguments.Append(Quote(value)).Append(' ');
-      var start = new ProcessStartInfo(${JSON.stringify(node)}, arguments.ToString());
-      start.UseShellExecute = false; start.CreateNoWindow = true;
-      start.RedirectStandardInput = true; start.RedirectStandardOutput = true; start.RedirectStandardError = true;
-      using (var child = Process.Start(start)) {
-        Input(child).ContinueWith(task => { if (task.IsFaulted && !child.HasExited) child.Kill(); });
-        var output = child.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
-        var error = child.StandardError.BaseStream.CopyToAsync(Console.OpenStandardError());
-        child.WaitForExit(); System.Threading.Tasks.Task.WaitAll(output, error); return child.ExitCode;
-      }
-    } catch { Console.Error.WriteLine("gpt-connector: Windows中継を起動できません"); return 1; }
-  }
-}
-`;
-}
-
 export function buildWindowsLauncher(directory: string, source: string): string {
   const digest = createHash("sha256").update(source).digest("hex").slice(0, 16);
   const launcher = join(directory, `codex-${digest}.exe`);
@@ -112,78 +71,53 @@ export function buildWindowsLauncher(directory: string, source: string): string 
   const compiler = join(process.env.SystemRoot ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
   if (!existsSync(compiler)) throw new SetupError("codex_launcher_compiler_unavailable", "Windows標準.NET Frameworkのコンパイラが見つかりません。");
   writeFileSync(sourceFile, source); makeFilePrivate(sourceFile);
-  const result = spawnSync(compiler, ["/nologo", "/target:exe", `/out:${launcher}`, sourceFile], { encoding: "utf8", windowsHide: true, timeout: 20_000 });
+  const result = spawnSync(compiler, ["/nologo", "/target:exe", "/reference:System.Runtime.Serialization.dll", `/out:${launcher}`, sourceFile], { encoding: "utf8", windowsHide: true, timeout: 20_000 });
   if (result.status !== 0) throw new SetupError("codex_launcher_build_failed", "Windows用のCodex起動fileを作成できません。");
   makeFilePrivate(launcher);
   return launcher;
 }
 
-async function live(config: RelayConfig): Promise<boolean> {
-  if (!existsSync(config.socket_root)) return false;
+export async function liveWindowsDesktopRelay(binary: string, socketRoot?: string): Promise<boolean> {
   const processes = readWindowsProcesses();
-  const parents = new Map(processes.map(row => [row.pid, row]));
-  for (const entry of readdirSync(config.socket_root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-    const file = join(config.socket_root, entry.name, "connection.json");
+  const rows = new Map(processes.map(row => [row.pid, row]));
+  for (const server of processes) {
+    const desktop = rows.get(server.parent_pid);
+    const file = windowsProcessConnection(server);
+    if (!file || (socketRoot && join(file, "../..") !== socketRoot) ||
+      server.executable.toLowerCase() !== binary.toLowerCase() ||
+      !desktop || !/\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(?:ChatGPT|Codex)\.exe$/i.test(desktop.executable)) continue;
     if (!existsSync(file)) continue;
-    const saved = JSON.parse(readFileSync(file, "utf8")) as { serverPid?: number };
-    if (!processes.some(row => row.pid === saved.serverPid)) continue;
-    const record = readWindowsRelay(file, processes);
-    let row = parents.get(record.serverPid);
-    const seen = new Set<number>();
-    while (row && !seen.has(row.pid)) {
-      seen.add(row.pid);
-      if (/\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\(?:ChatGPT|Codex)\.exe$/i.test(row.executable)) {
-        await withCodexSocket(file, request => request("thread/loaded/list", { limit: 1 }));
-        return true;
-      }
-      row = parents.get(row.parent_pid);
+    readWindowsRelay(file, processes);
+    try {
+      await withCodexSocket(file, async request => { await request("thread/loaded/list", { limit: 1 }); }, 1_000);
+      return true;
+    } catch (error) {
+      if (!(error instanceof CodexDeliveryError) || error.code !== "PARENT_DELIVERY_UNAVAILABLE") throw error;
     }
   }
   return false;
 }
 
-type WindowsRuntime = {
-  directory: string; node: string; relay: string; findBinary: () => string;
-  getGui: (key: string) => string | null; setGui: (key: string, value: string | null) => void;
-  verify: (launcher: string) => Promise<void>; live: (config: RelayConfig) => Promise<boolean>;
-};
+export function windowsCodexRuntime(directory = relayConfigDirectory()): Partial<CodexSteerRuntime> {
+  return {
+    directory, socket_root: join(directory, "sessions"),
+    relay: fileURLToPath(new URL("./windows-codex-relay.js", import.meta.url)),
+    findBinary, getGui, setGui,
+    // ユーザー環境変数自体が永続設定なので、別のログイン処理を設けない。
+    persist: () => {}, unpersist: () => {}, prepare: ensurePrivateDirectory, save,
+    build: async (options, verify) => {
+      ensurePrivateDirectory(options.socket_root);
+      const launcher = buildWindowsLauncher(options.directory, windowsLauncherSource(options.node, options.relay, options.binary, options.socket_root));
+      await verify(launcher);
+      return launcher;
+    },
+    live: config => liveWindowsDesktopRelay(config.binary, config.socket_root),
+    compatible: liveWindowsDesktopRelay,
+  };
+}
 
-export async function configureWindowsCodexSteer(action: CodexSteerAction, overrides: Partial<WindowsRuntime> = {}): Promise<CodexSteerResult> {
-  const runtime: WindowsRuntime = { directory: relayConfigDirectory(), node: process.execPath,
-    relay: fileURLToPath(new URL("./windows-codex-relay.js", import.meta.url)), findBinary, getGui, setGui,
-    verify: verifyRelayLauncher, live, ...overrides };
-  const previous = readRelayConfig(runtime.directory);
-  const current = runtime.getGui("CODEX_CLI_PATH");
-  if (action === "status") {
-    if (!previous?.enabled) return { status: "disabled" };
-    if (current !== previous.launcher) return { status: "failed", reason_code: "codex_steer_configuration_changed" };
-    return await runtime.live(previous) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
-  }
-  if (action === "disable") {
-    if (!previous?.enabled) return { status: "disabled" };
-    if (current !== previous.launcher) throw new SetupError("codex_steer_configuration_changed", "変更されたCodex起動設定は上書きしません。");
-    runtime.setGui("CODEX_CLI_PATH", previous.previous_cli_path);
-    if (runtime.getGui("CODEX_CLI_PATH") !== previous.previous_cli_path) throw new SetupError("codex_steer_readback_failed", "元の起動設定を確認できません。");
-    save(runtime.directory, { ...previous, enabled: false });
-    return { status: "restart_required", reason_code: "codex_restart_required" };
-  }
-  if (current && current !== previous?.launcher) throw new SetupError("codex_steer_configuration_conflict", "別のCodex起動設定があるため変更していません。");
-  for (const key of ["CODEX_APP_SERVER_WS_URL", "CODEX_APP_SERVER_USE_LOCAL_DAEMON", "CODEX_APP_SERVER_FORCE_CLI"]) {
-    if (runtime.getGui(key)) throw new SetupError("codex_steer_configuration_conflict", `${key}が設定されているため変更していません。`);
-  }
-  ensurePrivateDirectory(runtime.directory);
-  const binary = runtime.findBinary();
-  const root = join(runtime.directory, "sessions");
-  ensurePrivateDirectory(root);
-  const launcher = buildWindowsLauncher(runtime.directory, windowsLauncherSource(runtime.node, runtime.relay, binary, root));
-  await runtime.verify(launcher);
-  const config: RelayConfig = { schema: "gpt-connector.codex-relay.v1", enabled: true, binary, node: runtime.node, launcher,
-    socket_root: root, previous_cli_path: previous?.enabled ? previous.previous_cli_path : current };
-  save(runtime.directory, config);
-  runtime.setGui("CODEX_CLI_PATH", launcher);
-  if (runtime.getGui("CODEX_CLI_PATH") !== launcher) throw new SetupError("codex_steer_readback_failed", "WindowsのCodex起動設定を確認できません。");
-  return await runtime.live(config) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
+export async function configureWindowsCodexSteer(action: CodexSteerAction, overrides: Partial<CodexSteerRuntime> = {}): Promise<CodexSteerResult> {
+  return configureCodexSteer(action, { ...overrides, platform: "win32" });
 }
 
 function save(directory: string, config: RelayConfig): void {

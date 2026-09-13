@@ -30,10 +30,11 @@ WindowsではPowerShell 7と標準.NET Frameworkを使い、同じ保存先へ�
 Desktopをまだ一度も起動していない場合は、公式Desktopを起動してからsetupを実行する。
 ユーザー環境変数`CODEX_CLI_PATH`を設定し、公式CLIへ認証付きのloopback WebSocketで接続する。
 外部addressでは待ち受けない。接続ごとの認証情報は製品専用directoryにACLで保護して保存し、終了時に削除する。
+起動元→公式Codex→Node中継の直接の親子関係をMacと同じに保つ。Windowsの起動exeは終了監視だけを行い、JSON-RPCを中継しない。
 親のPID・生成時刻・実行file・接続引数・MCPの祖先processを照合する。短い要求もEOFを待たず転送する。
 初回導入・起動exeの更新後は、Codexを完全終了してスタートメニューから起動する。通常の相談ごとの再起動は不要。
 
-Macで既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
+Mac・Windowsとも、既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
 互換性を確認できない別設定は`codex_steer_configuration_conflict`で止まる。他製品のファイルへは書き込まない。
 既存受付がなくなった場合は配送エラーとし、本製品のsetupで再準備する。
 
@@ -80,9 +81,21 @@ MCP processが終了している間の監視は行わない。
 
 ## 検証と実装の由来
 
+OS差は環境への適合だけに閉じ込める。製品の判定・処理順序はMacの既存実装を正本とし、全OSで共通にする。
+
+| 共通コードが所有するもの | OS依存コードが所有するもの |
+| --- | --- |
+| 引数の受付・stdio指定の処理 | shellの引用とexec、CreateProcessWとハンドル継承 |
+| JSONLの転送・失敗判定・終了の判断 | Unix socketまたは認証付きloopback、signalまたはWindowsの終了API |
+| setupの検証順序・競合・復元・既存接続との共存 | 公式binaryの探索、LaunchAgentまたはユーザー環境変数、modeまたはACL |
+
+`test/codex-relay-arguments.test.ts`は旧Mac launcherの固定標本と引数・拒否条件を比較する。
+`test/codex-setup-parity.test.ts`は同じ設定の入力と期待値をMac・Windowsへ適用する。
+`test/codex-relay-stdio.test.ts`は本文の往復、承認要求の受渡し、EOF・切断・バイナリ応答を確認する。
+
 `test/codex-parent.test.ts`で宛先の照合、拒否、切断、timeout、承認要求との分離を確認する。
 `test/setup-codex-steer.test.ts`で単独導入・解除・既存接続との共存を確認する。
-公式binaryを持つMacでは、build後に次の試験で実行中のSteer、終了後の受信、承認中継、終了処理を確認できる。
+公式binaryを持つMac・Windowsでは、build後に次の試験で実行中のSteer、終了後の受信、承認中継、終了処理を確認できる。
 一時HOMEとローカルの模擬Responsesを使い、実利用者の認証や外部モデルは使わない。
 
 ```bash
@@ -96,6 +109,8 @@ Windowsでは`test/windows-codex.test.ts`が引数保持、EOF前の転送、公
 $env:GPT_CONNECTOR_TEST_CODEX_BINARY = 'C:\path\to\codex.exe'
 pnpm exec tsx --test test/windows-codex.test.ts
 ```
+
+MSIXの仮想AppDataからの起動は、`GPT_CONNECTOR_TEST_CODEX_PACKAGE`と同梱CLIを指定して `node --test scripts/codex-steer-msix.test.mjs` で確認する。
 
 Windowsの接続仕様は[公式App Server](https://learn.chatgpt.com/docs/app-server)とWindows同梱CLIで確認する。
 

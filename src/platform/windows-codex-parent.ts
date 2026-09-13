@@ -5,7 +5,7 @@ import { windowsPowerShellSync, quotePowerShell } from "./windows-powershell.js"
 import { CodexSteerSetupError } from "../codex-steer-config.js";
 
 export const windowsRelaySchema = z.object({
-  schema: z.literal("gpt-connector.windows-relay.v1"),
+  schema: z.enum(["gpt-connector.windows-relay.v1", "aiterm.windows-relay.v1"]),
   serverPid: z.number().int().positive(), serverStarted: z.string(), binary: z.string(),
   endpoint: z.string().regex(/^ws:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/),
 }).strict();
@@ -42,7 +42,7 @@ foreach ($entry in @(${quotePowerShell(root)}, ${quotePowerShell(file)}, ${quote
 }`);
   const record = windowsRelaySchema.parse(JSON.parse(readFileSync(file, "utf8")));
   const server = processes.find(row => row.pid === record.serverPid);
-  if (!server || server.started !== record.serverStarted || server.executable.toLowerCase() !== record.binary.toLowerCase()
+  if (!server || !Number.isFinite(Date.parse(record.serverStarted)) || Date.parse(server.started) !== Date.parse(record.serverStarted) || server.executable.toLowerCase() !== record.binary.toLowerCase()
       || !server.command.includes(record.endpoint) || !server.command.includes(join(root, "token"))) invalid("Windowsの親Codex processを照合できません。");
   return record;
 }
@@ -53,12 +53,8 @@ export function findWindowsParentSocket(rows = readWindowsProcesses(), callerPid
   let pid = parents.get(callerPid)?.parent_pid;
   while (pid && !seen.has(pid)) {
     const row = parents.get(pid);
-    // 自分が起動した公式CLIの引数から接続先を取得する。MCPへの環境変数継承を前提にしない。
-    const token = row && basename(row.executable).toLowerCase() === "codex.exe"
-      ? /(?:^|\s)--ws-token-file\s+(?:"([^"]+)"|(\S+))/.exec(row.command) : null;
-    const tokenFile = token?.[1] ?? token?.[2];
-    if (tokenFile && isAbsolute(tokenFile) && basename(tokenFile) === "token") {
-      const file = join(dirname(tokenFile), "connection.json");
+    const file = row && windowsProcessConnection(row);
+    if (file) {
       const record = readWindowsRelay(file, rows);
       if (record.serverPid !== pid) invalid("Steer接続記録と親Codexが一致しません。");
       return file;
@@ -66,6 +62,14 @@ export function findWindowsParentSocket(rows = readWindowsProcesses(), callerPid
     seen.add(pid); pid = row?.parent_pid;
   }
   invalid("親CodexのSteer接続がありません。gpt-connector setup --codex-steer enableを実行し、Codexを再起動してください。");
+}
+
+// MacのprocessSocketと同じく、公式CLIの実引数から接続先を得る。
+export function windowsProcessConnection(row: WindowsProcess): string | null {
+  const token = basename(row.executable).toLowerCase() === "codex.exe"
+    ? /(?:^|\s)--ws-token-file\s+(?:"([^"]+)"|(\S+))/.exec(row.command) : null;
+  const file = token?.[1] ?? token?.[2];
+  return file && isAbsolute(file) && basename(file) === "token" ? join(dirname(file), "connection.json") : null;
 }
 
 export function windowsSocketConnection(file: string): { url: string; options: { headers: { Authorization: string } } } {
