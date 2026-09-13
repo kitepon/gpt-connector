@@ -34,7 +34,7 @@ interface ConsultInput {
 - `effort`指定時は`model`必須。live catalogにない組合せを拒否する。
 - `sessionId`を省略すると新規会話。同じIDを指定すれば、既に渡した前提・資料を保持した会話へ追加質問できる。
 - `keepOpen`既定false。trueなら受付時からsnapshot直下へopaque `sessionId`を返し、成功結果の`result.sessionId`にも同じ値を返す。
-- `wait`既定true。falseなら回答完了前に`running`の受付結果を返し、結果は`sessions`で回収する。受付前の失敗は`failed`を返す。結果の自動通知は行わない。
+- Codex親の`consult`は`wait`指定にかかわらず受付後に戻り、10秒ごとのコード監視で完了時に自動Steerする。他のクライアントは`wait`既定trueで回答を待ち、falseなら`running`の受付結果を返して`sessions`で回収する。受付前の失敗は`failed`を返す。
 - 継続中は`keepOpen=true`を維持し、前の質問の成功後に同じ`sessionId`・新しい`slug`で次の質問を送る。最後は`close`、または最終質問に`keepOpen=false`を指定してarchiveする。
 - 会話は専用Chromeのpage bridgeが所有し、MCP再接続後も継続できる。page再読込・Chrome終了・bridge更新で無効になる。初回生成の失敗では会話を破棄する。
 - `dryRun=true`はpath／glob／MIME／size／levelから解決したmodel／effortを検証するが、upload、conversation、job予約を行わない。
@@ -64,13 +64,13 @@ interface ConsultInput {
 - 初回`consult`だけがjobを作る。modelの解決は新規jobの送信前に行い、解決失敗もtyped errorを持つfailed jobとして残す。保存済みjobの再取得は、その後の段階・モデルの提供状態に依存しない。
 - 同じslugを再度呼んだ場合、同じinput fingerprintなら既存snapshotを返し、upload／sendを再実行しない。
 - 同じslugでinput fingerprintが異なる場合は`JOB_CONFLICT`。
-- fingerprintはprompt hash、解決後fileのrelative path／bytes／SHA-256、requested level（指定時のみ）／model／effort／keepOpen／sessionId（指定時のみ）から作る。`wait`は含めず、同じjobを`wait=true`で呼べば同一process内の実行完了を待てる。prompt本文、file本文、absolute pathは台帳へ保存しない。
+- fingerprintはprompt hash、解決後fileのrelative path／bytes／SHA-256、requested level（指定時のみ）／model／effort／keepOpen／sessionId（指定時のみ）／配送する親ID（Codexのみ）から作る。`wait`は含めず、Codex以外では同じjobを`wait=true`で呼べば同一process内の実行完了を待てる。prompt本文、file本文、添付のabsolute pathは台帳へ保存しない。Codexの配送先socketと親IDは非公開項目として保存する。
 - terminal jobも同じslugで再取得できる。
 - 台帳は製品所有のstate directoryへowner-onlyでatomic保存する。既定は`$XDG_STATE_HOME/gpt-connector`、未指定時は`~/.local/state/gpt-connector`。
 - state directory単位のwriter leaseを持ち、別processの新規job作成をfail-closedにする。同一writer内の複数active jobは許可し、最後の非terminal jobがterminalになるまでleaseを保持する。
 - lock非所有の`sessions`／同slug`consult`／diagnosticsはatomic台帳を再読込し、live writerが更新したterminal snapshotを古いmemory cacheで隠さない。
 - process再起動時、terminal jobは回収する。非terminal jobは完了有無を断定できないため`JOB_RECOVERY_UNAVAILABLE`でfailedへ固定し、自動再送しない。
-- 台帳version 2はsnapshot直下の`sessionId`を保存する。version 1の読取りを維持し、最初の書込みで元bytesを`consult-jobs.json.v1-backup`へowner-onlyで退避してから移行する。
+- 台帳version 3はsnapshot直下の`sessionId`と配送状態、非公開の親宛先を保存する。version 1・2の読取りを維持し、最初の書込みで元bytesを`consult-jobs.json.v1-backup`または`.v2-backup`へowner-onlyで退避してから移行する。配送契約は[Codexへの自動Steer](codex-steer.md)を参照。
 
 ## file解決
 

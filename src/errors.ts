@@ -28,6 +28,8 @@ export const connectorErrorCodes = [
   "JOB_NOT_FOUND",
   "JOB_CONFLICT",
   "JOB_RECOVERY_UNAVAILABLE",
+  "PARENT_DELIVERY_UNAVAILABLE",
+  "PARENT_DELIVERY_UNKNOWN",
 ] as const;
 
 export type ConnectorErrorCode = (typeof connectorErrorCodes)[number];

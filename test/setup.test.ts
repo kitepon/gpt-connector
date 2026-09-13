@@ -4,6 +4,7 @@ import { prepareBrowser, setup } from "../src/setup.js";
 import { ConnectorError } from "../src/errors.js";
 import type { ConnectorDiagnostics } from "../src/contract.js";
 import { setupClients, type SetupClient, type SetupServer } from "../src/setup-registration.js";
+import type { configureCodexSteer } from "../src/setup-codex-steer.js";
 
 function diagnosis(reasonCode: ConnectorDiagnostics["reasonCode"]): ConnectorDiagnostics {
   return { overall: reasonCode === "ready" ? "ready" : "not_ready", reasonCode } as ConnectorDiagnostics;
@@ -50,6 +51,7 @@ function setupPorts(platform: NodeJS.Platform) {
     state: async () => "ready",
     verify: async () => ({ status: "ready", tools: ["diagnostics", "sessions"], diagnostics: "responded" }),
     browser: async () => ({ status: "ready", reason: "ready" as const }),
+    steer: (async () => ({ status: "ready" })) as typeof configureCodexSteer,
   };
 }
 

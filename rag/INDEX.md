@@ -2,6 +2,8 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [chatgpt-app/codex-parent-steer-20260913.md](chatgpt-app/codex-parent-steer-20260913.md) — 同梱中継による単独起動、公式App Serverへの実行中Steer・終了後配送、10秒のコード監視（2026-09-13・公式binary実測）
+
 - [chatgpt-app/latest-slider-20260913.md](chatgpt-app/latest-slider-20260913.md) — 最新スライダー5段階、右端の既定、Proのeffort省略、冪等な結果回収（2026-09-13・公式runtime＋製品実測）
 - [chatgpt-app/raw/latest-slider-20260913.md](chatgpt-app/raw/latest-slider-20260913.md) — 公式runtimeのlatest preset定義の抜粋（2026-09-13）
 

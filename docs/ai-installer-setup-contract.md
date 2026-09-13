@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.7.1"
+gpt_connector_version="0.8.0"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -26,7 +26,12 @@ gpt-connector setup --check
 ```
 
 `--check`はnpm導入・設定書込み・browser start/showを実行しない。Chromeの表示状態も変えず、
-現在の登録・MCP応答・state・liveの状態を診断する。setup確認のためにChat、upload、conversationは作らない。
+現在の登録・MCP応答・state・live・Codex Steerの状態を診断する。setup確認のためにChat、upload、conversationは作らない。
+
+MacでCodexを登録する時は、同梱コードで公式Codex DesktopへのSteer接続も導入する。Aitermは不要。
+`registrations[].codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
+既存の公式受付が利用可能なら設定を保って共存し、互換性を確認できない設定は上書きせず失敗する。
+所有ファイル・確認・解除は[Codexへの自動Steer](codex-steer.md)を参照。
 
 ## 対象AIと保存先
 
@@ -94,7 +99,7 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 | `overall` | 終了code | 意味 |
 | --- | --- | --- |
 | `ready` | 0 | 指定した登録、MCP、state、Mac liveの確認が完了 |
-| `action_required` | 1 | 手動ログインまたは利用者の無効化設定への対応が必要 |
+| `action_required` | 1 | 手動ログイン、Codex再起動、または利用者の無効化設定への対応が必要 |
 | `failed` | 1 | 導入・登録・MCP・state・browserのいずれかが失敗 |
 | `partial` | 2 | Windows/Linuxの対応機能は完了、liveブラウザ操作は未対応 |
 

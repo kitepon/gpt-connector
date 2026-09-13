@@ -1,0 +1,86 @@
+# Codexへの自動Steer
+
+Codex Desktopから`consult`を呼ぶと、受付結果が返った後もMCPのコードが相談を監視し、完了時に同じ親タスクへ回答を送る。
+実行中の親には同じターンへSteerし、終了後の親には同じタスクで新しいターンを開始する。利用AIに監視ループは必要ない。
+
+## 単独導入
+
+前提はNode.js 22以上、macOSの公式Codex Desktop（同梱CLI 0.154以上）と、通常のChatGPT接続環境。
+起動中継・接続・監視・配送は本packageに同梱する。Aitermのインストール、コマンド、設定ファイルは使わない。
+
+```bash
+npx --yes gpt-connector@latest setup
+```
+
+Codexを登録するMacではSteer接続も準備する。再起動が必要なら`codexSteer.status=restart_required`を返す。
+Codexを完全終了して再起動し、次で`ready`を確認する。
+
+```bash
+gpt-connector setup --check
+gpt-connector setup --codex-steer status
+```
+
+設定は`~/.gpt-connector/codex-steer/`、ログイン時の起動設定は`~/Library/LaunchAgents/dev.kitepon.gpt-connector-codex-relay.plist`が所有する。
+専用launcherをGUIの`CODEX_CLI_PATH`へ設定し、公式署名binaryを変更せずに起動する。
+元の起動設定を保存し、候補のinitialize・終了を確認してから設定を有効にする。
+socketは本人所有の0700 directory内に0600で作り、外部TCP portは開かない。
+
+既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
+互換性を確認できない別設定は`codex_steer_configuration_conflict`で止まる。他製品のファイルへは書き込まない。
+既存受付がなくなった場合は配送エラーとし、本製品のsetupで再準備する。
+
+```bash
+gpt-connector setup --codex-steer enable
+gpt-connector setup --codex-steer disable
+```
+
+`enable`は通常setupと同じ導入・診断を行う。`disable`は本製品が所有する起動設定だけを復元し、Codexの再起動を求める。
+他製品と共有した接続は解除しない。`status`／`disable`単独の終了codeはready・disabledで0、再起動待ちで3、失敗で1。
+通常setupの終了codeは[セットアップ契約](ai-installer-setup-contract.md)に従う。
+
+## 受付・監視・配送
+
+宛先は、MCP client名`codex-mcp-client`とCodexが付ける要求metadataの`threadId`、MCPを起動した親processの公式Unix socketから決める。
+利用AIへ親IDやsocketの指定を要求しない。同じApp Serverで既に読み込まれた親だけに送り、native sub-agentは対象外とする。
+相談送信前に宛先を確認し、未設定・対応外・宛先不明は`PARENT_DELIVERY_UNAVAILABLE`で止める。
+
+`consult`の`wait`指定にかかわらず、受付時にslug・状態と、`keepOpen=true`なら会話用の`sessionId`を返す。
+MCPのコードは10秒ごとにpage bridgeの処理状態を読む。完了判定は公式senderの完了と
+`finished_successfully`・`endTurn=true`の結果によるもので、AIや画面判定を使わない。通常Chatの待機期限は10分。
+生成成功・失敗を台帳へ保存してから親へ通知し、会話の継続には同じ`sessionId`と新しいslugを使う。
+
+公式`turn/start`へ配送ID付き本文を一度だけ渡す。公式受付が実行中か終了後かを同一処理で判定するため、
+状態確認と送信の間に親が終了してもキューへ放置しない。モデル・思考量・承認・sandbox設定は変更しない。
+追加接続に届く承認要求へは応答せず、Desktopとのstdio中継が通常どおり受け渡す。
+
+snapshotの`delivery`は`id`、`mode=steer`、`state`、`error`を持つ。ChatGPTの成否とは別に保存する。
+
+| 配送状態 | 意味 |
+| --- | --- |
+| `waiting` | 相談の完了または配送開始を待っている |
+| `sending` | 配送開始を保存済みで、公式受付への処理中 |
+| `submitted` | 公式受付のターンIDを確認した。親AIの回答完了までは意味しない |
+| `failed` | 宛先確認または受付が失敗した |
+| `unknown` | 送信後の切断・timeout等で受付有無を確定できない |
+
+再接続で台帳を開くと、未送信の完了結果を配送する。送信中だった記録は`unknown`へ固定して再送しない。
+MCP終了前に相談が未完了だった場合は、従来の復旧契約に従い`JOB_RECOVERY_UNAVAILABLE`とする。
+配送エラーはstderrと`sessions`へ記録する。回答は台帳に残るため、同じ相談を再実行せず`sessions`で回収する。
+MCP processが終了している間の監視は行わない。
+
+自動Steerの対象はCodex Desktopの`consult`。他のクライアント、CLI、互換`chatgpt_chat`、画像生成は従来の応答方式を使う。
+
+## 検証と実装の由来
+
+`test/codex-parent.test.ts`で宛先の照合、拒否、切断、timeout、承認要求との分離を確認する。
+`test/setup-codex-steer.test.ts`で単独導入・解除・既存接続との共存を確認する。
+公式binaryを持つMacでは、build後に次の試験で実行中のSteer、終了後の受信、承認中継、終了処理を確認できる。
+一時HOMEとローカルの模擬Responsesを使い、実利用者の認証や外部モデルは使わない。
+
+```bash
+GPT_CONNECTOR_TEST_CODEX_BINARY=/absolute/Codex.app/Contents/Resources/codex npm run test:codex-steer
+```
+
+launcher・stdio中継・setupと公式binary試験は、[Aiterm](https://github.com/kitepon/aiterm-mcp)のMIT実装を参考に移植した。
+移植元のCopyright (c) 2026 kiteponとMIT許諾は本packageの[LICENSE](../LICENSE)にも含まれる。
+移植後のコードと試験はgpt-connectorが所有し、Aitermの更新やインストールを実行条件にしない。

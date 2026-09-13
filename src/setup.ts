@@ -7,6 +7,8 @@ import { ConnectorError } from "./errors.js";
 import { packageVersion } from "./version.js";
 import { registerClient, readRegistration, registrationPath, setupClients, setupTools, type SetupClient, type SetupServer } from "./setup-registration.js";
 import { setupLaunchDefaults } from "./platform/setup-package.js";
+import { configureCodexSteer } from "./setup-codex-steer.js";
+import { CodexSteerSetupError } from "./codex-steer-config.js";
 
 export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
@@ -69,6 +71,7 @@ const setupDependencies = {
   verify: verifyMcp,
   state: inspectState,
   browser: (env: Record<string, string>, check: boolean) => prepareBrowser(browserDependencies({ ...process.env, ...env }), env.GPT_CONNECTOR_CDP_ENDPOINT ?? process.env.GPT_CONNECTOR_CDP_ENDPOINT, check),
+  steer: configureCodexSteer,
 };
 
 export async function setup(options: SetupOptions = {}, deps = setupDependencies) {
@@ -97,6 +100,13 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
       item.mcp = await deps.verify(server.command, server.args, server.env, typeof server.cwd === "string" ? server.cwd : undefined);
       item.clientActivation = "new_client_session_required";
       item.enabledTools = availableTools(server);
+      if (client === "codex" && deps.platform === "darwin") {
+        stage = "codex_steer";
+        const steer = await deps.steer(options.check ? "status" : "enable");
+        item.codexSteer = steer;
+        if (steer.status === "restart_required" || steer.status === "disabled") actionRequired = true;
+        else if (steer.status !== "ready") failed = true;
+      }
       stage = "browser";
       if (deps.platform === "darwin") {
         const key = JSON.stringify([server.env.GPT_CONNECTOR_CDP_ENDPOINT, server.env.GPT_CONNECTOR_STATE_DIR]);
@@ -109,11 +119,12 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
     } catch (error) {
       failed = true;
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
-      item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED` };
+      item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
+        ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }
   const overall = failed ? "failed" : actionRequired ? "action_required" : deps.platform === "darwin" ? "ready" : "partial";
-  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: deps.platform === "darwin" }, next: "各AIを新しいセッションで起動し、登録と利用可能なread-only toolを確認してください。" };
+  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: deps.platform === "darwin" }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }
 
 function availableTools(server: SetupServer) {

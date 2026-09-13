@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.7.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・診断を所有します。
+現在ソース版は`gpt-connector@0.8.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -31,6 +31,7 @@ MarkItDownは別区分の第三者CLIです。
 
 - 通常Chatのone-shot送信と自動archive。
 - 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
+- Codex Desktopからの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
 - live catalog取得と、既存のmodel／thinking effort明示選択。
@@ -50,6 +51,7 @@ MarkItDownは別区分の第三者CLIです。
 - Node.js 22以上とnpm（macOS・Windows・Linux）。
 - liveブラウザ機能にはmacOS、Google Chrome、ChatGPTへログインできるaccount。
 - Windowsの操作シェルはPowerShell 7。
+- Codexへの自動SteerにはmacOSの公式Codex Desktop（同梱CLI 0.154以上）。接続用コードは本packageに同梱。
 
 sourceからbuildする場合だけpnpm 11以上も必要。
 
@@ -68,6 +70,10 @@ Macでは既存の`startBrowser`／`showBrowser`が専用Chromeを準備する�
 `action_required`で停止する。そのChromeで手動ログインしてから同じコマンドを再実行する。
 パスワード入力や認証challengeの自動化はしない。
 
+Codexを登録するMacではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
+起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。
+詳細は[Codexへの自動Steer](docs/codex-steer.md)を参照。
+
 導入済み版での再実行と、読み取り専用の診断:
 
 ```bash
@@ -82,7 +88,7 @@ gpt-connector setup --check
 | `sessions`による既存job読取り・state診断 | 対応 | 対応 |
 | 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 未対応 |
 
-`setup`は`ready`で終了0、ログイン待ち・失敗で終了1、非Macで対応機能の確認が済みliveだけ未対応なら
+`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、非Macで対応機能の確認が済みliveだけ未対応なら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
 各AIは新しいセッションで設定を読み込む。setupのMCP確認と、既存AIセッションへの反映は別の確認項目である。
 
@@ -291,7 +297,8 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 {"slug":"design-review-001","prompt":"この設計の前提は……。問題点を検討して。","keepOpen":true,"wait":false}
 ```
 
-受付結果は`state="running"`、`result=null`と会話の`sessionId`を返す。回答は`sessions({"slug":"design-review-001"})`で取得する。
+受付結果は`state="running"`、`result=null`と会話の`sessionId`を返す。Codex親には完了時に自動Steerし、監視ループは不要。
+他のクライアントでは回答を`sessions({"slug":"design-review-001"})`で取得する。
 `succeeded`を確認したら、返されたIDと新しいslugで追加質問する。
 
 ```json
@@ -300,7 +307,8 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 
 同じ会話に送った前提や資料の再送は不要。変更点と追加質問だけを渡せる。最後は`chatgpt_close({"sessionId":"初回に返されたUUID"})`で閉じる。
 `slug`は1問い合わせの重複防止ID、`sessionId`は複数問い合わせで共有する会話ID。
-`wait`の既定は`true`で、従来どおり回答完了まで待つ。`wait=false`でも結果の自動通知は行わない。
+Codex親の`consult`は`wait`指定にかかわらず受付後に戻り、コードが10秒ごとに完了を監視して自動Steerする。
+他のクライアントは`wait`の既定が`true`で回答完了まで待つ。`wait=false`の場合は`sessions`で回収する。
 CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`consult --session-id <uuid> --keep-open`へ渡せる。
 
 ## attachment contract
@@ -363,7 +371,8 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
 - terminal jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。
 - 再起動前の非terminal jobは完了有無を断定せず`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。
-- 台帳はversion 2。version 1も読め、初回書込み前に`consult-jobs.json.v1-backup`へ元の台帳を保存する。旧版へ戻す条件は[CHANGELOG](CHANGELOG.md)の0.7.0を参照。
+- 台帳はversion 3。version 1・2も読め、初回書込み前に`consult-jobs.json.v1-backup`または`.v2-backup`へ元の台帳を保存する。旧版へ戻す条件は[CHANGELOG](CHANGELOG.md)の0.8.0を参照。
+- Codex相談は配送状態も保存する。宛先の親ID・socketは台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
 
 ## failure codes
 

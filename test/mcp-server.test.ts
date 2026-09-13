@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
@@ -12,7 +15,7 @@ import {
   consultInputSchema,
   imageInputSchema,
 } from "../src/contract.js";
-import { mcpServerInstructions, mcpServerVersion, mcpToolDescriptions, mcpToolNames } from "../src/mcp-server.js";
+import { createGptConnectorMcpServer, LazyConnectorHost, mcpServerInstructions, mcpServerVersion, mcpToolDescriptions, mcpToolNames } from "../src/mcp-server.js";
 import { packageVersion } from "../src/version.js";
 
 test("MCP tool名を固定する", () => {
@@ -25,6 +28,43 @@ test("MCP tool名を固定する", () => {
     "sessions",
     "diagnostics",
   ]);
+});
+
+test("MCPから親metadataを受け取り、モデル入力へ宛先パラメータを要求しない", async t => {
+  const parent = { threadId: randomUUID(), socketPath: "/tmp/parent.sock" };
+  let resolutions = 0;
+  let consultations = 0;
+  const unused = async (): Promise<never> => { throw new Error("未使用"); };
+  const host = new LazyConnectorHost(undefined, undefined, async () => ({
+    models: unused, chat: unused, image: unused, diagnostics: unused, closeSession: unused,
+    sessions: (): never => { throw new Error("未使用"); }, close: () => {}, shutdown: async () => {},
+    consult: async (input, target) => {
+      consultations++;
+      assert.deepEqual(target, input.dryRun ? undefined : parent);
+      return { slug: input.slug, state: "running", result: null, error: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    },
+  }));
+  const server = createGptConnectorMcpServer(host, (name, meta) => {
+    resolutions++;
+    assert.equal(name, "codex-mcp-client");
+    assert.equal((meta as { threadId: string }).threadId, parent.threadId);
+    return parent;
+  });
+  const client = new Client({ name: "codex-mcp-client", version: "1" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  t.after(async () => { await client.close(); await server.close(); });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const tools = await client.listTools();
+  const consult = tools.tools.find(tool => tool.name === "consult")!;
+  assert.match(consult.description!, /10秒.*自動Steer.*監視ループは不要/u);
+  assert.equal("parent" in consult.inputSchema.properties!, false);
+  const result = await client.callTool({ name: "consult", arguments: { slug: "mcp-parent", prompt: "相談" }, _meta: { threadId: parent.threadId } });
+  assert.equal(result.isError, undefined);
+  await client.callTool({ name: "consult", arguments: { slug: "mcp-dryrun", prompt: "確認", dryRun: true } });
+  assert.equal(resolutions, 1);
+  assert.equal(consultations, 2);
 });
 
 test("MCP server versionをpackage公開versionと一致させる", () => {

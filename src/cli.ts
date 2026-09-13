@@ -20,6 +20,8 @@ import { setup } from "./setup.js";
 import { setupClients, type SetupClient } from "./setup-registration.js";
 import { installSetupPackage } from "./platform/setup-package.js";
 import { isAbsolute } from "node:path";
+import { configureCodexSteer, type CodexSteerAction } from "./setup-codex-steer.js";
+import { CodexSteerSetupError } from "./codex-steer-config.js";
 
 interface ParsedArgs {
   readonly command: string | undefined;
@@ -84,13 +86,28 @@ function writeJson(value: unknown): void {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === "setup" && argv[1] === "--help" && argv.length === 2) {
-    process.stdout.write("usage: gpt-connector setup [--ai claude,codex,grok,cursor] [--codex-config <absolute-config.toml>] [--check]\n");
+    process.stdout.write("usage: gpt-connector setup [--ai claude,codex,grok,cursor] [--codex-config <absolute-config.toml>] [--check] [--codex-steer enable|status|disable]\n");
     return;
   }
   if (argv[0] === "setup") {
     const { values } = parseArgs(argv);
-    if ([...values.keys()].some((key) => !["ai", "codex-config", "check"].includes(key))) throw new Error("setupの引数が不正です。");
+    if ([...values.keys()].some((key) => !["ai", "codex-config", "check", "codex-steer"].includes(key))) throw new Error("setupの引数が不正です。");
+    const steer = stringArg(values, "codex-steer");
+    if (steer && (!["enable", "status", "disable"].includes(steer) || values.has("check"))) throw new Error("--codex-steerはenable/status/disableを指定し、--checkとは併用しません。");
+    if (steer === "status" || steer === "disable") {
+      if (values.size !== 1) throw new Error("Steerの確認・解除は単独で指定してください。");
+      try {
+        const result = await configureCodexSteer(steer as CodexSteerAction);
+        writeJson({ schema: "gpt-connector.codex-steer.v1", ...result });
+        process.exitCode = result.status === "ready" || result.status === "disabled" ? 0 : result.status === "restart_required" ? 3 : 1;
+      } catch (error) {
+        writeJson({ schema: "gpt-connector.codex-steer.v1", status: "failed", reason_code: error instanceof CodexSteerSetupError ? error.reasonCode : "codex_steer_failed" });
+        process.exitCode = 1;
+      }
+      return;
+    }
     const clients = stringArg(values, "ai")?.split(",") ?? [...setupClients];
+    if (steer === "enable" && !clients.includes("codex")) throw new Error("Steer導入にはCodexを含めてください。");
     if (clients.length === 0 || clients.some((client) => !setupClients.includes(client as SetupClient))) throw new Error("--aiはclaude,codex,grok,cursorから指定してください。");
     const check = flagArg(values, "check");
     const codexConfig = stringArg(values, "codex-config");

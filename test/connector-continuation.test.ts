@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import vm from "node:vm";
 import { CdpClient } from "../src/cdp.js";
-import { GptConnector } from "../src/connector.js";
+import { GptConnector, type ConnectorOptions } from "../src/connector.js";
+import { CodexDeliveryError } from "../src/codex-parent.js";
 import type { ConsultSnapshot } from "../src/contract.js";
 import { ConsultJobStore } from "../src/consult-job-store.js";
 import { normalizeModelCatalog } from "../src/model-catalog.js";
@@ -18,6 +19,7 @@ async function fixture(t: TestContext) {
   const conversations = new Map<string, { busy: boolean; prompts: string[] }>();
   const sent: Array<{ sessionId: string; keepOpen: boolean; model: string; effort?: string }> = [];
   const operations = new Map<string, { state: string; result?: unknown; error?: unknown }>();
+  const polls: number[] = [];
   let finish = () => {};
   let fail = () => {};
   const bridge = {
@@ -61,6 +63,7 @@ async function fixture(t: TestContext) {
       return { operationId };
     },
     poll: (operationId: string, consume: boolean) => {
+      if (!consume) polls.push(Date.now());
       const result = operations.get(operationId);
       if (consume) operations.delete(operationId);
       return result;
@@ -77,8 +80,8 @@ async function fixture(t: TestContext) {
     }, close: () => {},
   }) as unknown as CdpClient);
   const connectors: GptConnector[] = [];
-  const connect = async () => {
-    const connector = await GptConnector.connect({ stateDirectory, pollIntervalMs: 1, fetch: async () => new Response(JSON.stringify([
+  const connect = async (options: Partial<ConnectorOptions> = {}) => {
+    const connector = await GptConnector.connect({ stateDirectory, pollIntervalMs: 1, ...options, fetch: async () => new Response(JSON.stringify([
       { id: "test", type: "page", url: "https://chatgpt.com/", webSocketDebuggerUrl: "ws://127.0.0.1/test" },
     ])) });
     t.mock.method(connector, "models", async () => normalizeModelCatalog(rawCatalog));
@@ -86,7 +89,7 @@ async function fixture(t: TestContext) {
     return connector;
   };
   t.after(async () => { finish(); for (const c of connectors) await c.shutdown(); await rm(stateDirectory, { recursive: true, force: true }); });
-  return { connect, conversations, sent, finish: () => finish(), fail: () => fail(), stateDirectory };
+  return { connect, conversations, sent, polls, finish: () => finish(), fail: () => fail(), stateDirectory };
 }
 
 test("受付時のIDを回答前に返し、同じslugの再確認で再送せず、追加質問だけを同じ会話へ送る", async (t) => {
@@ -120,6 +123,62 @@ test("受付時のIDを回答前に返し、同じslugの再確認で再送せ�
   assert.equal(result.result?.text, "前提の合言葉は瑠璃 → 合言葉をもう一度");
   await assert.rejects(connector.consult({ ...followup, sessionId: randomUUID() }), { code: "JOB_CONFLICT" });
   assert.equal(f.sent.length, 2);
+});
+
+for (const outcome of ["succeeded", "failed", "unknown"] as const) test(`Codex相談は受付後に監視し${outcome}を一度だけ配送記録する`, async t => {
+  const f = await fixture(t);
+  const parent = { threadId: randomUUID(), socketPath: "/tmp/fixture-parent.sock" };
+  const deliveries: string[] = [];
+  const connector = await f.connect({ parentDelivery: {
+    verify: async target => { assert.deepEqual(target, parent); },
+    submit: async (target, id, text) => {
+      assert.deepEqual(target, parent); assert.match(id, /^[0-9a-f-]{36}$/u); deliveries.push(text);
+      if (outcome === "unknown") throw new CodexDeliveryError("受付後に切断", true);
+    },
+  } });
+  const input = { prompt: "背景の合言葉", slug: "parent-question", keepOpen: true };
+  const receipt = await connector.consult(input, parent) as ConsultSnapshot;
+  assert.equal(receipt.state, "running");
+  assert.equal(receipt.delivery?.state, "waiting");
+  assert.ok(receipt.sessionId);
+  assert.equal(deliveries.length, 0);
+  if (outcome === "failed") f.fail(); else f.finish();
+  // 試験だけが完了を待つ。利用AIは受付後にポーリングしない。
+  await connector.shutdown();
+  assert.equal(deliveries.length, 1);
+  assert.match(deliveries[0]!, new RegExp(receipt.sessionId!));
+  const again = await f.connect({ parentDelivery: {
+    verify: async () => {}, submit: async () => { throw new Error("二重配送"); },
+  } });
+  const saved = await again.consult(input, parent) as ConsultSnapshot;
+  assert.equal(saved.state, outcome === "failed" ? "failed" : "succeeded");
+  assert.equal(saved.delivery?.state, outcome === "unknown" ? "unknown" : "submitted");
+  assert.equal(f.sent.length, 1);
+});
+
+test("配送準備が失敗した相談はChatGPTへ送信しない", async t => {
+  const f = await fixture(t);
+  const connector = await f.connect({ parentDelivery: {
+    verify: async () => { throw new CodexDeliveryError("未設定"); },
+    submit: async () => { throw new Error("未到達"); },
+  } });
+  await assert.rejects(connector.consult({ prompt: "本文", slug: "no-delivery" },
+    { threadId: randomUUID(), socketPath: "/tmp/fixture.sock" }), { code: "PARENT_DELIVERY_UNAVAILABLE" });
+  assert.equal(f.sent.length, 0);
+});
+
+test("Codexの既定監視頻度は10秒で、受付後に利用AIの呼出しなしで配送する", { timeout: 20_000 }, async t => {
+  const f = await fixture(t);
+  let delivered = false;
+  const connector = await f.connect({ pollIntervalMs: undefined, parentDelivery: {
+    verify: async () => {}, submit: async () => { delivered = true; },
+  } });
+  await connector.consult({ prompt: "10秒監視", slug: "ten-second-monitor" }, { threadId: randomUUID(), socketPath: "/tmp/parent.sock" });
+  f.finish();
+  await connector.shutdown();
+  assert.equal(delivered, true);
+  assert.equal(f.polls.length, 2);
+  assert.ok(f.polls[1]! - f.polls[0]! >= 9_900);
 });
 
 test("MCP再接続後も受付IDで継続し、明示closeで会話を閉じる", async (t) => {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 - 2026-09-13
+
+- Codex親の`consult`は受付後に戻り、MCPのコードが10秒ごとにChatGPTの完了を確認して回答または失敗を自動Steerする。利用AIの監視ループを不要にした。実行中は同じターンへ入り、終了後は同じタスクで受信する。
+- 接続用の起動中継とsetupを同梱した。Aitermは参考元であり、インストール・コマンド・設定ファイルへの実行時依存はない。macOSの公式Codex Desktopを使い、導入・確認・解除を`gpt-connector setup`で行う。
+- 宛先をCodexの要求metadataと同じ親processに限定し、配送不可なら相談送信前にエラーにする。既存の公式接続とは設定を変更せず共存し、確認できない別設定は上書きしない。
+- 配送IDと状態を台帳version 3へ保存し、送信中断で受付が不明な場合は自動再送しない。ChatGPTの回答は`sessions`から回収できる。version 1・2の初回更新前に元の台帳を対応する`.v1-backup`／`.v2-backup`へ保存する。
+- 巻き戻し: 旧版はversion 3を読めない。全MCPを停止してversion 3の台帳を退避し、対応する旧台帳backupを復元するか旧版専用の空state directoryを使う。backup以降のjobはこの版以降で回収する。Steer接続も解除する場合は、この版で`setup --codex-steer disable`を実行してからCodexを再起動し、旧版を導入する。
+
 ## 0.7.1 - 2026-09-13
 
 - 公式uploadがソースファイルのMIME型を確定すると添付を拒否していた不具合を修正した。ファイルのidentityと会話への読戻し照合は維持する。

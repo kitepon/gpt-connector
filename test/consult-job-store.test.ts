@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { ConsultJobStore } from "../src/consult-job-store.js";
 import { ConnectorError } from "../src/errors.js";
+import { randomUUID } from "node:crypto";
 
 type JobState = "queued" | "uploading" | "submitted" | "running" | "succeeded" | "failed";
 
@@ -73,6 +74,37 @@ interface ConsultJobStoreContract {
 
 const slug = "durable-job-001";
 const fingerprint = "5de33c50f002c4d54e191a00e1d4f6b8";
+
+for (const wasSending of [false, true]) test(`再起動時の配送${wasSending ? "受付不明" : "未送信"}を区別し二重配送しない`, async () => {
+  await withStateDirectory(async stateDirectory => {
+    const first = new ConsultJobStore({ stateDirectory });
+    await first.initialize();
+    const parent = { threadId: randomUUID(), socketPath: "/tmp/fixture.sock" };
+    await first.reserve(slug, fingerprint, parent);
+    await first.transition(slug, "submitted");
+    await first.transition(slug, "running");
+    await first.transition(slug, "succeeded", { result: succeededResult });
+    const other = new ConsultJobStore({ stateDirectory });
+    await other.initialize();
+    assert.deepEqual(await other.claimDeliveries(), []);
+    other.close();
+    if (wasSending) assert.equal((await first.claimDeliveries()).length, 1);
+    first.close();
+    const recovered = new ConsultJobStore({ stateDirectory });
+    await recovered.initialize();
+    assert.equal(recovered.get(slug).delivery?.state, wasSending ? "unknown" : "waiting");
+    const claimed = await recovered.claimDeliveries();
+    assert.equal(claimed.length, wasSending ? 0 : 1);
+    if (!wasSending) {
+      assert.deepEqual(claimed[0]!.parent, parent);
+      await recovered.finishDelivery(slug, "submitted", null);
+    }
+    assert.deepEqual(await recovered.claimDeliveries(), []);
+    assert.equal(recovered.get(slug).result?.text, succeededResult.text);
+    assert.equal("parent" in recovered.get(slug), false);
+    recovered.close();
+  });
+});
 
 const succeededResult: NonNullable<ConsultSnapshot["result"]> = {
   text: "fixture response",
@@ -187,7 +219,7 @@ test("旧台帳は読取りで変更せず、初回書込みだけ退避して�
     await writer.transition("new-question", "failed", {
       error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
     });
-    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 2);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 3);
     assert.equal(await readFile(`${path}.v1-backup`, "utf8"), legacy);
     if (process.platform !== "win32") assert.equal((await stat(`${path}.v1-backup`)).mode & 0o777, 0o600);
     writer.close();
