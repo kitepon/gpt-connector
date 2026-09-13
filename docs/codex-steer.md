@@ -55,7 +55,8 @@ gpt-connector setup --codex-steer disable
 
 `consult`の`wait`指定にかかわらず、受付時にslug・状態と、`keepOpen=true`なら会話用の`sessionId`を返す。
 MCPのコードは10秒ごとにpage bridgeの処理状態を読む。完了判定は公式senderの完了と
-`finished_successfully`・`endTurn=true`の結果によるもので、AIや画面判定を使わない。通常Chatの待機期限は10分。
+`finished_successfully`・`endTurn=true`の結果によるもので、AIや画面判定を使わない。通常Chatの回答待ちに時間制限は設けず、
+生成の成功・明示的な失敗・通信エラーまで待つ。接続やuploadなど、個別操作の待機期限は維持する。
 生成成功・失敗を台帳へ保存してから親へ通知し、会話の継続には同じ`sessionId`と新しいslugを使う。
 
 公式`turn/start`へ配送ID付き本文を一度だけ渡す。公式受付が実行中か終了後かを同一処理で判定するため、

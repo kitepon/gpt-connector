@@ -147,8 +147,6 @@ export function imageResolutionMatches(
 // 画像生成は通常Chatより長くかかり、実測で180秒直後にdownloadが揃うことがある。
 // callerの短いoperationTimeoutMsでも、画像だけは生成済み結果を捨てない待機幅を確保する。
 export const imageOperationTimeoutMs = 360_000;
-// Chat Proは実測で4分7秒の推論を要した。接続・uploadの期限と分け、通常Chatの完了を待つ。
-const chatOperationTimeoutMs = 600_000;
 
 const uploadHandleSchema = z.object({ uploadHandle: z.string().uuid() });
 const uploadChunkResultSchema = z.object({ receivedBytes: z.number().int().nonnegative() });
@@ -833,7 +831,7 @@ export class GptConnector {
     try {
       const raw = await this.#runOperation("startChat", [
         { ...parsed, ...selected, attachmentHandles },
-      ], Math.max(this.#operationTimeoutMs, chatOperationTimeoutMs), async (started) => {
+      ], null, async (started) => {
         if (parsed.keepOpen && started.sessionId === undefined) {
           throw new ConnectorError("RUNTIME_DRIFT", "会話を保持する受付結果にsessionIdがありません。");
         }
@@ -1109,7 +1107,7 @@ export class GptConnector {
   async #runOperation(
     method: "startModels" | "startUpload" | "startChat" | "startClose",
     args: readonly unknown[],
-    timeoutMs = this.#operationTimeoutMs,
+    timeoutMs: number | null = this.#operationTimeoutMs,
     onStarted?: (started: OperationStart) => Promise<void>,
     pollIntervalMs = this.#pollIntervalMs,
   ): Promise<unknown> {
@@ -1121,9 +1119,9 @@ export class GptConnector {
       ),
     );
 
-    const deadline = Date.now() + timeoutMs;
+    const deadline = timeoutMs === null ? undefined : Date.now() + timeoutMs;
     let reported = false;
-    while (Date.now() < deadline) {
+    while (deadline === undefined || Date.now() < deadline) {
       const envelope = operationEnvelopeSchema.parse(
         await evaluateByValue<unknown>(
           this.#client,

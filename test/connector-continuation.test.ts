@@ -125,6 +125,35 @@ test("受付時のIDを回答前に返し、同じslugの再確認で再送せ�
   assert.equal(f.sent.length, 2);
 });
 
+test("通常Chatは10分を超えても明示完了まで待ち、完了後の後続turnを受け付ける", async (t) => {
+  const f = await fixture(t);
+  const connector = await f.connect();
+  let virtualNow = 0;
+  t.mock.method(Date, "now", () => {
+    return virtualNow;
+  });
+
+  const firstInput = { prompt: "長い推論", slug: "long-running", keepOpen: true, wait: false };
+  const accepted = await connector.consult(firstInput) as ConsultSnapshot;
+  assert.equal(accepted.state, "running");
+  assert.ok(accepted.sessionId);
+
+  virtualNow = 600_001;
+  await new Promise(resolve => setTimeout(resolve, 10));
+  f.finish();
+  const first = await connector.consult({ ...firstInput, wait: true }) as ConsultSnapshot;
+  assert.equal(first.state, "succeeded");
+  assert.equal(first.sessionId, accepted.sessionId);
+
+  const followupInput = { ...firstInput, prompt: "後続turn", slug: "after-long-running", sessionId: first.sessionId, wait: false };
+  const followup = await connector.consult(followupInput) as ConsultSnapshot;
+  assert.equal(followup.state, "running");
+  f.finish();
+  const done = await connector.consult({ ...followupInput, wait: true }) as ConsultSnapshot;
+  assert.equal(done.state, "succeeded");
+  assert.equal(done.result?.text, "長い推論 → 後続turn");
+});
+
 for (const outcome of ["succeeded", "failed", "unknown"] as const) test(`Codex相談は受付後に監視し${outcome}を一度だけ配送記録する`, async t => {
   const f = await fixture(t);
   const parent = { threadId: randomUUID(), socketPath: "/tmp/fixture-parent.sock" };
