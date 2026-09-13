@@ -17,7 +17,11 @@
 専用ChromeだけをCDPで終了し、cold start後も再ログインなしでstartedになることを確認した。
 認証情報の複製、通常Chromeの操作、別サービスへの代替送信は行っていない。
 
-確度: 記載した観測はこのWindows端末で再現確認済み。公開後・Desktop再起動後の受入は作業計画へ別記する。
+確度: 記載した観測はこのWindows端末で再現確認済み。公開後・Desktop再起動後の受入も[完了記録](../../docs/archive/2026-09-13-windows-live.md)で確認できる。
+
+公開版0.9.0を導入してCodex Desktopを再起動した後、setup --checkはoverall=readyとなった。
+この端末の実Codexタスクからconsultを送信し、同じタスクで「Windows自動配送確認済み」を自動受信。
+台帳はsucceeded・delivery submitted・error nullで、試験会話はarchiveされた。
 
 ## 公開入口の観測
 

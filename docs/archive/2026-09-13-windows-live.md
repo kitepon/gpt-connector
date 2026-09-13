@@ -1,4 +1,4 @@
-# Windowsでの実利用対応
+# Windowsでの実利用対応（完了）
 
 依頼: Windowsで動かないgpt-connectorを、この端末で利用できる状態へ修理する。
 
@@ -38,6 +38,11 @@
 - 公開版のmodelsとChatが成功。日本語の入力・返信は正式版CLIのstdoutをUTF-8で直接受け取り、「日本語確認済み」と一致、finished_successfully・endTurn=trueを確認。
 - 公開版の`setup --check`はaction_required。未反映はCodex起動設定だけで、codexSteer=restart_required。他の診断はready。
 
-現在地: 公開・Windows導入・Chatまで確認済み。利用者がCodex Desktopを完全終了し、スタートメニューから再起動する操作を待つ。
-再開時は公開版の`setup --check`でSteer=readyを確認し、このタスクからconsultを一回実行して自動配送を実測する。
-失敗時の解除は公開版の`setup --codex-steer disable`。他製品の設定を直接編集しない。
+## 再起動後の最終確認
+
+利用者の再起動後、公式入口のsetupが専用Chromeを再ログインなしで起動した。
+公開版0.9.0の`setup --check`はoverall=ready。4AIすべてのMCP・liveとCodexのSteerがreadyになった。
+このCodexタスクから公開MCPのconsultを一回実行し、「Windows自動配送確認済み」という返信を同じタスクで自動受信した。
+台帳もstate=succeeded、delivery.state=submitted、finished_successfully、endTurn=true、error=null。試験会話のarchiveも完了。
+
+現在地: Windows対応の公開・導入・実機検証は完了。Mac専用実装と共通の会話処理は維持し、3OS CIも成功した。
