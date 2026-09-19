@@ -36,4 +36,14 @@ Chromeの接続口が戻っても、新しいslugを使った相談が2回続け
 
 npmから取得した0.9.5をWindowsへ標準導入し、そのインストール先のstdio MCPで同じ切断・復旧・継続会話試験を実行した。
 初回失敗 `CDP_UNAVAILABLE`、次の相談 `succeeded`、継続 `succeeded`、archive成功、最終 `ready` を確認した。
-導入後のlive接続は4クライアントとも `ready`。稼働中CodexのMCPは0.9.4を保持しているため、Codexへの反映は完全再起動が必要であり、その後の親タスクへの自動配送確認はこの記録時点では未完了。
+導入後のlive接続は4クライアントとも `ready`。導入直後のCodexは0.9.4を保持していたため完全再起動が必要だった。
+
+## Codex再起動後の確認
+
+再起動後のMCP診断で `packageVersion: 0.9.5`、setup診断で `codexSteer.status: ready` を確認した。
+この時点では専用ChromeのCDPへ接続できなかったため、正規の `gpt-connector browser start` で起動した。起動後のsetup診断は全体・4クライアントとも `ready` になった。
+
+最初の相談 `smoke-095-postrestart-20260919-ruri824` は `CHAT_FAILED`・`Something went wrong.` で失敗した。失敗通知は親タスクへ自動配送され、台帳も `failed`・配送 `submitted` だった。接続診断は引き続き `ready` で、CDP切断は起きていなかった。この回答失敗の原因は特定していない。
+
+続く新規相談 `smoke-095-postrestart-20260919-hisui936` は、既定のPro（実行モデル `gpt-6-pro`）で `動作確認完了：翡翠936` を返した。親タスクへの自動配送、`finished_successfully`、archive成功を確認した。最終診断は `ready`、保持session・実行中jobとも0件だった。
+これにより、公開版0.9.5のCodexへの反映と実際の回答の自動配送まで確認を完了した。当初のChrome停止原因、および今回一度発生した回答失敗の原因まで解決したとは扱わない。
