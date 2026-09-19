@@ -214,6 +214,11 @@ export class GptConnector {
   readonly #parentPollIntervalMs: number;
   readonly #parentDelivery: NonNullable<ConnectorOptions["parentDelivery"]>;
   #deliveryTask: Promise<void> | null = null;
+  #transportFailed = false;
+
+  get transportFailed(): boolean {
+    return this.#transportFailed;
+  }
 
   private constructor(client: CdpClient, options: ConnectorOptions) {
     this.#client = client;
@@ -473,6 +478,7 @@ export class GptConnector {
       });
     } catch (error) {
       let jobError = error;
+      if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE") this.#transportFailed = true;
       let cleanup: "not_supported" | "failed" = "not_supported";
       for (const uploadHandle of uploadHandles) {
         try {

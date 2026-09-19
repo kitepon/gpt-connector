@@ -6,6 +6,7 @@ import { LazyConnectorHost } from "../src/mcp-server.js";
 
 function fakeConnector(close: () => void) {
   return {
+    transportFailed: false,
     models: async () => { throw new Error("unused"); },
     diagnostics: async () => { throw new Error("unused"); },
     chat: async () => { throw new Error("unused"); },
@@ -70,6 +71,20 @@ test("終了時の相談結果の保存失敗を呼出し元へ返す", async ()
   const host = new LazyConnectorHost("http://127.0.0.1:9223", undefined, async () => connector);
   await host.get();
   await assert.rejects(host.shutdown(), { code: "JOB_RECOVERY_UNAVAILABLE" });
+});
+
+test("非同期CDP失敗後の保存が完了しなければ新しい接続を作らない", async () => {
+  let connectCount = 0;
+  let actions = 0;
+  const connector = {
+    ...fakeConnector(() => {}),
+    transportFailed: true,
+    shutdown: async () => { throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "相談結果を保存できませんでした。"); },
+  };
+  const host = new LazyConnectorHost(undefined, undefined, async () => { connectCount++; return connector; });
+  await assert.rejects(host.run(async () => { actions++; }), { code: "JOB_RECOVERY_UNAVAILABLE" });
+  assert.equal(connectCount, 1);
+  assert.equal(actions, 0);
 });
 
 test("diagnosticsは未知の実装errorをdoctor fallbackで隠さない", async () => {

@@ -13,6 +13,8 @@ import { ConsultJobStore } from "../src/consult-job-store.js";
 import { normalizeModelCatalog } from "../src/model-catalog.js";
 import { bridgeBuildId } from "../src/page-bridge.js";
 import { rawCatalog } from "./latest-catalog.fixture.js";
+import { ConnectorError } from "../src/errors.js";
+import { LazyConnectorHost } from "../src/mcp-server.js";
 
 async function fixture(t: TestContext) {
   const stateDirectory = await mkdtemp(join(tmpdir(), "gpt-continuation-"));
@@ -21,7 +23,7 @@ async function fixture(t: TestContext) {
   const operations = new Map<string, { state: string; result?: unknown; error?: unknown }>();
   const polls: number[] = [];
   let finish = () => {};
-  let fail = () => {};
+  let fail: (code?: string) => void = () => {};
   const bridge = {
     version: 1, buildId: bridgeBuildId,
     summary: () => ({ version: 1, buildId: bridgeBuildId, ready: true }),
@@ -50,9 +52,9 @@ async function fixture(t: TestContext) {
           attachments: { count: 0, names: [], mimeTypes: [], readBack: "confirmed", retention: "unknown", cleanup: "not_supported" },
         } });
       };
-      fail = () => {
+      fail = (code = "CHAT_FAILED") => {
         conversation.busy = false;
-        operations.set(operationId, { state: "failed", error: { code: "CHAT_FAILED", message: "回答生成が失敗しました。" } });
+        operations.set(operationId, { state: "failed", error: { code, message: "回答生成が失敗しました。" } });
       };
       return { operationId, sessionId };
     },
@@ -89,8 +91,46 @@ async function fixture(t: TestContext) {
     return connector;
   };
   t.after(async () => { finish(); for (const c of connectors) await c.shutdown(); await rm(stateDirectory, { recursive: true, force: true }); });
-  return { connect, conversations, sent, polls, finish: () => finish(), fail: () => fail(), stateDirectory };
+  return { connect, conversations, sent, polls, finish: () => finish(), fail: (code?: string) => fail(code), stateDirectory };
 }
+
+for (const timing of ["受付前", "受付後"] as const) test(`${timing}の非同期相談がCDP失敗した後は、結果を保持して次の要求だけ再接続する`, async t => {
+  const f = await fixture(t);
+  let connections = 0;
+  let first!: GptConnector;
+  const host = new LazyConnectorHost(undefined, f.stateDirectory, async () => {
+    const connector = await f.connect();
+    connections++;
+    if (connections === 1) {
+      first = connector;
+      if (timing === "受付前") t.mock.method(connector, "models", async () => {
+        throw new ConnectorError("CDP_UNAVAILABLE", "閉じたCDP接続は利用できません。");
+      });
+    }
+    return connector;
+  });
+  const input = { prompt: "切断される相談", slug: "disconnected-consult", keepOpen: true, wait: false };
+  const accepted = await host.run(c => c.consult(input)) as ConsultSnapshot;
+  if (timing === "受付後") {
+    assert.equal(accepted.state, "running");
+    f.fail("CDP_UNAVAILABLE");
+  }
+  const failed = await first.consult({ ...input, wait: true }) as ConsultSnapshot;
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.error?.code, "CDP_UNAVAILABLE");
+  assert.equal(connections, 1);
+
+  await Promise.all([host.run(c => c.models()), host.run(c => c.models())]);
+  assert.equal(connections, 2);
+  assert.equal((await host.sessions({ slug: input.slug })).error?.code, "CDP_UNAVAILABLE");
+  const nextInput = { prompt: "復旧後の新しい相談", slug: "after-reconnect", keepOpen: true, wait: false };
+  const next = await host.run(c => c.consult(nextInput)) as ConsultSnapshot;
+  assert.equal(next.state, "running");
+  f.finish();
+  const done = await host.run(c => c.consult({ ...nextInput, wait: true })) as ConsultSnapshot;
+  assert.equal(done.state, "succeeded");
+  assert.equal(f.sent.length, timing === "受付前" ? 1 : 2);
+});
 
 test("受付時のIDを回答前に返し、同じslugの再確認で再送せず、追加質問だけを同じ会話へ送る", async (t) => {
   const f = await fixture(t);

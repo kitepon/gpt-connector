@@ -21,6 +21,7 @@ import { recordRuntimeErrorBestEffort, runtimeErrorStoreDiagnostic } from "./run
 import { packageVersion } from "./version.js";
 
 interface ConnectorPort {
+  readonly transportFailed: boolean;
   models(): ReturnType<GptConnector["models"]>;
   diagnostics(): ReturnType<GptConnector["diagnostics"]>;
   chat(input: ChatInput): ReturnType<GptConnector["chat"]>;
@@ -70,10 +71,22 @@ export class LazyConnectorHost {
   }
 
   async run<T>(action: (connector: ConnectorPort) => Promise<T>): Promise<T> {
-    const connectorPromise = this.get();
+    let connectorPromise = this.get();
     let connector: ConnectorPort | undefined;
     try {
       connector = await connectorPromise;
+      if (connector.transportFailed) {
+        if (this.#connectorPromise === connectorPromise) {
+          // 受付後に失敗した相談の保存と配送を終えてから、次の要求用に接続する。
+          const replacement = connector.shutdown().then(() => this.#connect()).catch((error) => {
+            if (this.#connectorPromise === replacement) this.#connectorPromise = null;
+            throw error;
+          });
+          this.#connectorPromise = replacement;
+        }
+        connectorPromise = this.get();
+        connector = await connectorPromise;
+      }
       return await action(connector);
     } catch (error) {
       if (

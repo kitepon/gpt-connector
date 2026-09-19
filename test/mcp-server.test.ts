@@ -36,6 +36,7 @@ test("MCPから親metadataを受け取り、モデル入力へ宛先パラメー
   let consultations = 0;
   const unused = async (): Promise<never> => { throw new Error("未使用"); };
   const host = new LazyConnectorHost(undefined, undefined, async () => ({
+    transportFailed: false,
     models: unused, chat: unused, image: unused, diagnostics: unused, closeSession: unused,
     sessions: (): never => { throw new Error("未使用"); }, close: () => {}, shutdown: async () => {},
     consult: async (input, target) => {
