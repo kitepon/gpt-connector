@@ -3,6 +3,7 @@
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
 - [chatgpt-app/codex-queue-hooks-20260919.md](chatgpt-app/codex-queue-hooks-20260919.md) — 公式キュー・同期hookによる単独配送と移行、7条件の公式binary実測（2026-09-19）
+- [chatgpt-app/api-client-route-20260919.md](chatgpt-app/api-client-route-20260919.md) — 標準API clientと録音adapterの重複、通信前の経路照合による修理（2026-09-19）
 
 - [setup/windows-parity-20260914.md](setup/windows-parity-20260914.md) — Macの制御を共通化し、Windowsの直接の親子関係・単独Steer・MSIX環境を実機検証（2026-09-14）
 

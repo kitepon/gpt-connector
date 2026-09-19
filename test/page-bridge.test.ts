@@ -8,6 +8,30 @@ import {
   createBridgeCallExpression,
 } from "../src/page-bridge.js";
 
+test("同じモデル一覧を返す録音用clientを除き、標準clientだけを選ぶ", async () => {
+  const expression = createBridgeBootstrapExpression("core", "conversation", "upload", "shared");
+  const start = expression.indexOf("  const apiClientCandidates = ");
+  const end = expression.indexOf("  const threadGetter = ", start);
+  let unintendedFetches = 0;
+  const candidates = [false, true].map(recording => ({
+    async safeGet(route: string, options: { overrideBaseUrl?: string; overrideUrl?: (url: URL) => never }) {
+      if (route === "/models") return { models: [], default_model_slug: "fixture" };
+      const url = new URL(recording && route === "/record" ? "/meetings" : route, options.overrideBaseUrl);
+      options.overrideUrl?.(url);
+      unintendedFetches++;
+      throw new Error("probeから通信してはいけない");
+    },
+    safePost() {}, safePatch() {}, safeDelete() {},
+  }));
+  const selected = await vm.runInNewContext(`(async()=>{${expression.slice(start,end)};return apiClient;})()`, {
+    shared: { standard: candidates[0], recording: candidates[1] },
+    entries: Object.entries, concrete: () => true, location: { origin: "https://chatgpt.com" },
+    unique: (_: string, values: [string, unknown][]) => { assert.equal(values.length, 1); return values[0]![1]; },
+  });
+  assert.equal(selected, candidates[0]);
+  assert.equal(unintendedFetches, 0);
+});
+
 test("bridgeはDOM selector・event・fiberを利用しない", () => {
   const expression = createBridgeBootstrapExpression(
     "https://cdn.oaistatic.com/assets/core.js",

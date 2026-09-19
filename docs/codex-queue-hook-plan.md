@@ -32,3 +32,6 @@
 - 同期後0.9.2の関連試験15件成功。通常stdioで親socket必須の失敗を再現し、公式queue/hookへ修理した。
 - 新配送・移行の個別試験、公式Codexの7条件が成功。独立レビューの旧Windows binary見落とし・home消失時の状態丸めをfocused testで修正済み。
 - lint・typecheck・全230試験（成功223、他OS等のskip7）成功。3OS CI・公開・導入・公開後smokeへ進む。
+- 0.9.3をmain祖先・3OS CI・provenance付きで公開し、Mac／Windowsへ導入した。両端末でMCP登録・7 toolsを確認。Windowsはhook ready、現在のMac Codexは導入前起動のため完全再起動が必要。
+- 公開後setupでChatGPT Webの標準clientと録音adapterの重複を再現した。通信前の経路照合で修理し、focused test、実ブラウザのdiagnostics・models・最小Chatに成功。0.9.4へ含める。
+- Windowsの公式配送7条件が成功。試験fixtureのPATHEXT継承・stdio閉鎖待ち・公式dynamic toolを修正し、OSのsandbox設定に依存せず実行する。

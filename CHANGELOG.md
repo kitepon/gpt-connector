@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.4 - 2026-09-19
+
+- ChatGPT Webの標準API clientと録音用adapterが同じモデル一覧を返す変更に対応した。通信前のURL解決で標準経路を照合し、録音用adapterを除外する。公開export名への固定や追加のHTTP要求を使わず、接続・モデル取得・通常Chatを復旧した。
+- 公式Codex配送の実機試験をMac・Windowsの7条件で確認した。試験子processへWindowsの標準環境を渡し、公式dynamic toolで副作用なしにPostToolUseを発火させ、終了時はstdioの閉鎖まで待つ。
+- 台帳とhookの形式は0.9.3から変更しない。巻き戻し時のhook解除・旧台帳復元条件は0.9.3の記載に従う。
+
 ## 0.9.3 - 2026-09-19
 
 - Codexの起動へNode中継を挿入する方式を、公式キューと同期hookへ移行した。gpt-connector単体で導入・承認・配送でき、Aitermの実行や設定は不要。Mac・Windowsで同じ制御を使う。

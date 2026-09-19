@@ -78,7 +78,17 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       const catalog = await value.safeGet("/models", {
         parameters: { query: { supports_model_picker_upgrade_presets: true } }
       });
-      return Array.isArray(catalog?.models) && typeof catalog?.default_model_slug === "string";
+      if (!Array.isArray(catalog?.models) || typeof catalog?.default_model_slug !== "string") return false;
+      // 録音用adapterも同じ/modelsを返す。URLの解決だけで標準clientを識別し、通信前に止める。
+      const routeProbe = Symbol("gpt-connector-route-probe");
+      let canonicalRoute = false;
+      try {
+        await value.safeGet("/record", {
+          overrideBaseUrl: location.origin,
+          overrideUrl(url) { canonicalRoute = url.pathname === "/record"; throw routeProbe; }
+        });
+      } catch (error) { return error === routeProbe && canonicalRoute; }
+      return false;
     } catch {
       return false;
     }

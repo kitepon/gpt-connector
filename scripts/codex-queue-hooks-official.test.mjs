@@ -18,7 +18,7 @@ function connect(executable, root, env) {
   const child = spawn(executable, ['app-server', '-c', 'analytics.enabled=false'], {
     cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const exited = once(child, 'exit');
+  const exited = once(child, 'close');
   const pending = new Map();
   const events = [];
   const listeners = new Set();
@@ -29,6 +29,10 @@ function connect(executable, root, env) {
   });
   createInterface({ input: child.stdout }).on('line', line => {
     const message = JSON.parse(line);
+    if (message.method === 'item/tool/call') {
+      child.stdin.write(JSON.stringify({ id: message.id, result: { contentItems: [{ type: 'inputText', text: '試験用toolの実行結果' }], success: true } }) + '\n');
+      return;
+    }
     if (!message.method && pending.has(message.id)) {
       const item = pending.get(message.id);
       pending.delete(message.id);
@@ -98,7 +102,7 @@ for (const mode of ['tool', 'stop', 'late', 'missing', 'transition', 'other', 'u
     const number = requests.length;
     if (number === 1) { firstArrived(); await firstGate; }
     const item = number === 1 && (mode === 'tool' || mode === 'other')
-      ? { type: 'function_call', call_id: 'probe_tool', name: 'exec_command', arguments: JSON.stringify({ cmd: process.platform === 'win32' ? 'Write-Output fixture' : 'true', yield_time_ms: 1000 }) }
+      ? { type: 'function_call', call_id: 'probe_tool', name: 'fixture_probe', arguments: '{}' }
       : { type: 'message', role: 'assistant', id: `message-${number}`, content: [{ type: 'output_text', text: `試験応答${number}` }] };
     const id = `response-${number}`;
     response.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -144,7 +148,7 @@ stream_max_retries = 0
   assert.equal((await configureCodexSteer('enable', setupRuntime)).status, 'ready');
   assert.equal((await configureCodexSteer('status', setupRuntime)).status, 'ready');
   assert(!((await readFile(join(home,'config.toml'),'utf8')).includes('bypass_hook_trust')), '通常のhook承認を使う');
-  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:root, TMP:root} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
+  const env = { ...(process.platform === 'win32' ? {SystemRoot:process.env.SystemRoot, PATHEXT:process.env.PATHEXT, LOCALAPPDATA:process.env.LOCALAPPDATA, USERPROFILE:home, TEMP:root, TMP:root} : {}), PATH: process.env.PATH, HOME: home, CODEX_HOME: home, TMPDIR: root, RUST_LOG: 'error' };
   if (mode === 'transition') env.GPT_CONNECTOR_HOOK_PROBE_BARRIER = `${url}/hook-release`;
   const parent = connect(binary, root, env);
   let sender;
@@ -164,7 +168,9 @@ stream_max_retries = 0
     const listed = await sender.request('hooks/list', {cwds:[home]});
     assert.equal(listed.data[0].hooks.find(hook=>hook.command==='foreign-untrusted-command').trustStatus,'untrusted');
   }
-  const { thread } = await parent.request('thread/start', { cwd: root });
+  // hook受信を検証するtoolは副作用を持たない。OSのsandbox導入状態へ依存させない。
+  const { thread } = await parent.request('thread/start', { cwd: root,
+    dynamicTools: [{ name: 'fixture_probe', description: '配送試験用の固定応答', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }] });
   const destination = { thread_id: thread.id, codex_home: home };
   const runtime = { executable: binary, hook_directory: directory };
   const first = await parent.request('turn/start', { threadId: thread.id, input: [{ type: 'text', text: '初回の試験入力' }] });
