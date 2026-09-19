@@ -32,6 +32,14 @@ UTC 13:41:42.635に回答が確定し、13:41:43.521開始の `/backend-api/conv
 
 - archive API失敗とWindows jobの寿命試験は、修正前に失敗、修正後に成功。
 - local release gate: lint・型検査・build成功。製品試験237件中220成功、失敗0、OS条件による17スキップ。
-- hook試験とrelease gate試験は成功。公開版の導入・実機結果は公開後に追記する。
+- hook試験とrelease gate試験は成功。[main CI](https://github.com/kitepon/gpt-connector/actions/runs/35447742898)と[公開CI](https://github.com/kitepon/gpt-connector/actions/runs/35447810135)はMac・Linux・Windowsで成功した。
+
+## 公開版の導入と確認
+
+[0.9.6](https://github.com/kitepon/gpt-connector/releases/tag/v0.9.6)をnpmで公開し、このWindows端末へ標準導入した。setupは全体・4クライアントともready、Codex Steerもreadyだった。hook変更はなく、setupによるCodex再起動要求はなかった。
+
+公開CLIで専用Chromeを起動し直し、job非所属を再確認した。公開npmパッケージのstdio MCPへCodex形式の親metadataを渡す実機試験で、既定Proの `公開版確認：銀河619` が親タスクへ自動配送された。実行モデルは `gpt-6-pro`、結果は成功・archive済み。最終診断は0.9.6・ready、保持sessionと実行中jobは0件だった。
+
+この試験は新しく起動した公開版MCPを対象とした。更新前から動いているMCP processのコードを差し替えたとは扱わない。
 
 関連: [0.9.5の接続更新修理](async-consult-cdp-reconnect-20260919.md)、[起動処理の寿命試験](../../test/windows-browser-lifetime.test.ts)、[archive試験](../../test/page-bridge.test.ts)。
