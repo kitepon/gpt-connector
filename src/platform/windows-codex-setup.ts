@@ -9,7 +9,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { relayConfigDirectory, CodexSteerSetupError as SetupError, type RelayConfig } from "../codex-steer-config.js";
 import type { CodexSteerAction, CodexSteerResult, CodexSteerRuntime } from "../setup-codex-steer.js";
-import { configureCodexSteer } from "../setup-codex-steer.js";
+import { configureLegacyCodexSteer as configureCodexSteer } from "../setup-codex-steer.js";
 import { CodexDeliveryError, withCodexSocket } from "../codex-parent.js";
 import { windowsPowerShellSync, quotePowerShell } from "./windows-powershell.js";
 import { ensurePrivateDirectory, makeFilePrivate } from "./state.js";
@@ -30,7 +30,7 @@ export function findWindowsCodexCache(resources: string, cache: string): string 
   return join(cache, found[0]!.name, "codex.exe");
 }
 
-function findBinary(): string {
+export function findWindowsCodexBinary(): string {
   const resources = windowsPowerShellSync(`
 $packages = @(Get-AppxPackage -Name OpenAI.Codex)
 if ($packages.Count -ne 1) { throw '公式Codex Desktopを一つに特定できません' }
@@ -102,7 +102,7 @@ export function windowsCodexRuntime(directory = relayConfigDirectory()): Partial
   return {
     directory, socket_root: join(directory, "sessions"),
     relay: fileURLToPath(new URL("./windows-codex-relay.js", import.meta.url)),
-    findBinary, getGui, setGui,
+    findBinary: findWindowsCodexBinary, getGui, setGui,
     // ユーザー環境変数自体が永続設定なので、別のログイン処理を設けない。
     persist: () => {}, unpersist: () => {}, prepare: ensurePrivateDirectory, save,
     build: async (options, verify) => {

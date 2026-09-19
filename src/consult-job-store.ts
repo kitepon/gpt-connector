@@ -12,6 +12,7 @@ import {
 } from "./contract.js";
 import { ConnectorError, connectorErrorCodes } from "./errors.js";
 import { codexParentSchema, type CodexParent } from "./codex-parent.js";
+import { codexHookDeliveryState } from "./codex-hook-state.js";
 import { chmodPrivateIfPosix, defaultConsultStateDirectory, posixModeExposesOthers } from "./platform/state.js";
 
 const retrySchema = z.enum([
@@ -87,7 +88,7 @@ const snapshotSchema = z.object({
 }).strict();
 
 const persistedSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
     parent: codexParentSchema.optional(),
@@ -105,6 +106,16 @@ interface StoredJob {
   readonly fingerprint: string;
   readonly parent?: CodexParent;
   readonly snapshot: ConsultSnapshot;
+}
+
+function visibleSnapshot(job: StoredJob): ConsultSnapshot {
+  const snapshot = structuredClone(job.snapshot);
+  if (job.parent && "codexHome" in job.parent && snapshot.delivery?.state === "submitted") {
+    const state = codexHookDeliveryState(job.parent.codexHome, job.parent.threadId, snapshot.delivery.id);
+    if (state) return { ...snapshot, delivery: { ...snapshot.delivery, state,
+      error: state === "unknown" ? "PARENT_DELIVERY_UNKNOWN" : null } };
+  }
+  return snapshot;
 }
 
 export interface ConsultJobStoreOptions {
@@ -220,7 +231,7 @@ export class ConsultJobStore {
             "同じslugへ異なるconsult inputは送信できません。",
           );
         }
-        return { created: false, snapshot: structuredClone(existing.snapshot) };
+        return { created: false, snapshot: visibleSnapshot(existing) };
       }
 
       const alreadyOwnedWriterLock = this.#ownsWriterLock;
@@ -239,7 +250,7 @@ export class ConsultJobStore {
               "同じslugへ異なるconsult inputは送信できません。",
             );
           }
-          return { created: false, snapshot: structuredClone(existing.snapshot) };
+          return { created: false, snapshot: visibleSnapshot(existing) };
         }
 
         const now = new Date().toISOString();
@@ -326,7 +337,7 @@ export class ConsultJobStore {
     if (job === undefined) {
       throw new ConnectorError("JOB_NOT_FOUND", "指定slugのconsult jobは存在しません。");
     }
-    return structuredClone(job.snapshot);
+    return visibleSnapshot(job);
   }
 
   /** writer leaseと永続化したsendingで配送を一つに決め、受付不明時の再送を防ぐ。 */
@@ -397,7 +408,7 @@ export class ConsultJobStore {
       );
     }
     const payload = JSON.stringify({
-      version: 3,
+      version: 4,
       jobs: [...jobs.values()].sort((left, right) =>
         left.snapshot.slug.localeCompare(right.snapshot.slug, "en")),
     });
@@ -409,7 +420,7 @@ export class ConsultJobStore {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const previousVersion = previous === undefined ? null : JSON.parse(previous).version;
-      if (previous !== undefined && (previousVersion === 1 || previousVersion === 2)) {
+      if (previous !== undefined && (previousVersion === 1 || previousVersion === 2 || previousVersion === 3)) {
         try { await writeFile(`${this.#statePath}.v${previousVersion}-backup`, previous, { mode: 0o600, flag: "wx" }); } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }

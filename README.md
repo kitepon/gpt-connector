@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.9.2`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.9.3`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -51,7 +51,7 @@ MarkItDownは別区分の第三者CLIです。
 - Node.js 22以上とnpm（macOS・Windows・Linux）。
 - liveブラウザ機能にはmacOSまたはWindows、Google Chrome、ChatGPTへログインできるaccount。
 - Windowsの操作シェルはPowerShell 7。
-- Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。Windowsでは標準.NET Frameworkも使う。接続用コードは本packageに同梱。
+- Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。公式キューと同期hookを使い、Codexの起動設定を差し替えない。
 
 sourceからbuildする場合だけpnpm 11以上も必要。
 

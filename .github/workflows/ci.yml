@@ -52,6 +52,7 @@ jobs:
       full-command: >-
         corepack pnpm check &&
         corepack pnpm build &&
+        corepack pnpm test:codex-hooks &&
         corepack pnpm test:release-gate
 
   release-commit:

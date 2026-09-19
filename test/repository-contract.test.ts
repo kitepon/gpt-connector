@@ -21,7 +21,7 @@ test("実npm pack内の全Markdownは相対linkをpack内だけで解決する",
   const pack = Object.values(JSON.parse(output)) as Array<{ filename: string; files: Array<{ path: string }> }>;
   assert.equal((await stat(join(outputDirectory, pack[0]?.filename ?? ""))).isFile(), true);
   const files = new Set(pack[0]?.files.map((file) => file.path) ?? []);
-  for (const runtime of ["codex-steer-launcher", "codex-stdio-relay", "codex-steer-login", "codex-steer-config", "codex-parent", "setup-codex-steer"]) {
+  for (const runtime of ["codex-steer-launcher", "codex-stdio-relay", "codex-steer-login", "codex-steer-config", "codex-parent", "setup-codex-steer", "codex-receiver", "codex-hook-state", "codex-parent-hook", "codex-parent-hooks", "setup-codex-hooks"]) {
     assert.doesNotMatch(await readFile(resolve(projectRoot, `src/${runtime}.ts`), "utf8"), /aiterm(?:-setup|-mcp)|\.aiterm/iu);
   }
   const markdownFiles = [...files].filter((path) => path.endsWith(".md"));

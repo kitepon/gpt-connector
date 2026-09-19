@@ -48,7 +48,7 @@ function getGui(key: string): string | null {
   return result.stdout.trim() || null;
 }
 
-function findDesktopBinary(): string {
+export function findDesktopBinary(): string {
   const search = spawnSync("/usr/bin/mdfind", ["kMDItemCFBundleIdentifier == 'com.openai.codex'"], { encoding: "utf8", timeout: 10_000 });
   const candidates = [...new Set(["/Applications/Codex.app", "/Applications/ChatGPT.app", ...(search.status === 0 ? search.stdout.trim().split("\n") : [])])];
   const found = candidates.filter(app => {
@@ -141,7 +141,7 @@ async function buildPosixLauncher(options: Parameters<CodexSteerRuntime["build"]
   return launcher;
 }
 
-export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<CodexSteerRuntime> = {}): Promise<CodexSteerResult> {
+export async function configureLegacyCodexSteer(action: CodexSteerAction = "status", overrides: Partial<CodexSteerRuntime> = {}): Promise<CodexSteerResult> {
   const runtime: CodexSteerRuntime = {
     platform: process.platform, directory: relayConfigDirectory(), socket_root: `/tmp/gpt-connector-codex-${process.getuid?.() ?? 0}`,
     node: process.execPath, relay: fileURLToPath(new URL("./codex-stdio-relay.js", import.meta.url)),
@@ -196,3 +196,6 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
   if (runtime.getGui("CODEX_CLI_PATH") !== launcher) throw new SetupError("codex_steer_readback_failed", "Steerの起動設定を確認できません");
   return await runtime.live(config) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
 }
+
+// 正規導入は公式hookだけを使い、旧中継は移行・解除のため保持する。
+export { configureCodexSteer } from "./setup-codex-hooks.js";

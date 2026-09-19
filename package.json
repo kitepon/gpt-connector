@@ -1,6 +1,6 @@
 {
   "name": "gpt-connector",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をAIクライアントから呼び出すローカルconnector",
   "license": "MIT",
   "author": {
@@ -56,7 +56,8 @@
     "prepack": "npm run check && npm run build",
     "verify:release-commit": "node scripts/verify-release-commit.mjs",
     "test:release-gate": "node --test scripts/verify-release-commit.test.mjs",
-    "test:codex-steer": "node --test scripts/codex-steer-official.test.mjs",
+    "test:codex-hooks": "node --test scripts/codex-hooks.test.mjs scripts/setup-codex-hooks.test.mjs",
+    "test:codex-steer": "node --test scripts/codex-queue-hooks-official.test.mjs",
     "prepublishOnly": "node scripts/verify-release-commit.mjs && npm run check && npm run build"
   },
   "publishConfig": {

@@ -1,18 +1,25 @@
 # Codexへの自動Steer
 
-Codex Desktopから`consult`を呼ぶと、受付結果が返った後もMCPのコードが相談を監視し、完了時に同じ親タスクへ回答を送る。
-実行中の親には同じターンへSteerし、終了後の親には同じタスクで新しいターンを開始する。利用AIに監視ループは必要ない。
+Codex Desktopから`consult`を呼ぶと、受付後もMCPが相談を監視し、完了時に同じ親タスクへ回答を送る。
+実行中は公式の同期hookから同じターンへ取り込み、終了後は公式キューから同じタスクを再開する。利用AIの監視ループは不要。
 
 ## 単独導入
 
-前提はNode.js 22以上、macOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）と、通常のChatGPT接続環境。
-起動中継・接続・監視・配送は本packageに同梱する。Aitermのインストール、コマンド、設定ファイルは使わない。
+Node.js 22以上、macOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）、通常のChatGPT接続環境を使う。
+WindowsのシェルはPowerShell 7。配送・hook・導入コードは本packageに同梱し、Aitermのインストール・コマンド・設定は使わない。
 
 ```bash
 npx --yes gpt-connector@latest setup
 ```
 
-Codexを登録するMacとWindowsではSteer接続も準備する。再起動が必要なら`codexSteer.status=restart_required`を返す。
+setupは`CODEX_HOME`（省略時は`~/.codex`）の`hooks.json`へ`PostToolUse`と`Stop`を登録する。
+公式`hooks/list`で自分の登録を照合し、`config/batchWrite`でその2件の現在のhashだけを承認して読戻す。
+他のhook、承認、モデル、認証、sandbox設定を保持し、承認の一括迂回は使わない。
+HomebrewのNodeは版別Cellar pathを永続登録せず、同じformulaの`opt`入口を使う。
+
+Codexの実行file・起動設定は差し替えない。旧版の中継がある場合だけ、新hookの承認と読戻しを終えた後で
+本製品の`CODEX_CLI_PATH`とMacのログイン時登録を解除する。他製品が変更した起動設定は上書きしない。
+導入前から動くCodexはPIDと生成時刻で識別し、`codexSteer.status=restart_required`を返す。
 Codexを完全終了して再起動し、次で`ready`を確認する。
 
 ```bash
@@ -20,101 +27,69 @@ gpt-connector setup --check
 gpt-connector setup --codex-steer status
 ```
 
-設定は`~/.gpt-connector/codex-steer/`が所有する。Macのログイン時設定は`~/Library/LaunchAgents/dev.kitepon.gpt-connector-codex-relay.plist`へ置く。
-専用launcherをGUIの`CODEX_CLI_PATH`へ設定し、公式署名binaryを変更せずに起動する。
-元の起動設定を保存し、候補のinitialize・終了を確認してから設定を有効にする。
-Macのsocketは本人所有の0700 directory内に0600で作り、TCP portは開かない。
-
-WindowsではPowerShell 7と標準.NET Frameworkを使い、同じ保存先へ専用の起動exeを作る。
-公式Desktopが展開した実行用コピーを、インストール済みMSIXの4実行fileとSHA-256で照合して使う。
-Desktopをまだ一度も起動していない場合は、公式Desktopを起動してからsetupを実行する。
-ユーザー環境変数`CODEX_CLI_PATH`を設定し、公式CLIへ認証付きのloopback WebSocketで接続する。
-外部addressでは待ち受けない。接続ごとの認証情報は製品専用directoryにACLで保護して保存し、終了時に削除する。
-起動元→公式Codex→Node中継の直接の親子関係をMacと同じに保つ。Windowsの起動exeは終了監視だけを行い、JSON-RPCを中継しない。
-親のPID・生成時刻・実行file・接続引数・MCPの祖先processを照合する。短い要求もEOFを待たず転送する。
-初回導入・起動exeの更新後は、Codexを完全終了してスタートメニューから起動する。通常の相談ごとの再起動は不要。
-
-Mac・Windowsとも、既に同じ公式App Serverへ接続できる場合は`connection=existing`で共存し、起動設定を書き換えない。
-互換性を確認できない別設定は`codex_steer_configuration_conflict`で止まる。他製品のファイルへは書き込まない。
-既存受付がなくなった場合は配送エラーとし、本製品のsetupで再準備する。
+本製品の設定・配送所有記録・hook出力記録は`~/.gpt-connector/codex-parent-hooks/`が所有する。
+回答を含む記録はPOSIXの0700 directory／0600 file、Windowsの本人専用ACLで保護する。
+Codexの領域へはhook登録と公式APIによる承認だけを置く。旧`codex-steer/`は移行情報として保持する。
+Windowsは公式Desktopが展開した実行用コピーをMSIXの実行fileとSHA-256で照合する。
+Desktop未起動で実体がない場合は、公式Desktopを一度起動してからsetupする。
 
 ```bash
 gpt-connector setup --codex-steer enable
 gpt-connector setup --codex-steer disable
 ```
 
-`enable`は通常setupと同じ導入・診断を行う。`disable`は本製品が所有する起動設定だけを復元し、Codexの再起動を求める。
-他製品と共有した接続は解除しない。`status`／`disable`単独の終了codeはready・disabledで0、再起動待ちで3、失敗で1。
+`enable`は導入・承認・診断を行い、`disable`は自分のhookだけを除去する。Nodeの旧pathが消えていても解除できる。
+`status`／`disable`単独の終了codeはready・disabledで0、再起動待ちで3、失敗で1。
 通常setupの終了codeは[セットアップ契約](ai-installer-setup-contract.md)に従う。
 
 ## 受付・監視・配送
 
-宛先は、MCP client名`codex-mcp-client`とCodexが付ける要求metadataの`threadId`、MCPを起動した親processの公式接続から決める。
-利用AIへ親IDやsocketの指定を要求しない。同じApp Serverで既に読み込まれた親だけに送り、native sub-agentは対象外とする。
-相談送信前に宛先を確認し、未設定・対応外・宛先不明は`PARENT_DELIVERY_UNAVAILABLE`で止める。
+宛先はMCP client名`codex-mcp-client`、Codexが付ける要求metadataの`threadId`、MCPの`CODEX_HOME`から決める。
+利用AIへ親IDや接続先の指定を要求しない。独立した公式App Serverを通常stdioで起動し、同じCodex環境の公式キューへ接続する。
+相談送信前に親タスク、queue API、自分のhookの有効化・承認、導入後の起動を確認する。native sub-agentは対象外。
+配送できない場合は`PARENT_DELIVERY_UNAVAILABLE`で止め、ChatGPTへ相談を送らない。
 
 `consult`の`wait`指定にかかわらず、受付時にslug・状態と、`keepOpen=true`なら会話用の`sessionId`を返す。
-MCPのコードは10秒ごとにpage bridgeの処理状態を読む。完了判定は公式senderの完了と
-`finished_successfully`・`endTurn=true`の結果によるもので、AIや画面判定を使わない。通常Chatの回答待ちに時間制限は設けず、
-生成の成功・明示的な失敗・通信エラーまで待つ。接続やuploadなど、個別操作の待機期限は維持する。
-生成成功・失敗を台帳へ保存してから親へ通知し、会話の継続には同じ`sessionId`と新しいslugを使う。
+MCPは10秒ごとにpage bridgeの状態を読み、公式senderの完了と`finished_successfully`・`endTurn=true`で判定する。
+通常Chatの回答待ちに時間制限は設けず、生成の成功・明示的な失敗・通信エラーまで待つ。
+接続やuploadなど個別操作の期限は維持する。結果を台帳へ保存してから親へ通知する。
 
-公式`turn/start`へ配送ID付き本文を一度だけ渡す。公式受付が実行中か終了後かを同一処理で判定するため、
-状態確認と送信の間に親が終了してもキューへ放置しない。モデル・思考量・承認・sandbox設定は変更しない。
-追加接続に届く承認要求へは応答せず、Desktopとのstdio中継が通常どおり受け渡す。
+`thread/queue/add`へ配送ID付き本文を一度だけ渡す。同期hookは配送ID・親タスク・本文hashを本製品の所有記録と照合し、
+一つのhookだけがclaimを取得して`thread/queue/delete`を行う。`PostToolUse`は`additionalContext`、
+`Stop`は`decision:block`と`reason`で本文を出力する。利用者や他製品の入力は取り出さない。
+hook通過後やターン終了後に届いた回答は、通常の公式キューが処理する。
 
-snapshotの`delivery`は`id`、`mode=steer`、`state`、`error`を持つ。ChatGPTの成否とは別に保存する。
+snapshotの`delivery`は`id`、`mode=steer`、`state`、`error`を持ち、ChatGPTの成否とは別に記録する。
 
 | 配送状態 | 意味 |
 | --- | --- |
-| `waiting` | 相談の完了または配送開始を待っている |
-| `sending` | 配送開始を保存済みで、公式受付への処理中 |
-| `submitted` | 公式受付のターンIDを確認した。親AIの回答完了までは意味しない |
+| `waiting` | 相談完了または配送開始待ち |
+| `sending` | 公式キューへの投入中、またはhookが取り出し中 |
+| `submitted` | 公式キュー受付済み。親AIの回答完了を意味しない |
 | `failed` | 宛先確認または受付が失敗した |
-| `unknown` | 送信後の切断・timeout等で受付有無を確定できない |
+| `unknown` | 送信後の切断・timeout・hook出力失敗等で到達を確定できない |
 
-再接続で台帳を開くと、未送信の完了結果を配送する。送信中だった記録は`unknown`へ固定して再送しない。
-MCP終了前に相談が未完了だった場合は、従来の復旧契約に従い`JOB_RECOVERY_UNAVAILABLE`とする。
-配送エラーはstderrと`sessions`へ記録する。回答は台帳に残るため、同じ相談を再実行せず`sessions`で回収する。
-MCP processが終了している間の監視は行わない。
+hookによる取り出しが中断した場合も`sessions`は`unknown`を返す。本文は保存し、自動再送しない。
+再接続では未送信の完了結果だけを配送する。送信中だった記録は`unknown`とし、MCP終了時に相談が未完了なら
+`JOB_RECOVERY_UNAVAILABLE`とする。MCP停止中の監視は行わない。保存済み回答は`sessions`で回収する。
 
-自動Steerの対象はCodex Desktopの`consult`。他のクライアント、CLI、互換`chatgpt_chat`、画像生成は従来の応答方式を使う。
+台帳version 4はversion 1・2・3を読める。読取りでは変更せず、初回書込み前に元fileを`.v<元version>-backup`へ保存する。
+旧版で受付済みのsocket宛先は旧配送契約のまま保持し、新規相談は公式キューを使う。新方式から旧中継への自動切替は行わない。
+旧版へ戻す場合は[CHANGELOG](../CHANGELOG.md)の巻き戻し条件に従う。
 
-## 検証と実装の由来
+自動配送の対象はCodexの要求metadataを持つ`consult`。他クライアント、互換`chatgpt_chat`、画像生成は従来の応答方式を使う。
 
-OS差は環境への適合だけに閉じ込める。製品の判定・処理順序はMacの既存実装を正本とし、全OSで共通にする。
+## 検証と由来
 
-| 共通コードが所有するもの | OS依存コードが所有するもの |
-| --- | --- |
-| 引数の受付・stdio指定の処理 | shellの引用とexec、CreateProcessWとハンドル継承 |
-| JSONLの転送・失敗判定・終了の判断 | Unix socketまたは認証付きloopback、signalまたはWindowsの終了API |
-| setupの検証順序・競合・復元・既存接続との共存 | 公式binaryの探索、LaunchAgentまたはユーザー環境変数、modeまたはACL |
-
-`test/codex-relay-arguments.test.ts`は旧Mac launcherの固定標本と引数・拒否条件を比較する。
-`test/codex-setup-parity.test.ts`は同じ設定の入力と期待値をMac・Windowsへ適用する。
-`test/codex-relay-stdio.test.ts`は本文の往復、承認要求の受渡し、EOF・切断・バイナリ応答を確認する。
-
-`test/codex-parent.test.ts`で宛先の照合、拒否、切断、timeout、承認要求との分離を確認する。
-`test/setup-codex-steer.test.ts`で単独導入・解除・既存接続との共存を確認する。
-公式binaryを持つMac・Windowsでは、build後に次の試験で実行中のSteer、終了後の受信、承認中継、終了処理を確認できる。
-一時HOMEとローカルの模擬Responsesを使い、実利用者の認証や外部モデルは使わない。
+Aitermで実証した公式キューと同期hookの方式を、gpt-connectorの所有コード・状態・setupへ移植した。
+配送・承認・移行の制御はMacとWindowsで共通。プロセス識別、公式binary探索、シェル引用、権限だけをOS適合へ分離する。
 
 ```bash
-GPT_CONNECTOR_TEST_CODEX_BINARY=/absolute/Codex.app/Contents/Resources/codex npm run test:codex-steer
+pnpm build
+pnpm test:codex-hooks
+GPT_CONNECTOR_TEST_CODEX_BINARY=/absolute/path/to/official/codex pnpm test:codex-steer
 ```
 
-Windowsでは`test/windows-codex.test.ts`が引数保持、EOF前の転送、公式CLIのinitialize、
-認証付きの追加接続、EOF後のprocess終了と接続情報削除を確認する。公式CLIを使う試験はbuild後に実行する。
-
-```powershell
-$env:GPT_CONNECTOR_TEST_CODEX_BINARY = 'C:\path\to\codex.exe'
-pnpm exec tsx --test test/windows-codex.test.ts
-```
-
-MSIXの仮想AppDataからの起動は、`GPT_CONNECTOR_TEST_CODEX_PACKAGE`と同梱CLIを指定して `node --test scripts/codex-steer-msix.test.mjs` で確認する。
-
-Windowsの接続仕様は[公式App Server](https://learn.chatgpt.com/docs/app-server)とWindows同梱CLIで確認する。
-
-launcher・stdio中継・setupと公式binary試験は、[Aiterm](https://github.com/kitepon/aiterm-mcp)のMIT実装を参考に移植した。
-移植元のCopyright (c) 2026 kiteponとMIT許諾は本packageの[LICENSE](../LICENSE)にも含まれる。
-移植後のコードと試験はgpt-connectorが所有し、Aitermの更新やインストールを実行条件にしない。
+公式fixtureは隔離したHOMEとローカル模擬モデルを使い、実credentialを使わない。
+同一ターン、Stop、終了後、hook消失、終了境界、利用者入力、未承認の他hookとの共存を検証する。
+公開仕様は[Codex公式hook仕様](https://learn.chatgpt.com/docs/hooks)を参照。

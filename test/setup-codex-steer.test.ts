@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { configureCodexSteer } from "../src/setup-codex-steer.js";
+import { configureLegacyCodexSteer as configureCodexSteer } from "../src/setup-codex-steer.js";
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "gpt-steer-setup-"));

@@ -1,26 +1,23 @@
 import { isAbsolute } from "node:path";
 import WebSocket from "ws";
 import { z } from "zod";
-import { ConnectorError } from "./errors.js";
+import { CodexDeliveryError } from "./codex-delivery-error.js";
+export { CodexDeliveryError } from "./codex-delivery-error.js";
+import { realCodexHome, verifyCodexQueueParent, submitCodexQueueAnswer } from "./codex-receiver.js";
 import { packageVersion } from "./version.js";
-import { processSocket, readCodexProcesses, verifyRelaySocket, type CodexProcess } from "./codex-steer-config.js";
-import { parentSocketForPlatform, codexSocketConnection } from "./platform/codex.js";
+import { processSocket, verifyRelaySocket, type CodexProcess } from "./codex-steer-config.js";
+import { codexSocketConnection } from "./platform/codex.js";
 
-export const codexParentSchema = z.object({ threadId: z.string().uuid(), socketPath: z.string().refine(isAbsolute) }).strict();
+const legacyCodexParentSchema = z.object({ threadId: z.uuid(), socketPath: z.string().refine(isAbsolute) }).strict();
+export const codexParentSchema = z.union([z.object({ threadId: z.uuid(), codexHome: z.string().refine(isAbsolute) }).strict(), legacyCodexParentSchema]);
 export type CodexParent = z.infer<typeof codexParentSchema>;
 
-export class CodexDeliveryError extends ConnectorError {
-  constructor(message: string, readonly outcomeUnknown = false) {
-    super(outcomeUnknown ? "PARENT_DELIVERY_UNKNOWN" : "PARENT_DELIVERY_UNAVAILABLE", message);
-  }
-}
-
-/** 宛先はCodexが付けた要求metadataと、同じ親processの公式受付だけから取得する。 */
+/** 宛先はCodexが付けた要求metadataと、MCPが継承したCodex環境から取得する。 */
 export function parentFromRequest(clientName: string | undefined, metadata: unknown): CodexParent | null {
   if (clientName !== "codex-mcp-client") return null;
   const parsed = z.object({ threadId: z.string().uuid() }).safeParse(metadata);
   if (!parsed.success) throw new CodexDeliveryError("CodexのMCP要求に親タスクIDがありません。対応するCodexを使ってください。");
-  return { threadId: parsed.data.threadId, socketPath: parentSocketForPlatform(() => findParentSocket(readCodexProcesses(), process.pid)) };
+  return { threadId: parsed.data.threadId, codexHome: realCodexHome() };
 }
 
 export function findParentSocket(processes: readonly CodexProcess[], pid: number): string {
@@ -44,7 +41,7 @@ export function findParentSocket(processes: readonly CodexProcess[], pid: number
 type Request = (method: string, params: unknown) => Promise<unknown>;
 
 /** 追加clientは承認要求や通知に応答せず、公式App ServerへRPCを送るだけとする。 */
-export async function withCodexParent<T>(parent: CodexParent, action: (request: Request) => Promise<T>, timeoutMs = 15_000): Promise<T> {
+export async function withCodexParent<T>(parent: z.infer<typeof legacyCodexParentSchema>, action: (request: Request) => Promise<T>, timeoutMs = 15_000): Promise<T> {
   return withCodexSocket(parent.socketPath, action, timeoutMs);
 }
 
@@ -131,10 +128,12 @@ async function verifyLoaded(request: Request, threadId: string): Promise<void> {
 }
 
 export async function verifyCodexParent(parent: CodexParent): Promise<void> {
+  if ("codexHome" in parent) return verifyCodexQueueParent({ thread_id: parent.threadId, codex_home: parent.codexHome });
   await withCodexParent(parent, request => verifyLoaded(request, parent.threadId));
 }
 
 export async function deliverCodexAnswer(parent: CodexParent, deliveryId: string, text: string): Promise<void> {
+  if ("codexHome" in parent) return submitCodexQueueAnswer({ thread_id: parent.threadId, codex_home: parent.codexHome }, deliveryId, text);
   await withCodexParent(parent, async request => {
     await verifyLoaded(request, parent.threadId);
     // 公式の同一処理内で実行中はSteer、終了後は開始する。状態による分岐と二重送信を作らない。

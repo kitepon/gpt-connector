@@ -23,6 +23,7 @@ version決定、製品gate、npm公開、tag／GitHub Release、公開後smoke�
 corepack pnpm install --frozen-lockfile
 corepack pnpm check
 corepack pnpm build
+corepack pnpm test:codex-hooks
 corepack pnpm test:release-gate
 npm pack --dry-run --json
 ```
@@ -78,7 +79,7 @@ gpt-connector setup --check
 
 初回の公開入口`npx --yes gpt-connector@<公開版> setup`も確認する。MacとWindowsではlive readinessまで、Linuxでは
 package・4AI登録・MCP・state読取りまで実測し、live未対応の`partial`／終了2を別記する。
-Codex起動設定を変更した場合は、完全再起動後のSteer接続確認まで行う。再起動待ちは`action_required`と区別する。
+Codexのhook・旧起動設定を変更した場合は、完全再起動後の配送確認まで行う。再起動待ちは`action_required`と区別する。
 各AI自身でも登録を確認する（Claude `mcp get`、Codex `mcp get --json`、Grok `mcp doctor --json`、Cursor `mcp list-tools`）。
 `sessions`の読取りは製品所有の隔離fixtureで確認し、利用者のjob内容を公開しない。
 設定更新前後で既存env、モデル、認証、他MCPが保持されたこと、setup再実行で変更が増えないことを確認する。

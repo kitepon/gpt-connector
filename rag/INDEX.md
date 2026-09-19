@@ -2,6 +2,8 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [chatgpt-app/codex-queue-hooks-20260919.md](chatgpt-app/codex-queue-hooks-20260919.md) — 公式キュー・同期hookによる単独配送と移行、7条件の公式binary実測（2026-09-19）
+
 - [setup/windows-parity-20260914.md](setup/windows-parity-20260914.md) — Macの制御を共通化し、Windowsの直接の親子関係・単独Steer・MSIX環境を実機検証（2026-09-14）
 
 - [setup/windows-live-20260913.md](setup/windows-live-20260913.md) — WindowsのChrome制御、認証付きCodex接続、.NET stdin bufferの最小再現と修理（2026-09-13・公式仕様＋実機）

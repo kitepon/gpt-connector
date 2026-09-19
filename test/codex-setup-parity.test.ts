@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configureCodexSteer, type CodexSteerRuntime } from "../src/setup-codex-steer.js";
+import { configureLegacyCodexSteer as configureCodexSteer, type CodexSteerRuntime } from "../src/setup-codex-steer.js";
 
 // 環境APIだけを差し替え、Macの設定判定を両OSで同じ入力・期待値に通す。
 for (const platform of ["darwin", "win32"]) test(`${platform}: 設定の所有・検証順序・復元・既存接続はMacと共通`, async t => {

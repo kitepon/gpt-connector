@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import test from "node:test";
 import { ConsultJobStore } from "../src/consult-job-store.js";
 import { ConnectorError } from "../src/errors.js";
 import { randomUUID } from "node:crypto";
+import { codexHookDirectory, codexInputDirectory, writeHookJson } from "../src/codex-hook-state.js";
 
 type JobState = "queued" | "uploading" | "submitted" | "running" | "succeeded" | "failed";
 
@@ -74,6 +75,47 @@ interface ConsultJobStoreContract {
 
 const slug = "durable-job-001";
 const fingerprint = "5de33c50f002c4d54e191a00e1d4f6b8";
+
+test("公式キュー投入後のhook出力失敗を台帳照会でunknownとして返し、本文と旧記録を保持する", async () => {
+  await withStateDirectory(async stateDirectory => {
+    const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    process.env.HOME = stateDirectory;
+    process.env.USERPROFILE = stateDirectory;
+    const store = new ConsultJobStore({ stateDirectory });
+    try {
+      await store.initialize();
+      const codexHome = join(stateDirectory, "codex-home");
+      await mkdir(codexHome);
+      const parent = { threadId: randomUUID(), codexHome };
+      await store.reserve(slug, fingerprint, parent);
+      await store.transition(slug, "submitted");
+      await store.transition(slug, "running");
+      await store.transition(slug, "succeeded", { result: succeededResult });
+      const [delivery] = await store.claimDeliveries();
+      assert.deepEqual(delivery!.parent, parent);
+      await store.finishDelivery(slug, "submitted", null);
+      const original = await readFile(join(stateDirectory, "consult-jobs.json"), "utf8");
+      writeHookJson(join(codexInputDirectory(codexHookDirectory(), codexHome, parent.threadId), "claims", store.get(slug).delivery!.id + ".json"), { state: "unknown", text: succeededResult.text });
+      assert.equal(store.get(slug).delivery!.state, "unknown");
+      assert.equal(store.get(slug).delivery!.error, "PARENT_DELIVERY_UNKNOWN");
+      assert.deepEqual(store.get(slug).result, succeededResult);
+      assert.equal((await store.reserve(slug, fingerprint, parent)).snapshot.delivery!.state, "unknown");
+      const reader = new ConsultJobStore({ stateDirectory, readOnly: true });
+      await reader.initialize();
+      assert.equal(reader.get(slug).delivery!.state, "unknown");
+      assert.equal(await readFile(join(stateDirectory, "consult-jobs.json"), "utf8"), original);
+      await rm(codexHome, { recursive: true });
+      assert.equal(reader.get(slug).delivery!.state, "unknown");
+      assert.deepEqual(reader.get(slug).result, succeededResult);
+      reader.close();
+    } finally {
+      store.close();
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  });
+});
 
 for (const wasSending of [false, true]) test(`再起動時の配送${wasSending ? "受付不明" : "未送信"}を区別し二重配送しない`, async () => {
   await withStateDirectory(async stateDirectory => {
@@ -195,10 +237,10 @@ test("terminal resultをstate transitionと再initialize後にも保持する", 
   });
 });
 
-test("旧台帳は読取りで変更せず、初回書込みだけ退避して受付IDを保存できる形式へ移行する", async () => {
+for (const version of [1, 2, 3]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
   await withStateDirectory(async (stateDirectory) => {
     const path = join(stateDirectory, "consult-jobs.json");
-    const legacy = JSON.stringify({ version: 1, jobs: [{ fingerprint, snapshot: {
+    const legacy = JSON.stringify({ version, jobs: [{ fingerprint, snapshot: {
       slug, state: "succeeded", createdAt: "2026-09-13T00:00:00.000Z", updatedAt: "2026-09-13T00:00:01.000Z",
       result: succeededResult, error: null,
     } }] });
@@ -207,7 +249,7 @@ test("旧台帳は読取りで変更せず、初回書込みだけ退避して�
     await reader.initialize();
     assert.deepEqual(reader.get(slug).result, succeededResult);
     assert.equal(await readFile(path, "utf8"), legacy);
-    assert.equal((await readdir(stateDirectory)).includes("consult-jobs.json.v1-backup"), false);
+    assert.equal((await readdir(stateDirectory)).includes(`consult-jobs.json.v${version}-backup`), false);
     reader.close();
 
     const writer = new ConsultJobStore({ stateDirectory });
@@ -219,9 +261,9 @@ test("旧台帳は読取りで変更せず、初回書込みだけ退避して�
     await writer.transition("new-question", "failed", {
       error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
     });
-    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 3);
-    assert.equal(await readFile(`${path}.v1-backup`, "utf8"), legacy);
-    if (process.platform !== "win32") assert.equal((await stat(`${path}.v1-backup`)).mode & 0o777, 0o600);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 4);
+    assert.equal(await readFile(`${path}.v${version}-backup`, "utf8"), legacy);
+    if (process.platform !== "win32") assert.equal((await stat(`${path}.v${version}-backup`)).mode & 0o777, 0o600);
     writer.close();
 
     const reopened = new ConsultJobStore({ stateDirectory, readOnly: true });

@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.9.2"
+gpt_connector_version="0.9.3"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -30,7 +30,7 @@ gpt-connector setup --check
 
 MacとWindowsでCodexを登録する時は、同梱コードで公式Codex DesktopへのSteer接続も導入する。Aitermは不要。
 `registrations[].codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
-既存の公式受付が利用可能なら設定を保って共存し、互換性を確認できない設定は上書きせず失敗する。
+公式キューと同期hookを使い、自分のhookだけを承認する。旧中継は新hookの読戻し後に解除し、他製品のhook・承認・起動設定を保持する。
 所有ファイル・確認・解除は[Codexへの自動Steer](codex-steer.md)を参照。
 
 ## 対象AIと保存先

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.3 - 2026-09-19
+
+- Codexの起動へNode中継を挿入する方式を、公式キューと同期hookへ移行した。gpt-connector単体で導入・承認・配送でき、Aitermの実行や設定は不要。Mac・Windowsで同じ制御を使う。
+- setupは自分の2つのhookを公式APIで承認・読戻しした後、自分が所有する旧起動設定を解除する。他製品のhook・承認・起動設定を保持し、導入前から動くCodexは生成時刻付きPIDで識別して再起動を要求する。HomebrewのNodeは版に依存しないopt入口を登録する。
+- 実行中の回答は同一ターンへ取り込み、終了後は公式キューで再開する。配送ID・本文hash・単一claimで他の入力と区別し、hook出力失敗は本文を保存してsessionsへunknownを返す。
+- 台帳をversion 4へ更新する。version 1・2・3の保存済み回答を読め、初回書込み前に元台帳を対応する.v1-backup／.v2-backup／.v3-backupへ退避する。
+- 巻き戻し: この版のsetup --codex-steer disableでhookを解除してCodexを完全終了する。全MCPを停止し、version 4台帳を退避して対応する旧台帳backupを復元するか旧版専用の空state directoryを使い、旧版をinstall・setupする。backup以降の回答はversion 4を読める版で回収する。公開versionとtagは移動しない。
+
 ## 0.9.2 - 2026-09-14
 
 - 通常Chatとconsultの回答待ちに設けていた10分の期限を撤去した。Proを含め、生成の成功・明示的な失敗・通信エラーまで待ち、経過時間だけで相談を失敗にしない。
