@@ -14,7 +14,7 @@ export interface BrowserPlatform {
   prepareProfile?(profile: string): void | Promise<void>;
   readonly ownershipProbeTimeoutMs?: number;
   chromeLaunchCommand(profile: string): { readonly command: string; readonly args: readonly string[] };
-  spawnDetached(command: string, args: readonly string[]): SpawnedChild;
+  spawnDetached(command: string, args: readonly string[]): SpawnedChild | Promise<void>;
   inspectListenerProcesses(): Promise<readonly ListenerProcess[]>;
   isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean;
   hideProcess(pid: number, timeoutMs: number): Promise<void>;

@@ -47,3 +47,5 @@ npmから取得した0.9.5をWindowsへ標準導入し、そのインストー�
 
 続く新規相談 `smoke-095-postrestart-20260919-hisui936` は、既定のPro（実行モデル `gpt-6-pro`）で `動作確認完了：翡翠936` を返した。親タスクへの自動配送、`finished_successfully`、archive成功を確認した。最終診断は `ready`、保持session・実行中jobとも0件だった。
 これにより、公開版0.9.5のCodexへの反映と実際の回答の自動配送まで確認を完了した。当初のChrome停止原因、および今回一度発生した回答失敗の原因まで解決したとは扱わない。
+
+追跡調査で、上記の回答は生成済みであり、archive APIのHTTP 500を回答失敗へ誤分類していたことを確認した。ChromeがCodexの終了jobを継承する欠陥も再現した。詳細と過去の停止に関する証拠の限界は[続報](windows-browser-archive-causes-20260919.md)を参照。

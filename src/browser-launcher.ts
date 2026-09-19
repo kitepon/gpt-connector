@@ -9,7 +9,7 @@ import { browserPlatform, type BrowserPlatform, type ListenerProcess } from "./p
 export interface BrowserLaunchResult { readonly ok: true; readonly status: "already_ready" | "started"; readonly endpoint: "http://127.0.0.1:9223"; }
 export interface BrowserShowResult { readonly ok: true; readonly status: "shown"; readonly endpoint: "http://127.0.0.1:9223"; }
 type Spawned = { readonly once: (event: "error", listener: (error: Error) => void) => unknown; };
-type Spawn = (command: string, args: readonly string[]) => Spawned;
+type Spawn = (command: string, args: readonly string[]) => Spawned | Promise<void>;
 type Readiness = () => Promise<boolean>;
 type ProcessInspector = () => Promise<readonly ListenerProcess[]>;
 interface BrowserLock { release(): Promise<void>; }
@@ -367,5 +367,5 @@ function isLiveProcess(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error: unknown) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 async function ready(fetcher: typeof globalThis.fetch, cdpTimeoutMs: number, operationTimeoutMs: number): Promise<boolean> { let connector: GptConnector | undefined; try { connector = await GptConnector.connect({ endpoint, fetch: fetcher, cdpTimeoutMs, operationTimeoutMs, pollIntervalMs: 100, readOnlyJobs: true }); await connector.models(); return true; } catch (error) { if (error instanceof ConnectorError && (error.code === "AUTH_REQUIRED" || error.code === "RUNTIME_DRIFT")) throw error; return false; } finally { connector?.close(); } }
-async function spawnError(child: Spawned): Promise<void> { await new Promise<void>((resolve, reject) => { child.once("error", reject); setTimeout(resolve, 0); }); }
+async function spawnError(child: Spawned | Promise<void>): Promise<void> { if (child instanceof Promise) return child; await new Promise<void>((resolve, reject) => { child.once("error", reject); setTimeout(resolve, 0); }); }
 async function ensurePrivateProfile(profile: string): Promise<void> { try { const info = await lstat(profile); if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("browser profile pathが不正です"); } catch (error: unknown) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await mkdir(profile, { recursive: true, mode: 0o700 }); } await chmod(profile, 0o700); }

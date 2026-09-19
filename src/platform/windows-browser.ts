@@ -1,11 +1,10 @@
 // WindowsのChrome探索、ポート所有確認、Win32 window制御を所有する。
 import { existsSync } from "node:fs";
 import { win32 } from "node:path";
-import { spawn } from "node:child_process";
 import { z } from "zod";
 import { ConnectorError } from "../errors.js";
-import type { ListenerProcess, SpawnedChild } from "./browser.js";
-import { windowsPowerShell } from "./windows-powershell.js";
+import type { ListenerProcess } from "./browser.js";
+import { quotePowerShell, windowsPowerShell } from "./windows-powershell.js";
 import { ensurePrivateDirectory } from "./state.js";
 
 export const prepareProfile = ensurePrivateDirectory;
@@ -19,10 +18,15 @@ export function chromeLaunchCommand(profile: string, env = process.env, exists =
   return { command, args: ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`, "--no-startup-window", "--no-first-run", "--no-default-browser-check"] };
 }
 
-export function spawnDetached(command: string, args: readonly string[]): SpawnedChild {
-  const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
-  child.unref();
-  return child;
+export async function spawnDetached(command: string, args: readonly string[]): Promise<void> {
+  const commandLine = [command, ...args].map(value => '"' +
+    value.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/u, '$1$1') + '"').join(" ");
+  // detachedだけではCodex等の終了jobを継承する。標準WMIのprocess作成でbrowserの寿命を独立させる。
+  await windowsPowerShell(`
+$startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0; CreateFlags = [uint32]0x01000008 }
+$created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${quotePowerShell(commandLine)}; ProcessStartupInformation = $startup }
+if ($created.ReturnValue -ne 0 -or $created.ProcessId -le 0) { throw ('専用Chromeのprocess作成に失敗しました: ' + $created.ReturnValue) }
+`);
 }
 
 export function isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean {

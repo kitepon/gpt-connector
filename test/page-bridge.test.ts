@@ -48,6 +48,24 @@ test("bridgeはDOM selector・event・fiberを利用しない", () => {
   assert.doesNotThrow(() => new Function(expression));
 });
 
+test("archiveのHTTP失敗は回答失敗に分類せず、段階とstatusを保持する", async () => {
+  const expression = createBridgeBootstrapExpression("core", "conversation", "upload", "shared");
+  const start = expression.indexOf("const archive = ");
+  const end = expression.indexOf("const startOperation = ", start);
+  const errorHelpers = expression.slice(expression.indexOf("const knownErrorCodes = "), expression.indexOf("const clearChunks = "));
+  for (const method of ["safePatch", "safeGet"] as const) for (const status of [500, 401]) {
+    const apiClient = {
+      safePatch: async () => {},
+      safeGet: async () => ({ is_archived: true }),
+    };
+    apiClient[method] = async () => { throw Object.assign(new Error("Something went wrong."), { response: { status } }); };
+    const archive = vm.runInNewContext(`${errorHelpers}; ${expression.slice(start, end)}; archive`, {
+      apiClient, serverIdOf: () => "test-conversation",
+    });
+    await assert.rejects(archive({}), new RegExp(`${status === 500 ? "ARCHIVE_FAILED" : "AUTH_REQUIRED"}:.*HTTP ${status}.*Something went wrong\\.`, "u"));
+  }
+});
+
 test("sender検出は現行wrapperのfollowup前処理とsettled callbackを固定する", () => {
   const expression = createBridgeBootstrapExpression(
     "https://cdn.oaistatic.com/assets/core.js",

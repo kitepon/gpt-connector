@@ -497,14 +497,21 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
   const archive = async (conversation) => {
     const serverId = serverIdOf(conversation);
     if (!serverId) throw new Error("ARCHIVE_FAILED:no_server_id");
-    await apiClient.safePatch("/conversation/{conversation_id}", {
-      parameters: { path: { conversation_id: serverId } },
-      requestBody: { is_archived: true }
-    });
-    const data = await apiClient.safeGet("/conversation/{conversation_id}", {
-      parameters: { path: { conversation_id: serverId } }
-    });
-    if (data?.is_archived !== true) throw new Error("ARCHIVE_FAILED:not_confirmed");
+    try {
+      await apiClient.safePatch("/conversation/{conversation_id}", {
+        parameters: { path: { conversation_id: serverId } },
+        requestBody: { is_archived: true }
+      });
+      const data = await apiClient.safeGet("/conversation/{conversation_id}", {
+        parameters: { path: { conversation_id: serverId } }
+      });
+      if (data?.is_archived !== true) throw new Error("ARCHIVE_FAILED:not_confirmed");
+    } catch (error) {
+      const code = errorCode(error, "ARCHIVE_FAILED");
+      const status = error?.status ?? error?.response?.status;
+      throw new Error(code + ":会話のarchive処理に失敗しました。" +
+        (Number.isInteger(status) ? "HTTP " + status + " " : "") + String(error?.message ?? error));
+    }
   };
 
   const startOperation = (kind) => {

@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.9.5`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.9.6`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -113,7 +113,8 @@ CDP `minimized`は作成時のhintだけで、非表示の最終判定には使�
 `gpt-connector browser show`は正規専用PIDを表示し、unhiddenかつ表示window 1件以上を確認する。
 Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必要時の`browser show`で行う。
 
-Windowsでは標準導入先のChromeを専用profileで起動する。9223の所有PID・実行file・ネイティブ解析した引数を照合し、
+Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない専用Chromeを起動する。Codex等の終了にChromeを巻き込まない。
+9223の所有PID・実行file・ネイティブ解析した引数を照合し、
 そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。所有確認と表示状態の読戻しが成立してから成功を返す。
 
 ## source setup
@@ -369,6 +370,7 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - 次の質問は前の質問の成功後に送る。生成失敗時も受付IDは記録に残るが、初回生成の失敗では会話が破棄される。
 - 同一sessionへの並行turnは`SESSION_BUSY`。
 - one-shotと`chatgpt_close`はserverの`is_archived=true`をread-backしてから成功を返す。
+- 回答生成後のarchive失敗は`ARCHIVE_FAILED`で返す。HTTPエラーの場合はstatusをメッセージへ含める。認証失敗は`AUTH_REQUIRED`を維持する。
 - delete機能はない。
 
 `consult`／`chatgpt_image` jobは別契約:

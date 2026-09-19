@@ -2,6 +2,8 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [chatgpt-app/windows-browser-archive-causes-20260919.md](chatgpt-app/windows-browser-archive-causes-20260919.md) — Codex終了jobを継承するChrome起動と、archiveのHTTP 500を回答失敗へ誤分類する欠陥の再現・修理（2026-09-19）
+- [setup/raw/windows-job-lifetime-20260919.md](setup/raw/windows-job-lifetime-20260919.md) — Microsoft公式のjob継承とWMI process作成の一次資料（2026-09-19）
 - [chatgpt-app/async-consult-cdp-reconnect-20260919.md](chatgpt-app/async-consult-cdp-reconnect-20260919.md) — 非同期相談の接続失敗がMCPの接続破棄へ届かない欠陥を再現・修理。Chrome停止原因の未解明と区別（2026-09-19）
 - [chatgpt-app/codex-queue-hooks-20260919.md](chatgpt-app/codex-queue-hooks-20260919.md) — 公式キュー・同期hookによる単独配送と移行、7条件の公式binary実測（2026-09-19）
 - [chatgpt-app/api-client-route-20260919.md](chatgpt-app/api-client-route-20260919.md) — 標準API clientと録音adapterの重複、通信前の経路照合による修理（2026-09-19）
