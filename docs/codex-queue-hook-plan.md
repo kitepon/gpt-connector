@@ -35,3 +35,28 @@
 - 0.9.3をmain祖先・3OS CI・provenance付きで公開し、Mac／Windowsへ導入した。両端末でMCP登録・7 toolsを確認。Windowsはhook ready、現在のMac Codexは導入前起動のため完全再起動が必要。
 - 公開後setupでChatGPT Webの標準clientと録音adapterの重複を再現した。通信前の経路照合で修理し、focused test、実ブラウザのdiagnostics・models・最小Chatに成功。0.9.4へ含める。
 - Windowsの公式配送7条件が成功。試験fixtureのPATHEXT継承・stdio閉鎖待ち・公式dynamic toolを修正し、OSのsandbox設定に依存せず実行する。
+
+## 公開・導入の実測（2026-09-19）
+
+- 0.9.4の公開commitは`a9c9225971f88bab42bda838201dded924d45bd7`。main祖先確認済み。
+  [main CI](https://github.com/kitepon/gpt-connector/actions/runs/35443155342)と
+  [tag CI](https://github.com/kitepon/gpt-connector/actions/runs/35443231448)のMac・Windows・Linux gateが成功した。
+- [npm](https://www.npmjs.com/package/gpt-connector/v/0.9.4)のversionとSLSA provenanceを確認し、
+  [GitHub Release](https://github.com/kitepon/gpt-connector/releases/tag/v0.9.4)を公開した。
+  provenance transparency log indexは`2892484234`。
+- lint・型検査、全231試験（成功224、対象OS以外等のskip7）、配送・移行20試験、release gate5試験が成功。
+  公式Codexの通常stdioと隔離HOMEを使う7条件はMac・Windowsとも成功。fixtureはAitermに依存しない。
+- Mac: 公開packageのglobal installと`npx --yes gpt-connector@0.9.4 setup`を実行した。
+  4AI登録・state・MCP 7 tools・liveはready。導入前から動くCodexだけ`restart_required`で、setup/checkは終了1・`action_required`。
+  modelsとInstantの最小Chat・archive読戻しに成功した。最初の公開版Chatは`CHAT_FAILED: Something went wrong.`を返し、独立した再試行は成功した。原因未特定のため製品コードへ再試行や例外処理を追加していない。
+- Windows: 同じ公開入口から導入し、setup/checkは終了0・ready。4AI登録・state・MCP 7 tools・live・Codex hookがready。
+  Instantの最小Chat・archive読戻しも成功した。SSHのPowerShell出力読取りはUTF-8を明示して測定した。
+- Linux: SSHの一時的な接続拒否が解消後、公開packageをglobal installしてsetup/checkを実行した。
+  4AI登録・state・MCP 7 toolsはready。live未対応の契約どおり終了2・partialで、live試験は行わない。
+- 設定の事前tar backupを3端末で保存。Mac・Windowsの既存モデル・認証・env・他MCP・他hookを保持し、checkによる設定変更がないことを確認した。
+
+## 残る受入と再開
+
+Macの利用中Codexを完全終了して起動し直す操作だけが未実施。現在のタスクを中断するため、自動では終了しない。
+再起動後、公開入口`gpt-connector setup --check`でCodex hookのreadyを確認し、このタスクから実相談を1件送って回答の自動配送を確認する。
+この観測まではintegrationを完了とせず、Controlをactiveのまま保持する。完了後に本計画をarchiveし、knowledge returnと完了記録を閉じる。

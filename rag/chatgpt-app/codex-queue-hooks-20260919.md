@@ -25,3 +25,5 @@ Windowsの再起動判定は旧cacheのbinaryと大小文字差を含める。CO
 旧台帳version 1・2・3は読取りで変更せず、初回書込みだけbackupを保存してversion 4へ移行する。
 
 fixtureは実ChatGPT・利用者のDesktopを操作しない。公開後の実環境確認はrelease工程で別に行う。
+
+同日、公開packageの実装を使うWindows native試験でも全7条件が成功した。試験の親はWindowsの標準環境変数PATHEXTを継承し、終了時はprocess exitに続くstdioのcloseまで待つ。PostToolUseの発火には公式dynamicToolsの固定応答を使うため、OS shellやsandbox導入状態へ依存しない。Macでも同じfixtureの7条件が成功した。
