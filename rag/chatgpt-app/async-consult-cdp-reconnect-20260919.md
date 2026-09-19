@@ -27,3 +27,13 @@ Chromeの接続口が戻っても、新しいslugを使った相談が2回続け
 この修理が解決するのは切断後の接続更新であり、元のChrome停止原因が解決したという証拠にはしない。
 
 参照: [相談とMCPの契約](../../README.md)、[継続相談の試験](../../test/connector-continuation.test.ts)、[MCP接続管理の試験](../../test/mcp-connector-host.test.ts)。
+
+## 公開版の確認
+
+修理を [0.9.5](https://github.com/kitepon/gpt-connector/releases/tag/v0.9.5) として公開した。
+[main CI](https://github.com/kitepon/gpt-connector/actions/runs/35445746863) と [公開CI](https://github.com/kitepon/gpt-connector/actions/runs/35445823228) はMac・Linux・Windowsで成功した。
+ローカルの製品試験は217成功・失敗0・OS条件による17スキップ。hook・release gate試験も成功した。
+
+npmから取得した0.9.5をWindowsへ標準導入し、そのインストール先のstdio MCPで同じ切断・復旧・継続会話試験を実行した。
+初回失敗 `CDP_UNAVAILABLE`、次の相談 `succeeded`、継続 `succeeded`、archive成功、最終 `ready` を確認した。
+導入後のlive接続は4クライアントとも `ready`。稼働中CodexのMCPは0.9.4を保持しているため、Codexへの反映は完全再起動が必要であり、その後の親タスクへの自動配送確認はこの記録時点では未完了。
