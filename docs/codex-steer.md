@@ -19,6 +19,10 @@ HomebrewのNodeは版別Cellar pathを永続登録せず、同じformulaの`opt`
 
 Codexの実行file・起動設定は差し替えない。旧版の中継がある場合だけ、新hookの承認と読戻しを終えた後で
 本製品の`CODEX_CLI_PATH`とMacのログイン時登録を解除する。他製品が変更した起動設定は上書きしない。
+macOSでは`launchctl asuser`でDesktopのGUI環境を指定して読取り・解除・読戻しを行う。
+永続PTYやSSHの呼出元環境が空でも、GUIに残った自分の旧launcherを見落とさない。
+旧記録が解除済みでも実環境に残っていれば、`status`は`codex_steer_migration_required`を返し、
+`enable`で解除を完了する。
 導入前から動くCodexはPIDと生成時刻で識別し、`codexSteer.status=restart_required`を返す。
 Codexを完全終了して再起動し、次で`ready`を確認する。
 

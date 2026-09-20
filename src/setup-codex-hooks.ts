@@ -14,6 +14,7 @@ import { findWindowsCodexBinary } from "./platform/windows-codex-setup.js";
 import { readRuntimeProcesses, type RuntimeProcess } from "./platform/codex-processes.js";
 import { quotePowerShell } from "./platform/windows-powershell.js";
 import { ensurePrivateDirectory } from "./platform/state.js";
+import { macGuiEnvironment } from "./platform/macos-gui-environment.js";
 import { assertCodexHooksReady, codexHookDirectory, ownedCodexHooks, readCodexHookConfig, writeHookJson, type CodexHookConfig } from "./codex-hook-state.js";
 import type { CodexSteerAction, CodexSteerResult } from "./setup-codex-steer.js";
 export type { CodexSteerAction, CodexSteerResult } from "./setup-codex-steer.js";
@@ -63,6 +64,7 @@ type Runtime = {
   platform: string; directory: string; codex_home: string; node: string; hook: string;
   findBinary: () => string; processes: () => RuntimeProcess[];
   legacy: () => RelayConfig | null; disableLegacy: () => Promise<CodexSteerResult>;
+  legacyOverride: () => string | null;
   verify: (config: CodexHookConfig, approve: boolean) => Promise<void>;
 };
 
@@ -92,9 +94,11 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
     node: process.execPath, hook: fileURLToPath(new URL("./codex-parent-hook.js", import.meta.url)),
     findBinary: process.platform === "win32" ? findWindowsCodexBinary : findDesktopBinary,
     processes: readRuntimeProcesses, legacy: readRelayConfig,
+    legacyOverride: () => process.platform === "darwin" ? macGuiEnvironment("getenv", "CODEX_CLI_PATH") : null,
     disableLegacy: () => configureLegacyRelay("disable"), verify: verifyCodexHookRegistration, ...overrides };
   const previous = readCodexHookConfig(runtime.directory);
   const legacy = runtime.legacy();
+  const migrationRequired = !!legacy && (legacy.enabled || runtime.legacyOverride() === legacy.launcher);
   const file = path.join(action === "disable" && previous ? previous.codex_home : runtime.codex_home, "hooks.json");
   const save = (config: CodexHookConfig) => {
     // 回答本文のclaimもこの配下に置く。Windowsでは子へ継承する本人専用ACLを設定する。
@@ -103,13 +107,14 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
   };
   const needsRestart = (config: CodexHookConfig) => runtime.processes().some(row => config.stale_processes.some(stale => stale.pid === row.pid && stale.started_identity === row.started_identity));
   if (action === "status") {
-    if (!previous?.enabled) return legacy?.enabled ? { status: "failed", reason_code: "codex_steer_migration_required" } : { status: "disabled" };
+    if (!previous?.enabled) return migrationRequired ? { status: "failed", reason_code: "codex_steer_migration_required" } : { status: "disabled" };
     await runtime.verify(previous, false);
-    return legacy?.enabled || needsRestart(previous) ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "ready" };
+    if (migrationRequired) return { status: "failed", reason_code: "codex_steer_migration_required" };
+    return needsRestart(previous) ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "ready" };
   }
   if (action === "disable") {
     if (previous?.enabled) { mergeCodexParentHooks(file, null, previous.command); save({ ...previous, enabled: false }); }
-    if (legacy?.enabled) return runtime.disableLegacy();
+    if (migrationRequired) return runtime.disableLegacy();
     return previous?.enabled ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "disabled" };
   }
   if (!["darwin", "win32"].includes(runtime.platform)) return { status: "unsupported", reason_code: "codex_steer_platform_unsupported" };
@@ -121,7 +126,7 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
   const changed = mergeCodexParentHooks(file, command, previous?.command);
   const normalize = (value: string) => runtime.platform === "win32" ? value.replaceAll("/", "\\").toLowerCase() : value;
   const binaries = [binary, legacy?.binary, previous?.binary].filter((value): value is string => !!value).map(normalize);
-  const stale = !previous?.enabled || changed || legacy?.enabled
+  const stale = !previous?.enabled || changed || migrationRequired
     ? runtime.processes().filter(row => binaries.some(candidate => {
       const command = normalize(row.command);
       return command === candidate || command === `"${candidate}"` || command.startsWith(candidate + " ") || command.startsWith(`"${candidate}" `);
@@ -133,6 +138,6 @@ export async function configureCodexSteer(action: CodexSteerAction = "status", o
   await runtime.verify(config, true);
   // 解除が中断しても、次のenableで移行を続行できるよう所有情報を先に保存する。
   save(config);
-  if (legacy?.enabled) await runtime.disableLegacy();
+  if (migrationRequired) await runtime.disableLegacy();
   return needsRestart(config) ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "ready" };
 }

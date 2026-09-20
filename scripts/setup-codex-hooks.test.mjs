@@ -13,7 +13,7 @@ function fixture(t) {
   const hook=join(root,'hook.js'); fs.writeFileSync(hook,'');
   const events=[]; let legacy=null; let rows=[];
   const runtime={platform:'darwin',directory:join(root,'state'),codex_home:home,node:process.execPath,hook,
-    findBinary:()=>'/official/codex',processes:()=>rows,legacy:()=>legacy,
+    findBinary:()=>'/official/codex',processes:()=>rows,legacy:()=>legacy,legacyOverride:()=>null,
     disableLegacy:async()=>{events.push('disable');legacy={...legacy,enabled:false};return {status:'restart_required'};},
     verify:async(config,approve)=>{events.push(approve?'approve':'read'); const value=JSON.parse(fs.readFileSync(join(home,'hooks.json'),'utf8'));assert(value.hooks.Stop.some(group=>group.hooks.some(hook=>hook.command===config.command)));}};
   return {root,home,hook,runtime,events,setLegacy:value=>{legacy=value;},setProcesses:value=>{rows=value;}};
@@ -49,8 +49,28 @@ test('旧起動設定の解除失敗は新設定を残し、再実行で移行�
   const f=fixture(t); f.setLegacy({enabled:true});
   await assert.rejects(configureCodexSteer('enable',{...f.runtime,disableLegacy:async()=>{throw new Error('解除失敗');}}),/解除失敗/);
   assert.equal(readCodexHookConfig(f.runtime.directory).enabled,true);
-  assert.equal((await configureCodexSteer('status',f.runtime)).status,'restart_required');
+  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'failed',reason_code:'codex_steer_migration_required'});
   assert.equal((await configureCodexSteer('enable',f.runtime)).status,'ready');
+});
+
+test('解除済み記録でもGUIに旧launcherが残っていれば移行を要求して解除する',async t=>{
+  const f=fixture(t); await configureCodexSteer('enable',f.runtime);
+  f.setLegacy({enabled:false,launcher:'/old/launcher'});
+  f.runtime.legacyOverride=()=>'/old/launcher';
+  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'failed',reason_code:'codex_steer_migration_required'});
+  f.events.length=0;
+  await configureCodexSteer('enable',f.runtime);
+  assert.deepEqual(f.events,['approve','disable']);
+});
+
+test('解除済み記録と異なる他製品のGUI設定は保持する',async t=>{
+  const f=fixture(t); await configureCodexSteer('enable',f.runtime);
+  f.setLegacy({enabled:false,launcher:'/old/launcher'});
+  f.runtime.legacyOverride=()=>'/other/launcher';
+  f.events.length=0;
+  assert.equal((await configureCodexSteer('status',f.runtime)).status,'ready');
+  await configureCodexSteer('enable',f.runtime);
+  assert.deepEqual(f.events,['read','approve']);
 });
 
 test('不正な既存hook設定は書き換えない',t=>{

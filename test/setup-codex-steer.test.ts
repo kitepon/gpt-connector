@@ -79,3 +79,16 @@ test("対象外OSは設定に触れず対応外を返す", async t => {
   assert.deepEqual(f.events, []);
   assert.deepEqual(await readdir(f.root), []);
 });
+
+test("解除済み記録でもGUIに残った自分のlauncherを解除し、他製品は保持する", { skip: process.platform === "win32" }, async t => {
+  const f = await fixture(t);
+  await configureCodexSteer("enable", f.runtime);
+  const launcher = f.gui.get("CODEX_CLI_PATH")!;
+  await configureCodexSteer("disable", f.runtime);
+  f.gui.set("CODEX_CLI_PATH", launcher);
+  assert.equal((await configureCodexSteer("disable", f.runtime)).status, "restart_required");
+  assert.equal(f.gui.has("CODEX_CLI_PATH"), false);
+  f.gui.set("CODEX_CLI_PATH", "/other/launcher");
+  assert.equal((await configureCodexSteer("disable", f.runtime)).status, "disabled");
+  assert.equal(f.gui.get("CODEX_CLI_PATH"), "/other/launcher");
+});

@@ -13,6 +13,7 @@ import { withCodexSocket as withCodexRelay } from "./codex-parent.js";
 import { processSocket, readCodexProcesses as readRuntimeProcesses } from "./codex-steer-config.js";
 import { installRelayLogin, removeRelayLogin } from "./codex-steer-login.js";
 import { codexSteerPlatform } from "./platform/codex.js";
+import { macGuiEnvironment } from "./platform/macos-gui-environment.js";
 
 export type CodexSteerAction = "enable" | "disable" | "status";
 export type CodexSteerResult = {
@@ -42,10 +43,7 @@ function command(executable: string, args: string[]): string {
 }
 
 function getGui(key: string): string | null {
-  const result = spawnSync("/bin/launchctl", ["getenv", key], { encoding: "utf8", timeout: 5_000 });
-  if (result.status === 1 && !result.stderr.trim()) return null;
-  if (result.error || result.status !== 0) throw new SetupError("codex_steer_environment_unavailable", "GUIの起動設定を確認できません");
-  return result.stdout.trim() || null;
+  return macGuiEnvironment("getenv", key);
 }
 
 export function findDesktopBinary(): string {
@@ -146,7 +144,7 @@ export async function configureLegacyCodexSteer(action: CodexSteerAction = "stat
     platform: process.platform, directory: relayConfigDirectory(), socket_root: `/tmp/gpt-connector-codex-${process.getuid?.() ?? 0}`,
     node: process.execPath, relay: fileURLToPath(new URL("./codex-stdio-relay.js", import.meta.url)),
     findBinary: findDesktopBinary, getGui,
-    setGui: (key, value) => { command("/bin/launchctl", value === null ? ["unsetenv", key] : ["setenv", key, value]); },
+    setGui: (key, value) => { macGuiEnvironment(value === null ? "unsetenv" : "setenv", key, value ?? undefined); },
     persist: installRelayLogin, unpersist: removeRelayLogin,
     verify: verifyRelayLauncher, live: liveRelay, compatible: liveDesktopRelay,
     prepare: prepareRelayDirectory, save: writeConfig, build: buildPosixLauncher,
@@ -165,7 +163,7 @@ export async function configureLegacyCodexSteer(action: CodexSteerAction = "stat
     return await runtime.live(previous) ? { status: "ready" } : { status: "restart_required", reason_code: "codex_restart_required" };
   }
   if (action === "disable") {
-    if (!previous?.enabled) return { status: "disabled" };
+    if (!previous || (!previous.enabled && runtime.getGui("CODEX_CLI_PATH") !== previous.launcher)) return { status: "disabled" };
     if (![previous.launcher, previous.previous_cli_path].includes(runtime.getGui("CODEX_CLI_PATH"))) throw new SetupError("codex_steer_configuration_changed", "起動設定が他から変更されています。所有外の値は上書きしません");
     runtime.unpersist(previous.launcher);
     runtime.setGui("CODEX_CLI_PATH", previous.previous_cli_path);
