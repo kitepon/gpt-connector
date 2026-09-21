@@ -75,6 +75,7 @@ const setupDependencies = {
   state: inspectState,
   browser: (env: Record<string, string>, check: boolean) => prepareBrowser(browserDependencies({ ...process.env, ...env }), env.GPT_CONNECTOR_CDP_ENDPOINT ?? process.env.GPT_CONNECTOR_CDP_ENDPOINT, check),
   steer: configureCodexSteer,
+  cursorHooks: configureCursorHooks,
 };
 
 export async function setup(options: SetupOptions = {}, deps = setupDependencies) {
@@ -112,7 +113,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
       }
       if (client === "cursor") {
         stage = "cursor_hooks";
-        const hooks = configureCursorHooks({ check: options.check ?? false });
+        const hooks = deps.cursorHooks({ check: options.check ?? false });
         item.cursorHooks = hooks;
         if (hooks.status === "disabled") actionRequired = true;
       }

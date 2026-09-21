@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.11 - 2026-09-22
+
+- setup試験が本物のCursor hooksへ書き込まないよう、Cursor hook登録を依存として注入できるようにした。0.9.10のWindows CI失敗を直す。機能は0.9.10と同じ。
+
 ## 0.9.10 - 2026-09-22
 
 - Cursor親の相談完了を、実行中ターンの次のツール返りへ`postToolUse` hookの`additional_context`で差し込む。`afterMCPExecution`でconversationとdeliveryを結び、受信箱へ本文を置く。idle時の背景シェル受け口は維持する。
