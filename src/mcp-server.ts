@@ -2,7 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
-import { parentFromRequest, type CodexParent } from "./codex-parent.js";
+import { parentFromRequest } from "./codex-parent.js";
+import { cursorParentFromRequest } from "./cursor-parent.js";
+import type { DeliveryParent } from "./consult-job-store.js";
+import { defaultConsultStateDirectory } from "./platform/state.js";
 import {
   chatInputSchema,
   consultInputSchema,
@@ -25,7 +28,7 @@ interface ConnectorPort {
   models(): ReturnType<GptConnector["models"]>;
   diagnostics(): ReturnType<GptConnector["diagnostics"]>;
   chat(input: ChatInput): ReturnType<GptConnector["chat"]>;
-  consult(input: ConsultInput, parent?: CodexParent): ReturnType<GptConnector["consult"]>;
+  consult(input: ConsultInput, parent?: DeliveryParent): ReturnType<GptConnector["consult"]>;
   image(input: ImageInput): ReturnType<GptConnector["image"]>;
   sessions(input: SessionsInput): ReturnType<GptConnector["sessions"]>;
   closeSession(input: CloseInput): ReturnType<GptConnector["closeSession"]>;
@@ -60,6 +63,10 @@ export class LazyConnectorHost {
       stateDirectory: this.#stateDirectory,
       readOnlyJobs: true,
     }));
+  }
+
+  get stateDirectory(): string {
+    return this.#stateDirectory ?? defaultConsultStateDirectory();
   }
 
   get(): Promise<ConnectorPort> {
@@ -170,6 +177,7 @@ export const mcpServerInstructions =
   "ChatGPTへ送る場合: second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。" +
   "継続相談はconsultへkeepOpen=true・wait=falseを渡すと、回答完了前の受付時にsessionIdを返す。" +
   "Codex親からのconsultは受付後に戻り、connectorが10秒ごとに完了を監視して親へ自動Steerする。callerは監視ループや同じ相談の再実行を作らない。" +
+  "Cursor親からのconsultは受付後に戻り、receiveCommandを背景シェルで回す。connectorが完了時に受け口へ回答を押し込む。callerは監視ループや同じ相談の再実行を作らない。" +
   "他のクライアントではwait=trueで回答を待つか、sessionsで同じslugから取得する。完了後の追加質問は同じsessionId・新しいslug・keepOpen=trueで送る。" +
   "slugは1問い合わせの重複防止ID、sessionIdは複数問い合わせで共有する会話ID。最後はchatgpt_closeで会話を閉じる。" +
   "caller timeout後は再送せずsessionsで同じslugを確認する。最新の段階と互換model一覧はchatgpt_models、" +
@@ -187,6 +195,7 @@ export const mcpToolDescriptions = {
   consult:
     "OpenAI ChatGPT公式Web runtimeの通常Chatへ相談する。levelで最新の段階を選び、省略時は最新の右端。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。" +
     "keepOpen=trueで会話を保持する。Codex親にはwait指定にかかわらず受付時に戻り、10秒ごとのコード監視で完了時に自動Steerするため、callerの監視ループは不要。配送不可ならChatGPTへの送信前にエラーにする。" +
+    "Cursor親にはwait指定にかかわらず受付時に戻り、receiveCommandを返す。callerはそれを背景シェルで回し、完了時にconnectorが受け口へ回答を押し込む。配送不可ならChatGPTへの送信前にエラーにする。" +
     "他のクライアントではwait=falseで受付時のsessionIdを返し、回答はsessions(slug)で取得する。完了後は同じsessionId・新しいslugで追加質問する。継続中はkeepOpen=true、最後はchatgpt_close。" +
     chatgptContextWarning,
   sessions:
@@ -197,7 +206,24 @@ export const mcpToolDescriptions = {
     "本serverがChatGPT上に保持したsessionをserver archiveし、継続用sessionIdを破棄する。MCP再接続後も専用Chromeのpageに会話が残っていれば利用できる。deleteは行わない。",
 } as const;
 
-export function createGptConnectorMcpServer(host: LazyConnectorHost, resolveParent = parentFromRequest): McpServer {
+/** Codexは従来どおり。Cursor clientのときだけsocket配送親を返す。 */
+export function resolveDeliveryParent(
+  clientName: string | undefined,
+  metadata: unknown,
+  stateDirectory: string,
+): DeliveryParent | null {
+  const codex = parentFromRequest(clientName, metadata);
+  if (codex) return codex;
+  return cursorParentFromRequest(clientName, stateDirectory);
+}
+
+export function createGptConnectorMcpServer(
+  host: LazyConnectorHost,
+  resolveParent: (
+    clientName: string | undefined,
+    metadata: unknown,
+  ) => DeliveryParent | null = (name, meta) => resolveDeliveryParent(name, meta, host.stateDirectory),
+): McpServer {
   const server = new McpServer(
     { name: "gpt-connector", version: mcpServerVersion },
     { instructions: mcpServerInstructions },

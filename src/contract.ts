@@ -41,7 +41,8 @@ export const consultInputSchema = z
     sessionId: z.string().uuid().optional().describe(chatgptSessionFieldDescription),
     keepOpen: z.boolean().default(false).describe(chatgptKeepOpenFieldDescription),
     wait: z.boolean().default(true).describe(
-      "Codex親では指定にかかわらず受付時に戻り、完了時に自動Steerする。他のクライアントではfalseで受付時のslug・状態・sessionId（keepOpen=true時）を返し、結果はsessionsで取得する。trueは回答まで待つ。",
+      "Codex親とCursor親では指定にかかわらず受付時に戻る。Codexは完了時に自動Steerし、CursorはreceiveCommandの受け口へ押し込む。" +
+      "他のクライアントではfalseで受付時のslug・状態・sessionId（keepOpen=true時）を返し、結果はsessionsで取得する。trueは回答まで待つ。",
     ),
     dryRun: z.boolean().default(false),
   })
@@ -287,6 +288,8 @@ export interface ConsultSnapshot {
     readonly state: "waiting" | "sending" | "submitted" | "failed" | "unknown";
     readonly error: string | null;
   };
+  /** Cursor親の受付時だけ。背景シェルで回す受け口コマンド。Codex親には付かない。 */
+  readonly receiveCommand?: string;
   readonly state: ConsultJobState;
   readonly createdAt: string;
   readonly updatedAt: string;

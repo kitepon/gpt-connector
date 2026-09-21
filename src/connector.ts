@@ -35,7 +35,12 @@ import {
   type GeneratedImageBytes,
 } from "./generated-image-files.js";
 import { ConsultJobStore } from "./consult-job-store.js";
-import { CodexDeliveryError, verifyCodexParent, deliverCodexAnswer, type CodexParent } from "./codex-parent.js";
+import { CodexDeliveryError, verifyCodexParent, deliverCodexAnswer } from "./codex-parent.js";
+import {
+  verifyCursorParent,
+  deliverCursorAnswer,
+} from "./cursor-parent.js";
+import type { DeliveryParent } from "./consult-job-store.js";
 import {
   ConnectorError,
   connectorErrorCodes,
@@ -191,10 +196,10 @@ export interface ConnectorOptions {
   readonly stateDirectory?: string;
   /** Read-only diagnostics may inspect an existing job store but must never create or recover it. */
   readonly readOnlyJobs?: boolean;
-  /** MCPが取得した親への配送。試験では外部受付だけ差し替える。 */
+  /** MCPが取得した親への配送。試験では外部受付だけ差し替える。CodexとCursorで分岐し、互いに影響しない。 */
   readonly parentDelivery?: {
-    verify(parent: CodexParent): Promise<void>;
-    submit(parent: CodexParent, id: string, text: string): Promise<void>;
+    verify(parent: DeliveryParent): Promise<void>;
+    submit(parent: DeliveryParent, id: string, text: string, outcome: "succeeded" | "failed"): Promise<void>;
   };
 }
 
@@ -226,7 +231,16 @@ export class GptConnector {
     this.#operationTimeoutMs = options.operationTimeoutMs ?? 180_000;
     this.#pollIntervalMs = options.pollIntervalMs ?? 250;
     this.#parentPollIntervalMs = options.pollIntervalMs ?? 10_000;
-    this.#parentDelivery = options.parentDelivery ?? { verify: verifyCodexParent, submit: deliverCodexAnswer };
+    this.#parentDelivery = options.parentDelivery ?? {
+      async verify(parent) {
+        if ("socketRoot" in parent) return verifyCursorParent(parent);
+        return verifyCodexParent(parent);
+      },
+      async submit(parent, id, text, outcome) {
+        if ("socketRoot" in parent) return deliverCursorAnswer(parent, id, text, { outcome });
+        return deliverCodexAnswer(parent, id, text);
+      },
+    };
   }
 
   static async connect(options: ConnectorOptions = {}): Promise<GptConnector> {
@@ -320,7 +334,7 @@ export class GptConnector {
     return chatResultSchema.parse(result);
   }
 
-  async consult(input: ConsultInput, parent?: CodexParent): Promise<ConsultSnapshot | ConsultDryRunResult> {
+  async consult(input: ConsultInput, parent?: DeliveryParent): Promise<ConsultSnapshot | ConsultDryRunResult> {
     let parsed: z.output<typeof consultInputSchema>;
     try {
       parsed = consultInputSchema.parse(input);
@@ -370,7 +384,7 @@ export class GptConnector {
       effort: parsed.effort ?? null,
       keepOpen: parsed.keepOpen,
       sessionId: parsed.sessionId,
-      parentThreadId: parent?.threadId,
+      parentThreadId: parent && "threadId" in parent ? parent.threadId : undefined,
     });
     let reservation;
     try {
@@ -1187,7 +1201,8 @@ export class GptConnector {
             result: snapshot.result, error: snapshot.error });
         let state: "submitted" | "failed" | "unknown" = "submitted";
         let error: string | null = null;
-        try { await this.#parentDelivery.submit(parent, snapshot.delivery!.id, text); } catch (cause) {
+        const outcome = snapshot.state === "succeeded" ? "succeeded" as const : "failed" as const;
+        try { await this.#parentDelivery.submit(parent, snapshot.delivery!.id, text, outcome); } catch (cause) {
           state = cause instanceof CodexDeliveryError && cause.outcomeUnknown ? "unknown" : "failed";
           error = cause instanceof ConnectorError ? cause.code : "PARENT_DELIVERY_UNAVAILABLE";
           process.stderr.write(`gpt-connector: ${error}（回答はsessionsで取得できます。自動再送は行いません）\n`);

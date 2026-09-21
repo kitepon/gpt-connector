@@ -19,9 +19,12 @@ import { showBrowser, startBrowser } from "./browser-launcher.js";
 import { setup } from "./setup.js";
 import { setupClients, type SetupClient } from "./setup-registration.js";
 import { installSetupPackage } from "./platform/setup-package.js";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { configureCodexSteer, type CodexSteerAction } from "./setup-codex-steer.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
+import { CodexDeliveryError } from "./codex-delivery-error.js";
+import { receiveCursorAnswer } from "./cursor-parent.js";
+import { defaultConsultStateDirectory } from "./platform/state.js";
 
 interface ParsedArgs {
   readonly command: string | undefined;
@@ -125,7 +128,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | cursor-receive --delivery <uuid> | close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -164,6 +167,31 @@ async function main(): Promise<void> {
       writeJson(store.get(slug));
     } finally {
       store.close();
+    }
+    return;
+  }
+  if (command === "cursor-receive") {
+    const delivery = stringArg(values, "delivery");
+    if (delivery === undefined) throw new Error("cursor-receiveには--deliveryが必要です。");
+    const root = stateDirectory ?? defaultConsultStateDirectory();
+    const parent = { socketRoot: join(root, "cp") };
+    try {
+      const message = await receiveCursorAnswer(parent, delivery);
+      writeJson({
+        deliveryId: message.deliveryId,
+        outcome: message.outcome,
+        text: message.text,
+      });
+      process.exitCode = message.outcome === "succeeded" ? 0 : 1;
+    } catch (error) {
+      const unknown = error instanceof CodexDeliveryError && error.outcomeUnknown;
+      writeJson({
+        deliveryId: delivery,
+        outcome: "unknown",
+        error: unknown ? "PARENT_DELIVERY_UNKNOWN" : "PARENT_DELIVERY_UNAVAILABLE",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      process.exitCode = 2;
     }
     return;
   }

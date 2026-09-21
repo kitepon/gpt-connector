@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.9 - 2026-09-22
+
+- Cursor親の`consult`は受付後に戻り、`receiveCommand`を返す。背景シェルで回した受け口へ、完了時にMCPが回答を一度だけ押し込む。Claude／Codexの配送契約は変更しない。
+- `gpt-connector cursor-receive --delivery <uuid>`を追加した。配送socketの切断は`unknown`として終了する。
+- Cursor client名の判定、Codex親への非干渉、socket押し込み、`receiveCommand`付与をfocused testで確認する。
+
 ## 0.9.8 - 2026-09-21
 
 - 他製品がCodexのhookを後から追加すると、setupが登録済みhookを末尾へ移動し、再起動を繰り返し要求する不具合を修正した。同じ登録は位置とファイルを保持する。

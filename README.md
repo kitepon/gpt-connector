@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.9.8`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.9.9`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -32,6 +32,7 @@ MarkItDownは別区分の第三者CLIです。
 - 通常Chatのone-shot送信と自動archive。
 - 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
 - Codex Desktopからの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
+- Cursor親からの相談は受付後に戻り、`receiveCommand`を背景シェルで回すと完了時に同じチャットへ回答が届く。Codex／Claudeの配送は変更しない。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
 - live catalog取得と、既存のmodel／thinking effort明示選択。
@@ -90,6 +91,7 @@ gpt-connector setup --check
 | `sessions`による既存job読取り・state診断 | 対応 | 対応 | 対応 |
 | 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 対応 | 未対応 |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
+| Cursor親への受け口押し込み | 対応 | 対応 | 対応 |
 
 `setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、Linuxで対応機能の確認が済みliveだけ未対応なら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
@@ -307,6 +309,7 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 ```
 
 受付結果は`state="running"`、`result=null`と会話の`sessionId`を返す。Codex親には完了時に自動Steerし、監視ループは不要。
+Cursor親には`receiveCommand`が付き、それを背景シェルで回す。完了時にconnectorが受け口へ押し込む。監視ループは不要。
 他のクライアントでは回答を`sessions({"slug":"design-review-001"})`で取得する。
 `succeeded`を確認したら、返されたIDと新しいslugで追加質問する。
 
@@ -317,6 +320,7 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 同じ会話に送った前提や資料の再送は不要。変更点と追加質問だけを渡せる。最後は`chatgpt_close({"sessionId":"初回に返されたUUID"})`で閉じる。
 `slug`は1問い合わせの重複防止ID、`sessionId`は複数問い合わせで共有する会話ID。
 Codex親の`consult`は`wait`指定にかかわらず受付後に戻り、コードが10秒ごとに完了を監視して自動Steerする。
+Cursor親の`consult`も受付後に戻り、返った`receiveCommand`を背景シェルで回す。
 他のクライアントは`wait`の既定が`true`で回答完了まで待つ。`wait=false`の場合は`sessions`で回収する。
 CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`consult --session-id <uuid> --keep-open`へ渡せる。
 

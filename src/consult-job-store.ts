@@ -12,8 +12,12 @@ import {
 } from "./contract.js";
 import { ConnectorError, connectorErrorCodes } from "./errors.js";
 import { codexParentSchema, type CodexParent } from "./codex-parent.js";
+import { cursorParentSchema, cursorReceiveCommand, type CursorParent } from "./cursor-parent.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
 import { chmodPrivateIfPosix, defaultConsultStateDirectory, posixModeExposesOthers } from "./platform/state.js";
+
+export type DeliveryParent = CodexParent | CursorParent;
+const deliveryParentSchema = z.union([cursorParentSchema, codexParentSchema]);
 
 const retrySchema = z.enum([
   "never",
@@ -80,6 +84,7 @@ const snapshotSchema = z.object({
     id: z.string().uuid(), mode: z.literal("steer"),
     state: z.enum(["waiting", "sending", "submitted", "failed", "unknown"]), error: z.string().nullable(),
   }).strict().optional(),
+  receiveCommand: z.string().min(1).optional(),
   state: z.enum(["queued", "uploading", "submitted", "running", "succeeded", "failed"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -91,7 +96,7 @@ const persistedSchema = z.object({
   version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
-    parent: codexParentSchema.optional(),
+    parent: deliveryParentSchema.optional(),
     snapshot: snapshotSchema,
   }).strict()),
 }).strict();
@@ -104,7 +109,7 @@ const writerLockSchema = z.object({
 
 interface StoredJob {
   readonly fingerprint: string;
-  readonly parent?: CodexParent;
+  readonly parent?: DeliveryParent;
   readonly snapshot: ConsultSnapshot;
 }
 
@@ -215,7 +220,7 @@ export class ConsultJobStore {
     this.#closed = true;
   }
 
-  async reserve(slug: string, fingerprint: string, parent?: CodexParent): Promise<ReserveResult> {
+  async reserve(slug: string, fingerprint: string, parent?: DeliveryParent): Promise<ReserveResult> {
     return this.#exclusive(async () => {
       this.#assertInitialized();
       this.#assertWritable();
@@ -254,9 +259,11 @@ export class ConsultJobStore {
         }
 
         const now = new Date().toISOString();
+        const deliveryId = parent ? randomUUID() : undefined;
+        const parsedParent = parent ? deliveryParentSchema.parse(parent) : undefined;
         const job: StoredJob = {
           fingerprint,
-          ...(parent ? { parent: codexParentSchema.parse(parent) } : {}),
+          ...(parsedParent ? { parent: parsedParent } : {}),
           snapshot: {
             slug,
             state: "queued",
@@ -264,7 +271,12 @@ export class ConsultJobStore {
             updatedAt: now,
             result: null,
             error: null,
-            ...(parent ? { delivery: { id: randomUUID(), mode: "steer" as const, state: "waiting" as const, error: null } } : {}),
+            ...(deliveryId !== undefined ? {
+              delivery: { id: deliveryId, mode: "steer" as const, state: "waiting" as const, error: null },
+              ...("socketRoot" in (parsedParent ?? {}) ? {
+                receiveCommand: cursorReceiveCommand(deliveryId, this.#stateDirectory),
+              } : {}),
+            } : {}),
           },
         };
         const next = new Map(this.#jobs);
@@ -341,7 +353,7 @@ export class ConsultJobStore {
   }
 
   /** writer leaseと永続化したsendingで配送を一つに決め、受付不明時の再送を防ぐ。 */
-  async claimDeliveries(): Promise<Array<{ parent: CodexParent; snapshot: ConsultSnapshot }>> {
+  async claimDeliveries(): Promise<Array<{ parent: DeliveryParent; snapshot: ConsultSnapshot }>> {
     return this.#exclusive(async () => {
       this.#assertInitialized();
       this.#assertWritable();
@@ -354,7 +366,7 @@ export class ConsultJobStore {
         this.#jobs = this.#recoverNonTerminal(await this.#readJobs());
       }
       const next = new Map(this.#jobs);
-      const claimed: Array<{ parent: CodexParent; snapshot: ConsultSnapshot }> = [];
+      const claimed: Array<{ parent: DeliveryParent; snapshot: ConsultSnapshot }> = [];
       for (const [slug, job] of next) {
         if (job.snapshot.delivery?.state !== "waiting" || !job.parent ||
             (job.snapshot.state !== "succeeded" && job.snapshot.state !== "failed")) continue;
