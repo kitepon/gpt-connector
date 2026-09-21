@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.10 - 2026-09-22
+
+- Cursor親の相談完了を、実行中ターンの次のツール返りへ`postToolUse` hookの`additional_context`で差し込む。`afterMCPExecution`でconversationとdeliveryを結び、受信箱へ本文を置く。idle時の背景シェル受け口は維持する。
+- `gpt-connector setup`が`~/.cursor/hooks.json`へ自分の`afterMCPExecution`と`postToolUse`だけを登録する。他製品のhookと位置は保持する。
+- Claude／Codexの配送契約は変更しない。
+
 ## 0.9.9 - 2026-09-22
 
 - Cursor親の`consult`は受付後に戻り、`receiveCommand`を返す。背景シェルで回した受け口へ、完了時にMCPが回答を一度だけ押し込む。Claude／Codexの配送契約は変更しない。

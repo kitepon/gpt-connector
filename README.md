@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.9.9`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.9.10`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -32,7 +32,7 @@ MarkItDownは別区分の第三者CLIです。
 - 通常Chatのone-shot送信と自動archive。
 - 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
 - Codex Desktopからの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
-- Cursor親からの相談は受付後に戻り、`receiveCommand`を背景シェルで回すと完了時に同じチャットへ回答が届く。Codex／Claudeの配送は変更しない。
+- Cursor親からの相談は受付後に戻り、`receiveCommand`を背景シェルで回すと完了時に同じチャットへ回答が届く。実行中は次のツール返りへhookで差し込み、idleなら背景シェル完了で起こす。Codex／Claudeの配送は変更しない。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
 - live catalog取得と、既存のmodel／thinking effort明示選択。

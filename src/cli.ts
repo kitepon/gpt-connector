@@ -24,6 +24,7 @@ import { configureCodexSteer, type CodexSteerAction } from "./setup-codex-steer.
 import { CodexSteerSetupError } from "./codex-steer-config.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { receiveCursorAnswer } from "./cursor-parent.js";
+import { handleCursorHookInput } from "./cursor-hook.js";
 import { defaultConsultStateDirectory } from "./platform/state.js";
 
 interface ParsedArgs {
@@ -128,7 +129,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | cursor-receive --delivery <uuid> | close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | cursor-receive --delivery <uuid> | cursor-hook | close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -168,6 +169,15 @@ async function main(): Promise<void> {
     } finally {
       store.close();
     }
+    return;
+  }
+  if (command === "cursor-hook") {
+    const root = stateDirectory ?? defaultConsultStateDirectory();
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+    const raw = Buffer.concat(chunks).toString("utf8");
+    const result = await handleCursorHookInput(raw.length > 0 ? raw : "{}", root);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
   if (command === "cursor-receive") {

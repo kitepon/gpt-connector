@@ -184,6 +184,10 @@ export class ConsultJobStore {
     this.#readOnly = options.readOnly ?? false;
   }
 
+  get stateDirectory(): string {
+    return this.#stateDirectory;
+  }
+
   async initialize(): Promise<void> {
     await this.#exclusive(async () => {
       if (this.#initialized) return;

@@ -8,6 +8,7 @@ import { packageVersion } from "./version.js";
 import { registerClient, readRegistration, registrationPath, setupClients, setupTools, type SetupClient, type SetupServer } from "./setup-registration.js";
 import { setupLaunchDefaults } from "./platform/setup-package.js";
 import { configureCodexSteer } from "./setup-codex-steer.js";
+import { configureCursorHooks } from "./setup-cursor-hooks.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
 import { supportsLiveBrowser } from "./platform/browser.js";
 import { supportsCodexSteer } from "./platform/codex.js";
@@ -108,6 +109,12 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         item.codexSteer = steer;
         if (steer.status === "restart_required" || steer.status === "disabled") actionRequired = true;
         else if (steer.status !== "ready") failed = true;
+      }
+      if (client === "cursor") {
+        stage = "cursor_hooks";
+        const hooks = configureCursorHooks({ check: options.check ?? false });
+        item.cursorHooks = hooks;
+        if (hooks.status === "disabled") actionRequired = true;
       }
       stage = "browser";
       if (supportsLiveBrowser(deps.platform)) {

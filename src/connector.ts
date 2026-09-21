@@ -40,6 +40,10 @@ import {
   verifyCursorParent,
   deliverCursorAnswer,
 } from "./cursor-parent.js";
+import {
+  readCursorBinding,
+  writeCursorInbox,
+} from "./cursor-inbox.js";
 import type { DeliveryParent } from "./consult-job-store.js";
 import {
   ConnectorError,
@@ -1202,7 +1206,23 @@ export class GptConnector {
         let state: "submitted" | "failed" | "unknown" = "submitted";
         let error: string | null = null;
         const outcome = snapshot.state === "succeeded" ? "succeeded" as const : "failed" as const;
-        try { await this.#parentDelivery.submit(parent, snapshot.delivery!.id, text, outcome); } catch (cause) {
+        const deliveryId = snapshot.delivery!.id;
+        try {
+          if ("socketRoot" in parent) {
+            const binding = await readCursorBinding(deliveryId, this.#jobs.stateDirectory);
+            if (binding !== null) {
+              await writeCursorInbox({
+                deliveryId,
+                conversationId: binding.conversationId,
+                slug: snapshot.slug,
+                text,
+                outcome,
+                createdAt: new Date().toISOString(),
+              }, this.#jobs.stateDirectory);
+            }
+          }
+          await this.#parentDelivery.submit(parent, deliveryId, text, outcome);
+        } catch (cause) {
           state = cause instanceof CodexDeliveryError && cause.outcomeUnknown ? "unknown" : "failed";
           error = cause instanceof ConnectorError ? cause.code : "PARENT_DELIVERY_UNAVAILABLE";
           process.stderr.write(`gpt-connector: ${error}（回答はsessionsで取得できます。自動再送は行いません）\n`);

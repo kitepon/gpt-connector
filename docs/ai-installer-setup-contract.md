@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.9.9"
+gpt_connector_version="0.9.10"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
