@@ -39,6 +39,18 @@ test('再実行でも他のhookと元の設定を保持し、解除では自分�
   assert.equal(readCodexHookConfig(f.runtime.directory).enabled,false);
 });
 
+test('他製品が後からhookを追加しても順序を変えず再起動を要求しない',async t=>{
+  const f=fixture(t); const file=join(f.home,'hooks.json');
+  await configureCodexSteer('enable',f.runtime);
+  f.setProcesses([{pid:20,started_identity:'running',command:'/official/codex app-server'}]);
+  const data=JSON.parse(fs.readFileSync(file,'utf8'));
+  for(const event of ['PostToolUse','Stop']) data.hooks[event].push({hooks:[{type:'command',command:'other-product-hook',timeout:8}]});
+  fs.writeFileSync(file,JSON.stringify(data)); const before=fs.readFileSync(file,'utf8');
+  assert.equal((await configureCodexSteer('enable',f.runtime)).status,'ready');
+  assert.equal(fs.readFileSync(file,'utf8'),before);
+  assert.deepEqual(readCodexHookConfig(f.runtime.directory).stale_processes,[]);
+});
+
 test('承認が拒否された時は旧中継を解除せず、readyを記録しない',async t=>{
   const f=fixture(t); f.setLegacy({enabled:true});
   await assert.rejects(configureCodexSteer('enable',{...f.runtime,verify:async()=>{throw new Error('承認拒否');}}),/承認拒否/);

@@ -46,10 +46,16 @@ export function mergeCodexParentHooks(file: string, command: string | null, prev
   for (const event of ["PostToolUse", "Stop"]) {
     const groups = z.array(z.object({ hooks: z.array(z.record(z.string(), z.unknown())) }).passthrough()).safeParse(hooks[event] ?? []);
     if (!groups.success) throw new SetupError("codex_hook_config_invalid", `${event}のhook設定を読めません`);
+    const owns = (hook: Record<string, unknown>) => hook.type === "command" &&
+      ((command !== null && hook.command === command) || (!!previousCommand && hook.command === previousCommand));
+    const desired = command === null ? null : { ...(event === "PostToolUse" ? { matcher: ".*" } : {}),
+      hooks: [{ type: "command", command, timeout: 20, ...(event === "PostToolUse" ? { additionalContextLimit: 0 } : {}) }] };
+    const registered = groups.data.filter(group => group.hooks.some(owns));
+    // 登録済みの位置を保ち、他製品の追加を自分の設定変更として扱わない。
+    if (desired && registered.length === 1 && isDeepStrictEqual(registered[0], desired)) continue;
     const updated = groups.data.map(group => ({ ...group, hooks: group.hooks.filter(hook =>
-      !(hook?.type === "command" && ((command !== null && hook.command === command) || (previousCommand && hook.command === previousCommand)))) })).filter(group => group.hooks.length);
-    if (command !== null) updated.push({ ...(event === "PostToolUse" ? { matcher: ".*" } : {}),
-      hooks: [{ type: "command", command, timeout: 20, ...(event === "PostToolUse" ? { additionalContextLimit: 0 } : {}) }] });
+      !owns(hook)) })).filter(group => group.hooks.length);
+    if (desired) updated.push(desired);
     if (updated.length) hooks[event] = updated; else delete hooks[event];
   }
   const next = { ...current, hooks };
