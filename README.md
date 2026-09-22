@@ -123,7 +123,9 @@ Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない
 Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
 呼出元の終了後もChromeは残る。`--ozone-platform=x11`で専用ChromeのwindowをX11に固定する。
 9223の所有は`/proc/net/tcp`の`127.0.0.1`待受と、`/proc/<pid>/exe`・cmdlineの専用profileで照合する。
-そのPIDのclass `Google-chrome` windowだけをUnmap／Mapし、再表示時は`_NET_ACTIVE_WINDOW`で前面へ出す。
+表示制御は、Chrome processの`DISPLAY`（`/proc/<pid>/environ`）、呼出元の`DISPLAY`、`/tmp/.X11-unix`上のローカルXを順に試し、
+そのPID（と子孫）のclass `Google-chrome` windowだけをUnmap／Mapする。再表示時は`_NET_ACTIVE_WINDOW`で前面へ出す。
+複数DISPLAYがあるホストでは、起動時に使う`DISPLAY`（例: エージェント画面の`:12`）を揃えるか、上記の探索に任せる。
 表示の正本はX11のmap stateであり、CDPの`minimized`は作成時のhintのまま使わない。
 
 ## source setup

@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { showBrowser, startBrowser } from "../src/browser-launcher.js";
-import { chromeLaunchCommand, hideProcess, inspectListenerProcesses, isOwnedChromeProcess, parseListenInodes, revealProcess, activateProcess, verifyWindowVisibility, type ProcIo } from "../src/platform/linux-browser.js";
-import { LinuxX11, mapStateFromAttributesReply } from "../src/platform/linux-x11.js";
+import { chromeLaunchCommand, chromeOwnerPids, hideProcess, inspectListenerProcesses, isOwnedChromeProcess, parseListenInodes, revealProcess, activateProcess, verifyWindowVisibility, type ProcIo } from "../src/platform/linux-browser.js";
+import { LinuxX11, displayFromEnviron, isGoogleChromeClass, listLocalDisplays, mapStateFromAttributesReply, normalizeDisplay } from "../src/platform/linux-x11.js";
 
 const executable = "/opt/google/chrome/chrome";
 const owner = (profile: string) => ({ pid: "42", executable, command: "", args: [executable, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`] });
@@ -63,6 +63,30 @@ test("Linux: socket inodeと公式Chromeのcmdlineから所有者を読む", asy
 test("Linux: X11のmapStateはmapInstalledの次のbyteを読む", () => {
   const packet = Buffer.from("01000100030000001f02000001000101ffffffff00000000000002000300a0017f8063000000000000000000", "hex");
   assert.equal(mapStateFromAttributesReply(packet), 2);
+});
+
+test("Linux: 複数DISPLAY候補はpreferredを先頭にし、番号順で続く", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "gpt-x11-socks-"));
+  await writeFile(join(directory, "X1"), "");
+  await writeFile(join(directory, "X12"), "");
+  await writeFile(join(directory, "X3"), "");
+  assert.deepEqual(listLocalDisplays(":12", directory), [":12", ":1", ":3"]);
+  assert.deepEqual(listLocalDisplays(undefined, directory), [":1", ":3", ":12"]);
+  assert.equal(normalizeDisplay("localhost:12.0"), ":12");
+  assert.equal(displayFromEnviron("HOME=/tmp\0DISPLAY=:12\0"), ":12");
+  assert.equal(isGoogleChromeClass(Buffer.from("google-chrome (/tmp/profile)\0Google-chrome\0")), true);
+  assert.equal(isGoogleChromeClass(Buffer.from("chrome\0Chrome\0")), false);
+  await rm(directory, { recursive: true, force: true });
+});
+
+test("Linux: CDP所有PIDの子孫もwindow所有者として扱う", () => {
+  const pids = chromeOwnerPids(100, () => ["100", "101", "102", "200"], (pid) => {
+    if (pid === "101") return "Name:\tchrome\nPPid:\t100\n";
+    if (pid === "102") return "Name:\tchrome\nPPid:\t101\n";
+    if (pid === "200") return "Name:\tother\nPPid:\t1\n";
+    return "Name:\tchrome\nPPid:\t1\n";
+  });
+  assert.deepEqual([...pids].sort((a, b) => a - b), [100, 101, 102]);
 });
 
 test("Linux: 共通launcherが専用PIDの非表示と再表示をLinux adapterへ渡す", async () => {

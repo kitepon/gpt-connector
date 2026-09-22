@@ -126,7 +126,9 @@ setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しな�
 `browser show`は正規PIDをunhide／activateし、unhiddenかつ表示window 1件以上を確認する。
 Windowsは同じPIDのChrome windowをWin32 APIで非表示／再表示し、所有と表示状態を読んでから成功にする。
 Linuxは公式Chromeを新しいsessionで起動し、`127.0.0.1:9223`の所有processと専用profileを`/proc`で照合する。
-表示の正本は、そのPIDのX11 window（class `Google-chrome`）のmap state。X11の`DISPLAY`が無い環境は起動しない。
+表示の正本は、そのPID（と子孫）のX11 window（class `Google-chrome`）のmap state。
+接続先DISPLAYはChrome processの環境変数、呼出元の`DISPLAY`、ローカル`/tmp/.X11-unix`を順に選ぶ。
+X11の`DISPLAY`が無い環境は起動しない。
 CDPの`minimized`はcold target作成時のhintであり、画面非表示状態の正本ではない。
 
 doctor単体の`reasonCode`が`auth_required`なら、

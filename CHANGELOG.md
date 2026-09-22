@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Linuxの専用Chrome非表示／再表示が、呼出元と異なるDISPLAY上のwindowを見逃さないよう直した。Chrome processの`DISPLAY`とローカルXを順に探し、所有PIDの子孫windowも対象にする。MacとWindowsの起動・表示制御は変更しない。
 - Linuxで公式Google Chromeの専用起動、`127.0.0.1:9223`の所有確認、X11 windowの非表示／再表示に対応した。liveの準備と診断はMac・Windowsと同じ入口を使う。
 - Codexへの自動SteerはLinuxでは未対応のまま。MacとWindowsの起動・所有確認・表示制御は変更しない。
 - X11の`DISPLAY`が無いLinuxは専用Chromeを起動しない。liveブラウザを提供しないOSのsetupは従来どおり`partial`。
