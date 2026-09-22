@@ -2,6 +2,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, readFile, readlink } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { posix } from "node:path";
 import { ConnectorError } from "../errors.js";
 import type { ListenerProcess, SpawnedChild } from "./browser.js";
@@ -26,7 +27,12 @@ export function chromeLaunchCommand(profile: string, env: NodeJS.ProcessEnv = pr
 }
 
 export function spawnDetached(command: string, args: readonly string[]): SpawnedChild {
-  const child = nodeSpawn(command, args, { detached: true, stdio: "ignore" });
+  const env = { ...process.env };
+  if (env.DISPLAY && !env.XAUTHORITY) {
+    const authority = `${userInfo().homedir}/.Xauthority`;
+    if (existsSync(authority)) env.XAUTHORITY = authority;
+  }
+  const child = nodeSpawn(command, args, { detached: true, stdio: "ignore", env });
   child.unref();
   return child;
 }
@@ -69,11 +75,11 @@ export async function inspectListenerProcesses(io: ProcIo = realProcIo): Promise
   for (const pid of await io.listPids()) {
     if (!/^\d+$/.test(pid)) continue;
     let owns = false;
-    let fds: readonly string[] = [];
-    try { fds = await io.listFds(pid); } catch { continue; }
-    for (const fd of fds) {
-      try { if (inodes.has(socketInode(await io.readlink(`/proc/${pid}/fd/${fd}`)))) owns = true; } catch { /* 閉じたfdは読み飛ばす */ }
-    }
+    try {
+      for (const fd of await io.listFds(pid)) {
+        try { if (inodes.has(socketInode(await io.readlink(`/proc/${pid}/fd/${fd}`)))) owns = true; } catch { /* 閉じたfdは読み飛ばす */ }
+      }
+    } catch { continue; }
     if (!owns) continue;
     let executable: string;
     let args: string[];

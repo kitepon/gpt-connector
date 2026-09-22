@@ -32,7 +32,7 @@ export class LinuxX11 {
       const timer = setTimeout(() => fail(new Error("X11接続がtimeoutしました")), 2_000);
       socket.on("error", fail);
       socket.on("data", (chunk) => {
-        chunks.push(chunk);
+        chunks.push(Buffer.from(chunk));
         const all = Buffer.concat(chunks);
         if (all.length < 8) return;
         const extra = all.readUInt16LE(6) * 4;
@@ -51,7 +51,7 @@ export class LinuxX11 {
     const screen = 40 + pad4(vendorLength) + formats * 8;
     const displayClient = new LinuxX11(socket, setup.readUInt32LE(screen), setup.readUInt32LE(12), setup.readUInt32LE(16));
     displayClient.enqueue(setup.subarray(8 + extra));
-    socket.on("data", (chunk) => displayClient.enqueue(chunk));
+    socket.on("data", (chunk) => displayClient.enqueue(Buffer.from(chunk)));
     socket.on("error", (error) => displayClient.rejectAll(error));
     return displayClient;
   }
@@ -123,9 +123,9 @@ export class LinuxX11 {
     return id;
   }
 
-  private async atoms(names: readonly string[]): Promise<Record<string, number>> {
-    const result: Record<string, number> = {};
-    for (const name of names) result[name] = await this.intern(name);
+  private async atoms<const Names extends readonly string[]>(names: Names): Promise<{ [K in Names[number]]: number }> {
+    const result = {} as { [K in Names[number]]: number };
+    for (const name of names) result[name as Names[number]] = await this.intern(name);
     return result;
   }
 
@@ -151,13 +151,13 @@ export class LinuxX11 {
     while (queue.length > 0 && seen.size < 200) {
       const window = queue.shift();
       if (window === undefined) break;
-      let children: readonly number[] = [];
-      try { children = await this.queryTree(window); } catch { continue; }
-      for (const child of children) {
-        if (seen.has(child)) continue;
-        seen.add(child); found.push(child);
-        if (seen.size < 200) queue.push(child);
-      }
+      try {
+        for (const child of await this.queryTree(window)) {
+          if (seen.has(child)) continue;
+          seen.add(child); found.push(child);
+          if (seen.size < 200) queue.push(child);
+        }
+      } catch { /* 消えたwindowは読み飛ばす */ }
     }
     return found;
   }
@@ -202,6 +202,7 @@ export class LinuxX11 {
       this.pending.set(sequence, { resolve, reject, timer });
     }) : Promise.resolve(Buffer.alloc(0));
     this.socket.write(packet);
+    this.consume();
     return result;
   }
 
