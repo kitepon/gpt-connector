@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Linuxで公式Google Chromeの専用起動、`127.0.0.1:9223`の所有確認、X11 windowの非表示／再表示に対応した。liveの準備と診断はMac・Windowsと同じ入口を使う。
+- Codexへの自動SteerはLinuxでは未対応のまま。MacとWindowsの起動・所有確認・表示制御は変更しない。
+- X11の`DISPLAY`が無いLinuxは専用Chromeを起動しない。liveブラウザを提供しないOSのsetupは従来どおり`partial`。
+
 ## 0.9.11 - 2026-09-22
 
 - setup試験が本物のCursor hooksへ書き込まないよう、Cursor hook登録を依存として注入できるようにした。0.9.10のWindows CI失敗を直す。機能は0.9.10と同じ。
