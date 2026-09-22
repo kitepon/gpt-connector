@@ -1,5 +1,6 @@
 // ブラウザのOS選択はここだけで行う。起動・認証の順序は共通launcherが所有する。
 import * as darwin from "./darwin.js";
+import * as linux from "./linux-browser.js";
 import * as windows from "./windows-browser.js";
 import { ConnectorError } from "../errors.js";
 
@@ -24,11 +25,12 @@ export interface BrowserPlatform {
 }
 
 export function supportsLiveBrowser(platform: string = process.platform): boolean {
-  return platform === "darwin" || platform === "win32";
+  return platform === "darwin" || platform === "win32" || platform === "linux";
 }
 
 export function browserPlatform(platform: string = process.platform): BrowserPlatform {
   if (platform === "darwin") return { ...darwin, isOwnedChromeProcess: (listener, profile) => darwin.isOwnedChromeCommand(listener.command, profile) };
   if (platform === "win32") return windows;
+  if (platform === "linux") return linux;
   throw new ConnectorError("INVALID_INPUT", "専用Chromeの起動・表示はこのOSでは未対応です。");
 }
