@@ -1,6 +1,6 @@
 // Linuxの公式Chrome探索、127.0.0.1:9223の所有確認、X11 window制御を所有する。
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile, readlink } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { posix } from "node:path";
@@ -101,15 +101,50 @@ export async function verifyWindowVisibility(pid: number, visible: boolean, time
   catch (cause) { throw new ConnectorError("RUNTIME_DRIFT", "専用ChromeのLinux表示状態を確認できませんでした。", undefined, { cause }); }
 }
 
+export function chromeOwnerPids(rootPid: number, listPids: () => readonly string[] = () => {
+  try { return readdirSync("/proc"); } catch { return []; }
+}, readStatus: (pid: string) => string | undefined = (pid) => {
+  try { return readFileSync(`/proc/${pid}/status`, "utf8"); } catch { return undefined; }
+}): Set<number> {
+  const children = new Map<number, number[]>();
+  for (const pidText of listPids()) {
+    if (!/^\d+$/.test(pidText)) continue;
+    const status = readStatus(pidText);
+    const parent = status ? Number(/^PPid:\s*(\d+)/m.exec(status)?.[1]) : Number.NaN;
+    if (!Number.isSafeInteger(parent)) continue;
+    const list = children.get(parent) ?? [];
+    list.push(Number(pidText));
+    children.set(parent, list);
+  }
+  const owned = new Set<number>([rootPid]);
+  const queue = [rootPid];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const child of children.get(current) ?? []) {
+      if (owned.has(child)) continue;
+      owned.add(child);
+      queue.push(child);
+    }
+  }
+  return owned;
+}
+
 async function windowAction(pid: number, action: "hide" | "show" | "activate" | "visible" | "hidden", timeoutMs: number): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("PIDが不正です");
-  const display = await LinuxX11.connect().catch((cause: unknown) => { throw new Error("X11へ接続できませんでした。", { cause }); });
+  const owners = chromeOwnerPids(pid);
+  let display = await LinuxX11.connectForChrome(pid, owners).catch((cause: unknown) => { throw new Error("X11へ接続できませんでした。", { cause }); });
   const wantVisible = action === "show" || action === "activate" || action === "visible";
   try {
     const deadline = Date.now() + Math.max(1, timeoutMs);
     let sawWindow = false;
     do {
-      let windows = await display.googleChromeWindows(pid);
+      let windows = await display.googleChromeWindows(owners);
+      if (windows.length === 0) {
+        const next = await LinuxX11.connectForChrome(pid, owners);
+        display.close();
+        display = next;
+        windows = await display.googleChromeWindows(owners);
+      }
       if (windows.length > 0) sawWindow = true;
       if (action === "hide") for (const window of windows) if (window.viewable) await display.unmap(window.id);
       if (action === "show") for (const window of windows) if (!window.viewable) await display.map(window.id);
@@ -117,13 +152,13 @@ async function windowAction(pid: number, action: "hide" | "show" | "activate" | 
         const target = windows.find((window) => window.viewable) ?? windows[0];
         if (target) await display.activate(target.id);
       }
-      windows = await display.googleChromeWindows(pid);
+      windows = await display.googleChromeWindows(owners);
       if (windows.length > 0) sawWindow = true;
       const viewable = windows.filter((window) => window.viewable).length;
       if (sawWindow && windows.length > 0 && (wantVisible ? viewable > 0 : viewable === 0)) return;
       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))));
     } while (Date.now() < deadline);
-    throw new Error(sawWindow ? "専用Chromeの表示状態が収束しません" : "専用Chromeのwindowがありません");
+    throw new Error(sawWindow ? "専用Chromeの表示状態が収束しません" : `専用Chromeのwindowがありません（探索DISPLAY=${display.display}）`);
   } finally { display.close(); }
 }
 

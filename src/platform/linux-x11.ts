@@ -1,11 +1,12 @@
 // Linuxの表示制御。製品専用ChromeのX11 windowだけを対象にし、CDPのwindowStateは正本にしない。
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { homedir } from "node:os";
 
 const x11Viewable = 2;
 
 interface Waiter { readonly resolve: (packet: Buffer) => void; readonly reject: (error: Error) => void; readonly timer: NodeJS.Timeout; }
+export interface ChromeWindow { readonly id: number; readonly viewable: boolean; }
 
 export function mapStateFromAttributesReply(packet: Buffer): number {
   // xGetWindowAttributesReply は saveUnder の次に mapInstalled を置く。mapState は offset 26。
@@ -13,12 +14,55 @@ export function mapStateFromAttributesReply(packet: Buffer): number {
   return packet[26] ?? 0;
 }
 
+export function listLocalDisplays(preferred?: string, socketsDirectory = "/tmp/.X11-unix"): string[] {
+  const found = new Set<string>();
+  try {
+    for (const entry of readdirSync(socketsDirectory)) {
+      const match = /^X(\d+)$/.exec(entry);
+      if (match) found.add(`:${match[1]}`);
+    }
+  } catch { /* socket directoryが無い環境はpreferredだけ */ }
+  const preferredName = normalizeDisplay(preferred);
+  const ordered = [];
+  if (preferredName) ordered.push(preferredName);
+  for (const display of [...found].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))) {
+    if (display !== preferredName) ordered.push(display);
+  }
+  return ordered;
+}
+
+export function normalizeDisplay(display: string | undefined): string | undefined {
+  if (!display) return undefined;
+  const match = /^(?:unix)?:(\d+)(?:\.\d+)?$/.exec(display) ?? /^(?:localhost|127\.0\.0\.1):(\d+)(?:\.\d+)?$/.exec(display);
+  return match?.[1] === undefined ? undefined : `:${match[1]}`;
+}
+
+export function displayFromEnviron(text: string): string | undefined {
+  for (const entry of text.split("\0")) {
+    if (entry.startsWith("DISPLAY=")) return normalizeDisplay(entry.slice("DISPLAY=".length));
+  }
+  return undefined;
+}
+
+export function isGoogleChromeClass(data: Buffer | undefined): boolean {
+  const parts = data?.toString("latin1").split("\0").filter((part) => part.length > 0) ?? [];
+  const instance = parts[0] ?? "";
+  const klass = parts[1] ?? "";
+  return klass === "Google-chrome" || instance.startsWith("google-chrome");
+}
+
 export class LinuxX11 {
   private readonly pending = new Map<number, Waiter>();
   private buffer = Buffer.alloc(0);
   private sequence = 0;
   private resource = 0;
-  private constructor(private readonly socket: Socket, private readonly root: number, private readonly idBase: number, private readonly idMask: number) {}
+  private constructor(
+    private readonly socket: Socket,
+    private readonly root: number,
+    private readonly idBase: number,
+    private readonly idMask: number,
+    readonly display: string,
+  ) {}
 
   static async connect(env: NodeJS.ProcessEnv = process.env): Promise<LinuxX11> {
     const display = env.DISPLAY ?? "";
@@ -49,11 +93,46 @@ export class LinuxX11 {
     const vendorLength = setup.readUInt16LE(24);
     const formats = setup[29] ?? 0;
     const screen = 40 + pad4(vendorLength) + formats * 8;
-    const displayClient = new LinuxX11(socket, setup.readUInt32LE(screen), setup.readUInt32LE(12), setup.readUInt32LE(16));
+    const displayClient = new LinuxX11(socket, setup.readUInt32LE(screen), setup.readUInt32LE(12), setup.readUInt32LE(16), `:${spec.number}`);
     displayClient.enqueue(setup.subarray(8 + extra));
     socket.on("data", (chunk) => displayClient.enqueue(Buffer.from(chunk)));
     socket.on("error", (error) => displayClient.rejectAll(error));
     return displayClient;
+  }
+
+  /** 専用ChromeのwindowがあるDISPLAYへ接続する。processのDISPLAY、呼出元DISPLAY、ローカルXを順に試す。 */
+  static async connectForChrome(pid: number, owners: ReadonlySet<number>, env: NodeJS.ProcessEnv = process.env): Promise<LinuxX11> {
+    const preferred: string[] = [];
+    try {
+      if (existsSync(`/proc/${pid}/environ`)) {
+        const fromProcess = displayFromEnviron(readFileSync(`/proc/${pid}/environ`, "utf8"));
+        if (fromProcess) preferred.push(fromProcess);
+      }
+    } catch { /* processが消えた場合はDISPLAY探索へ */ }
+    const envDisplay = normalizeDisplay(env.DISPLAY);
+    if (envDisplay && !preferred.includes(envDisplay)) preferred.push(envDisplay);
+    const candidates = [...preferred, ...listLocalDisplays(envDisplay).filter((display) => !preferred.includes(display))];
+    if (candidates.length === 0) throw new Error("Linuxの専用ChromeはローカルX11のDISPLAYが必要です。");
+    let lastError: unknown;
+    let fallback: LinuxX11 | undefined;
+    for (const display of candidates) {
+      let client: LinuxX11 | undefined;
+      try {
+        client = await LinuxX11.connect({ ...env, DISPLAY: display });
+        const windows = await client.googleChromeWindows(owners);
+        if (windows.length > 0) {
+          fallback?.close();
+          return client;
+        }
+        if (!fallback) fallback = client;
+        else client.close();
+      } catch (error) {
+        client?.close();
+        lastError = error;
+      }
+    }
+    if (fallback) return fallback;
+    throw lastError instanceof Error ? lastError : new Error("X11へ接続できませんでした。", { cause: lastError });
   }
 
   private enqueue(chunk: Buffer): void {
@@ -62,20 +141,20 @@ export class LinuxX11 {
     this.consume();
   }
 
-  async googleChromeWindows(pid: number): Promise<readonly { readonly id: number; readonly viewable: boolean }[]> {
-    const listed = await this.matchingWindows(await this.clientList(), pid);
+  async googleChromeWindows(owners: number | ReadonlySet<number>): Promise<readonly ChromeWindow[]> {
+    const pids = typeof owners === "number" ? new Set([owners]) : owners;
+    const listed = await this.matchingWindows(await this.clientList(), pids);
     if (listed.length > 0) return listed;
-    return this.matchingWindows(await this.nearbyWindows(), pid);
+    return this.matchingWindows(await this.nearbyWindows(), pids);
   }
 
-  private async matchingWindows(candidates: readonly number[], pid: number): Promise<readonly { readonly id: number; readonly viewable: boolean }[]> {
+  private async matchingWindows(candidates: readonly number[], pids: ReadonlySet<number>): Promise<readonly ChromeWindow[]> {
     const atoms = await this.atoms(["_NET_WM_PID", "WM_CLASS"]);
     const windows = [];
     for (const id of candidates) {
       try {
         const owner = await this.propertyCard(id, atoms._NET_WM_PID);
-        const klass = wmClass(await this.propertyBytes(id, atoms.WM_CLASS));
-        if (owner !== pid || klass !== "Google-chrome") continue;
+        if (owner === undefined || !pids.has(owner) || !isGoogleChromeClass(await this.propertyBytes(id, atoms.WM_CLASS))) continue;
         windows.push({ id, viewable: await this.viewable(id) });
       } catch { /* 列挙中に消えたwindowは対象外 */ }
     }
@@ -291,6 +370,5 @@ function changeProperty(window: number, property: number, type: number, format: 
 }
 
 function uint32(value: number): Buffer { const data = Buffer.alloc(4); data.writeUInt32LE(value); return data; }
-function wmClass(data: Buffer | undefined): string { return data?.toString("latin1").split("\0").filter((part) => part.length > 0)[1] ?? ""; }
 function pad4(size: number): number { return (size + 3) & ~3; }
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
