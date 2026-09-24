@@ -1,6 +1,6 @@
 {
   "name": "gpt-connector",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "ログイン済みChatGPTとGrokのWeb runtimeへAIクライアントから相談するローカルconnector",
   "license": "MIT",
   "author": {

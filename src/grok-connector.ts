@@ -32,6 +32,7 @@ const operationSchema = z.object({
 const chatResultSchema = z.object({
   text: z.string().min(1), status: z.string(), endTurn: z.literal(true),
   resolvedModel: z.string().nullable(), resolvedEffort: z.string().nullable(),
+  requestedMode: z.literal("auto"), reportedModel: z.string().nullable(),
   sessionId: z.string().uuid().optional(),
   attachments: z.object({
     count: z.literal(0), names: z.array(z.string()).length(0),
@@ -41,7 +42,7 @@ const chatResultSchema = z.object({
   archived: z.literal(false),
 });
 const modesSchema = z.object({
-  defaultMode: z.string(),
+  defaultMode: z.string(), selectedMode: z.string(),
   modes: z.array(z.object({ id: z.string(), title: z.string(), available: z.boolean() })),
 });
 
@@ -155,6 +156,7 @@ export class GrokConnector {
     const result = await this.#runChat(parsed);
     return { text: result.text, status: result.status, endTurn: true,
       resolvedModel: result.resolvedModel, resolvedEffort: result.resolvedEffort,
+      requestedMode: result.requestedMode, reportedModel: result.reportedModel,
       ...(result.sessionId ? { sessionId: result.sessionId } : {}) };
   }
 

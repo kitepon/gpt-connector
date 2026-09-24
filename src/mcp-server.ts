@@ -285,9 +285,9 @@ export const mcpToolDescriptions = {
     "本server自身をread-only診断し、会話やuploadを作らず接続・bridge・job/session件数だけを返す。",
   chatgpt_close:
     "本serverがChatGPT上に保持したsessionをserver archiveし、継続用sessionIdを破棄する。MCP再接続後も専用Chromeのpageに会話が残っていれば利用できる。deleteは行わない。",
-  grok_modes: "Grok公式Web runtimeのmode一覧を返す。送信は自動modeを使う。",
-  grok_chat: "Grok公式Web runtimeへ本文を送信する。keepOpen=trueならsessionIdで継続できる。",
-  grok_consult: "Grok公式Web runtimeへ本文で相談する。slugで冪等化し、CodexとCursorの親には完了時に自動配送する。添付ファイルには未対応。",
+  grok_modes: "Grok公式Web runtimeのmode一覧と現在選択中のmodeを返す。送信は自動modeを使う。",
+  grok_chat: "Grok公式Web runtimeへ本文を送信する。回答にGrokが記録したmodel IDとeffortを返す。auto内の具体モデルは取得できない。keepOpen=trueならsessionIdで継続できる。",
+  grok_consult: "Grok公式Web runtimeへ本文で相談する。slugで冪等化し、CodexとCursorの親には完了時に自動配送する。回答に記録されたmodel IDとeffortを返す。添付ファイルには未対応。",
   grok_sessions: "Grok相談の既知slugの状態と回答を返す。再送は行わない。",
   grok_diagnostics: "Grokへの接続、bridge、job件数を診断する。会話は作らない。",
   grok_close: "指定したGrok会話をsoft deleteして継続を終える。",

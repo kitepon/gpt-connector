@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-09-24
+
+- Grok Chatの回答から、送信したmode、Grokが回答に記録したモデルIDとエフォートを返す。自動modeの内側で使われた具体的なモデル名は確認できないため`resolvedModel`は`null`とする。`grok_modes`は現在選択中のmodeも返す。
+- job台帳をversion 6へ更新する。version 1〜5の台帳は初回書込み前に元形式のbackupを残して移行する。旧版へ戻す時は全MCPを停止し、version 6の台帳を退避して移行前のbackupを復元するか、旧版専用の空state directoryを使う。移行後の回答はversion 6を読める版で回収する。
+
 ## 0.10.1 - 2026-09-24
 
 - SSH転送された9223番ポートにログイン済みGrok tabがある時、Grok toolとCLIがそのtargetへ直接接続するよう直した。転送先にChromeの所有権やX11がなくても相談できる。

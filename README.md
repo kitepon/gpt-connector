@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.10.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.11.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -165,7 +165,7 @@ gpt-connector grok-consult --prompt '設計案を検討してください' --slu
 gpt-connector grok-sessions --slug grok-review-001
 ```
 
-同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。現在は自動modeの本文のみを送れる。Grokのmode一覧は`grok-modes`で確認できる。
+同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。現在は自動modeの本文のみを送れる。Grokのmode一覧と現在の選択は`grok-modes`で確認できる。回答の`requestedMode`は送信したmode、`reportedModel`と`resolvedEffort`はGrokが回答に記録したモデルIDとエフォートを示す。実測した応答には自動modeが内部で選んだ具体的なモデル名が含まれないため、`resolvedModel`は`null`を返す。
 
 CLIの`chat`はone-shot専用。`consult` jobはdurable台帳へ残るため、別processの`sessions`から回収できる。複数turnの会話sessionはMCP adapterを使う。
 
@@ -313,7 +313,7 @@ MCP tools（`consult`／`sessions`／`diagnostics`はChatGPT用。Grokには`gro
 - `consult`: slug冪等化、会話の継続、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。`wait=false`は回答完了前に受付結果を返す。
 - `sessions`: exact slug 1件の状態／sessionId／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
-- `grok_modes`: Grokのlive mode一覧。送信は自動modeのみ。
+- `grok_modes`: Grokのlive mode一覧と選択中のmode。送信は自動modeのみ。
 - `grok_chat`: Grokへの本文送信。
 - `grok_consult`: 本文相談をslugで冪等化し、親への完了通知と会話継続に対応する。
 - `grok_sessions`: Grokの既知slugの状態と回答を返す。
@@ -412,7 +412,7 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
 - jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。異なるMCPプロセスの更新は短いtransaction lockで順序付ける。
 - 実行元が終了した非terminal jobだけを`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。他の実行元のjobは継続する。
-- 台帳はversion 5。version 1〜4を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
+- 台帳はversion 6。version 1〜5を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
 - Codex相談は配送状態も保存する。宛先の親ID・socketは台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
 
 ## failure codes

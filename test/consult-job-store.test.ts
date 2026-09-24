@@ -37,6 +37,8 @@ interface ConsultSnapshot {
     readonly endTurn: true;
     readonly resolvedModel: string | null;
     readonly resolvedEffort: string | null;
+    readonly requestedMode?: "auto";
+    readonly reportedModel?: string | null;
     readonly attachments: AttachmentSummary;
     readonly images?: {
       readonly count: number;
@@ -171,6 +173,24 @@ const succeededResult: NonNullable<ConsultSnapshot["result"]> = {
   archived: true,
 };
 
+test("Grokの回答に記録されたmodelとeffortを台帳再読込後も保持する", async () => {
+  await withStateDirectory(async (stateDirectory) => {
+    const writer = new ConsultJobStore({ stateDirectory });
+    await writer.initialize();
+    await writer.reserve(slug, fingerprint);
+    await writer.transition(slug, "submitted");
+    await writer.transition(slug, "running");
+    const grokResult = { ...succeededResult, resolvedModel: null, resolvedEffort: "low",
+      requestedMode: "auto" as const, reportedModel: "grok-4-auto" };
+    await writer.transition(slug, "succeeded", { result: grokResult });
+    writer.close();
+    const reader = new ConsultJobStore({ stateDirectory, readOnly: true });
+    await reader.initialize();
+    assert.deepEqual(reader.get(slug).result, grokResult);
+    reader.close();
+  });
+});
+
 async function withStateDirectory(
   run: (stateDirectory: string) => Promise<void>,
 ): Promise<void> {
@@ -243,7 +263,7 @@ test("terminal resultをstate transitionと再initialize後にも保持する", 
   });
 });
 
-for (const version of [1, 2, 3, 4]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
+for (const version of [1, 2, 3, 4, 5]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
   await withStateDirectory(async (stateDirectory) => {
     const path = join(stateDirectory, "consult-jobs.json");
     const legacy = JSON.stringify({ version, jobs: [{ fingerprint, snapshot: {
@@ -267,7 +287,7 @@ for (const version of [1, 2, 3, 4]) test(`旧台帳v${version}は読取りで変
     await writer.transition("new-question", "failed", {
       error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
     });
-    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 5);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 6);
     assert.equal(await readFile(`${path}.v${version}-backup`, "utf8"), legacy);
     if (process.platform !== "win32") assert.equal((await stat(`${path}.v${version}-backup`)).mode & 0o777, 0o600);
     writer.close();

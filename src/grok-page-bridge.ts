@@ -54,7 +54,10 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
           typeof item.message === "string" && item.message.length > 0);
         const parent = matched[0] && server.find((item) => item.responseId === matched[0].parentResponseId);
         if (matched.length === 1 && parent?.sender === "human" && parent.message === expectedPrompt) {
-          return { text: matched[0].message, responseId: matched[0].responseId };
+          const metadata = matched[0].requestMetadata;
+          return { text: matched[0].message,
+            reportedModel: typeof metadata?.model === "string" ? metadata.model : null,
+            resolvedEffort: typeof metadata?.effort === "string" ? metadata.effort.toLowerCase() : null };
         }
         await sleep(500);
       }
@@ -121,7 +124,8 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
       const read = await readBack(conversationId, closedIds, input.prompt);
       operation.result = {
         text: read.text, status: "finished_successfully", endTurn: true,
-        resolvedModel: "auto", resolvedEffort: null,
+        requestedMode: "auto", reportedModel: read.reportedModel,
+        resolvedModel: null, resolvedEffort: read.resolvedEffort,
         ...(input.keepOpen ? { sessionId: conversationId } : {}),
         attachments: { count: 0, names: [], mimeTypes: [], readBack: "confirmed",
           retention: "unknown", cleanup: "not_supported" },
@@ -149,7 +153,7 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
         if (state.status !== "ready" || !Array.isArray(state.modes)) {
           throw new Error("RUNTIME_DRIFT:Grok mode一覧がありません");
         }
-        return { defaultMode: state.defaultModeId,
+        return { defaultMode: state.defaultModeId, selectedMode: state.selectedModeId,
           modes: state.modes.map((mode) => ({ id: mode.id, title: mode.title,
             available: Boolean(mode.availability?.available) })) };
       },

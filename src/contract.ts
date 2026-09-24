@@ -202,6 +202,9 @@ export interface ChatResult {
   readonly endTurn: true;
   readonly resolvedModel: string | null;
   readonly resolvedEffort: string | null;
+  /** Grokだけ。送信したChat modeと、回答に記録されたauto routerのmodel ID。 */
+  readonly requestedMode?: "auto";
+  readonly reportedModel?: string | null;
   readonly sessionId?: string;
 }
 
