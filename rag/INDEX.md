@@ -2,6 +2,9 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [setup/windows-ssh-browser-20260924.md](setup/windows-ssh-browser-20260924.md) — SSHのsession 0から対話session 1の専用Chrome windowを操作できない原因と対話taskでの実機修理（2026-09-24）。
+- [setup/raw/windows-session-task-20260924.md](setup/raw/windows-session-task-20260924.md) — Microsoft公式のwindow stationと`Interactive` scheduled task資料（2026-09-24）。
+
 - [chatgpt-app/windows-browser-archive-causes-20260919.md](chatgpt-app/windows-browser-archive-causes-20260919.md) — Codex終了jobを継承するChrome起動と、archiveのHTTP 500を回答失敗へ誤分類する欠陥の再現・修理（2026-09-19）
 - [setup/raw/windows-job-lifetime-20260919.md](setup/raw/windows-job-lifetime-20260919.md) — Microsoft公式のjob継承とWMI process作成の一次資料（2026-09-19）
 - [chatgpt-app/async-consult-cdp-reconnect-20260919.md](chatgpt-app/async-consult-cdp-reconnect-20260919.md) — 非同期相談の接続失敗がMCPの接続破棄へ届かない欠陥を再現・修理。Chrome停止原因の未解明と区別（2026-09-19）

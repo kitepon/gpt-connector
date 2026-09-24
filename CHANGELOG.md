@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.12.1 - 2026-09-24
+
+- WindowsでSSH等の別sessionから専用Chromeの表示・非表示を操作すると失敗する問題を修正する。Chromeのwindowが属する対話sessionで操作を実行し、結果を呼出元へ返す。taskと一時記録は処理後に削除する。
+
 ## 0.12.0 - 2026-09-24
 
 - Grok Chatの`grok_chat`／`grok_consult`とCLIにmode選択を追加する。auto・fast・expert・heavyから指定でき、省略時はauto。Grokの回答記録で実際のmodeを照合し、共有tabの選択状態は送信後に戻す。buildはChat送信対象外。

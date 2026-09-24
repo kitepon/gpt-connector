@@ -1,6 +1,9 @@
 // WindowsのChrome探索、ポート所有確認、Win32 window制御を所有する。
 import { existsSync } from "node:fs";
-import { win32 } from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, win32 } from "node:path";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ConnectorError } from "../errors.js";
 import type { ListenerProcess } from "./browser.js";
@@ -107,7 +110,7 @@ public static class GptWindows {
 async function windowAction(pid: number, action: "hide" | "show" | "activate" | "visible" | "hidden", timeoutMs: number): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("PIDが不正です");
   const visible = action === "show" || action === "activate" || action === "visible";
-  await windowsPowerShell(`${windowType}
+  const script = `${windowType}
 $windows = @([GptWindows]::ForProcess(${pid}))
 if ($windows.Count -eq 0) { throw '専用Chromeのwindowがありません' }
 foreach ($window in $windows) {
@@ -121,7 +124,56 @@ do {
   if ($windows.Count -gt 0 -and ${visible ? "$shown.Count -gt 0" : "@($windows | Where-Object { [GptWindows]::IsWindowVisible($_) }).Count -eq 0"}) { return }
   Start-Sleep -Milliseconds 50
 } while ([DateTime]::UtcNow -lt $deadline)
-throw '専用Chromeの表示状態が収束しません'`, timeoutMs);
+throw '専用Chromeの表示状態が収束しません'`;
+  const sessions = z.object({ current: z.number().int(), target: z.number().int() }).parse(JSON.parse(await windowsPowerShell(`
+$target = Get-Process -Id ${pid} -ErrorAction Stop
+@{ current = (Get-Process -Id $PID).SessionId; target = $target.SessionId } | ConvertTo-Json -Compress`)));
+  if (sessions.current === sessions.target) {
+    await windowsPowerShell(script, timeoutMs);
+    return;
+  }
+  await windowActionInInteractiveSession(script, timeoutMs);
+}
+
+async function windowActionInInteractiveSession(script: string, timeoutMs: number): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "gpt-connector-window-"));
+  const receipt = join(directory, "receipt.json");
+  const pendingReceipt = join(directory, "pending.json");
+  const taskName = `gpt-connector-window-${randomUUID()}`;
+  try {
+    ensurePrivateDirectory(directory);
+    const taskScript = `$ErrorActionPreference = 'Stop'
+try {
+  & ([scriptblock]::Create(${quotePowerShell(script)}))
+  $result = @{ ok = $true }
+} catch {
+  $result = @{ ok = $false; message = $_.Exception.Message }
+}
+[IO.File]::WriteAllText(${quotePowerShell(pendingReceipt)}, ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+[IO.File]::Move(${quotePowerShell(pendingReceipt)}, ${quotePowerShell(receipt)})`;
+    const encoded = Buffer.from(taskScript, "utf16le").toString("base64");
+    await windowsPowerShell(`$name = ${quotePowerShell(taskName)}
+$action = New-ScheduledTaskAction -Execute (Get-Command pwsh.exe).Source -Argument ${quotePowerShell(`-NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`)}
+$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+$registered = $false
+try {
+  Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -ErrorAction Stop | Out-Null
+  $registered = $true
+  Start-ScheduledTask -TaskName $name
+  $deadline = [DateTime]::UtcNow.AddMilliseconds(${Math.max(1, timeoutMs) + 10_000})
+  while (!(Test-Path -LiteralPath ${quotePowerShell(receipt)})) {
+    if ([DateTime]::UtcNow -ge $deadline) { throw '対話sessionのwindow操作が完了しませんでした' }
+    Start-Sleep -Milliseconds 50
+  }
+} finally {
+  if ($registered) { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop }
+}`, timeoutMs + 15_000);
+    const result = z.discriminatedUnion("ok", [z.object({ ok: z.literal(true) }), z.object({ ok: z.literal(false), message: z.string() })])
+      .parse(JSON.parse(await readFile(receipt, "utf8")));
+    if (!result.ok) throw new Error(result.message);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 export const hideProcess = (pid: number, timeout: number) => windowAction(pid, "hide", timeout);
