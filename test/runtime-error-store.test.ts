@@ -11,6 +11,7 @@ import {
   defaultRuntimeErrorStorePath,
   getRuntimeErrorDiagnostics,
   observeRuntimeError,
+  recordRuntimeErrorBestEffort,
   readRuntimeErrorSnapshot,
   reopenRuntimeError,
   resolveRuntimeError,
@@ -38,6 +39,14 @@ test("発生版は直近の発生で更新し、snapshotの実行版から推測
   assert.equal(entry.product_version, "2.0.0");
   assert.equal(entry.occurrence_count, 2);
   assert.equal(entry.last_seen, "2026-09-02T00:00:00.000Z");
+});
+
+test("認証待ちは利用者へのtyped errorだけとし、BugHub向け障害には記録しない", () => {
+  const box = sandbox(); enable(box);
+  assert.equal(recordRuntimeErrorBestEffort("AUTH_REQUIRED", { env: box.env }), "disabled");
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).diagnostics.total_count, 0);
+  assert.equal(recordRuntimeErrorBestEffort("CDP_UNAVAILABLE", { env: box.env }), "recorded");
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors[0]?.error_code, "CDP_UNAVAILABLE");
 });
 
 test("runtime error storeはcanonical collection.enabled=true以外でstateを作らない", () => {

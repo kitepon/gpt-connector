@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.12.2 - 2026-09-25
+
+- ログイン待ちの`AUTH_REQUIRED`を呼出元へのtyped errorとして返しつつ、工場向けの高重大度runtime errorには記録しない。既存の障害record形式と、CDP・bridge・Chat等の実操作失敗の記録は維持する。
+
 ## 0.12.1 - 2026-09-24
 
 - WindowsでSSH等の別sessionから専用Chromeの表示・非表示を操作すると失敗する問題を修正する。Chromeのwindowが属する対話sessionで操作を実行し、結果を呼出元へ返す。taskと一時記録は処理後に削除する。

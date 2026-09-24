@@ -127,9 +127,9 @@ export function getRuntimeErrorDiagnostics(options: RuntimeErrorOptions = {}) {
 }
 
 /** Adapter-only telemetry hook. It accepts only registered public failure codes and never throws. */
-export function recordRuntimeErrorBestEffort(code: string): "recorded" | "disabled" | "store_unavailable" {
-  if (!(code in definitions)) return "disabled";
-  try { return observeRuntimeError({ code: code as RuntimeErrorCode }).status; } catch { return "store_unavailable"; }
+export function recordRuntimeErrorBestEffort(code: string, options: RuntimeErrorOptions = {}): "recorded" | "disabled" | "store_unavailable" {
+  if (code === "AUTH_REQUIRED" || !(code in definitions)) return "disabled";
+  try { return observeRuntimeError({ code: code as RuntimeErrorCode }, options).status; } catch { return "store_unavailable"; }
 }
 
 function updateStatus(store: Store, fingerprint: string, status: Status, options: RuntimeErrorOptions & { readonly reasonCode?: "manual" | "recovered" }) {
