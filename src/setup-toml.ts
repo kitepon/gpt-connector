@@ -47,3 +47,27 @@ export function addTomlValues(source: string, additions: readonly Addition[], ne
   }
   return text;
 }
+
+/** 製品が以前に生成した既定値だけを、AST上の値範囲で置き換える。 */
+export function replaceTomlValue(source: string, path: readonly string[], value: unknown): string {
+  const ast = parseTOML(source);
+  const nodes = ast.body[0].body;
+  const matches: AST.TOMLKeyValue[] = [];
+  const visit = (entries: readonly AST.TOMLKeyValue[], prefix: readonly string[]) => {
+    for (const entry of entries) {
+      const current = [...prefix, ...getStaticTOMLValue(entry.key)];
+      if (current.join("\0") === path.join("\0")) matches.push(entry);
+      if (entry.value.type === "TOMLInlineTable") visit(entry.value.body, current);
+    }
+  };
+  visit(nodes.filter((node): node is AST.TOMLKeyValue => node.type === "TOMLKeyValue"), []);
+  for (const table of nodes.filter((node): node is AST.TOMLTable => node.type === "TOMLTable")) {
+    if (table.resolvedKey.every((part) => typeof part === "string")) {
+      visit(table.body, table.resolvedKey as string[]);
+    }
+  }
+  if (matches.length !== 1) throw new Error("TOML設定値を一意に更新できません。");
+  const node = matches[0]!;
+  const rendered = stringify({ value }, { numbersAsFloat: true }).trim().slice("value = ".length);
+  return source.slice(0, node.value.range[0]) + rendered + source.slice(node.value.range[1]);
+}

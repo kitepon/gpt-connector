@@ -3,7 +3,7 @@
 ## 正規入口
 
 初回導入・更新はこの一回の入口で行う。Node.js 22以上とnpmが前提。WindowsではPowerShell 7を使う。
-live機能にはmacOSまたはWindowsとインストール済みGoogle Chrome、ChatGPT accountが必要。
+live機能にはmacOSまたはWindowsとインストール済みGoogle Chrome、利用するChatGPT／Grok accountが必要。
 
 ```bash
 npx --yes gpt-connector@latest setup
@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.9.11"
+gpt_connector_version="0.10.0"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -72,13 +72,13 @@ startup_timeout_sec = 20
 tool_timeout_sec = 240
 enabled = true
 required = false
-enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics"]
+enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics", "grok_modes", "grok_chat", "grok_consult", "grok_sessions", "grok_diagnostics", "grok_close"]
 
 [mcp_servers.gpt_connector.env]
 GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 ```
 
-既存のtimeout、`enabled_tools`、`disabled_tools`、approval設定、env等は利用者設定として優先する。
+既存のtimeout、利用者が変更した`enabled_tools`、`disabled_tools`、approval設定、env等は利用者設定として優先する。旧版が生成した7件と完全一致する`enabled_tools`だけ、新版の13件へ更新する。
 公式CLIの`add`だけでは指定できない項目も製品のmerge処理で保持する。
 設定項目の一次資料は[OpenAI公式MCP設定](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。
 
@@ -87,13 +87,13 @@ GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 | 機能 | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | npm package導入、4AIへの設定保存 | 対応 | 対応 | 対応 |
-| stdio initialize、公開版照合、7 tools list | 対応 | 対応 | 対応 |
+| stdio initialize、公開版照合、13 tools list | 対応 | 対応 | 対応 |
 | `diagnostics`の診断応答、既存state読取り | 対応 | 対応 | 対応 |
 | `sessions`の既存job読取り | 対応 | 対応 | 対応 |
 | browser起動・表示、models、Chat、画像・添付 | 対応 | 対応 | 未対応 |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 
-setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと7 toolsを確認する。
+setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと公開tool集合を確認する。
 `diagnostics`が`not_ready`を返す場合も、MCP通信の成立とlive readinessを別に記録する。
 `setup`自身は利用者jobの内容を表示しない。
 

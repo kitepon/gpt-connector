@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 - 2026-09-24
+
+- Grok Chatの本文相談を同じMCPに追加した。専用ChromeのGrok tabで公式Web runtimeを使い、会話継続、同時送信、回答のサーバー照合、Codex／Cursor親への完了通知、soft deleteによる終了に対応する。Grokの送信は自動modeのみで、添付・画像生成は含まない。
+- 別のAIクライアントからの相談が重なると後続を拒否する問題を修正した。job台帳は短いtransaction lockで更新し、実行中のjobをprocessごとに所有する。ChatGPT page bridgeの同時初期化も一回にまとめる。
+- job台帳をversion 5へ更新する。version 1〜4の台帳は初回書込み前に元形式のbackupを残して移行する。旧版へ戻すには全MCPを停止し、version 5の台帳を退避して移行前のbackupを戻すか、旧版専用の空state directoryを使う。移行後の回答はversion 5を読める版で回収する。
+- MCPは13 toolsを公開する。Codexの旧版生成値と完全一致する7件の`enabled_tools`だけ13件へ更新し、利用者が変更した制限は保持する。
+
 ## 0.9.11 - 2026-09-22
 
 - setup試験が本物のCursor hooksへ書き込まないよう、Cursor hook登録を依存として注入できるようにした。0.9.10のWindows CI失敗を直す。機能は0.9.10と同じ。

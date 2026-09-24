@@ -148,6 +148,20 @@ export const chatInputSchema = z
 
 export type ChatInput = z.input<typeof chatInputSchema>;
 
+export const grokChatInputSchema = z.object({
+  prompt: z.string().min(1),
+  sessionId: z.string().uuid().optional(),
+  keepOpen: z.boolean().default(false),
+}).strict();
+export type GrokChatInput = z.input<typeof grokChatInputSchema>;
+
+export const grokConsultInputSchema = grokChatInputSchema.extend({
+  slug: consultSlugSchema,
+  wait: z.boolean().default(true),
+  dryRun: z.boolean().default(false),
+});
+export type GrokConsultInput = z.input<typeof grokConsultInputSchema>;
+
 export const closeInputSchema = z
   .object({
     sessionId: z.string().uuid(),

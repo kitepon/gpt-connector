@@ -84,9 +84,9 @@ Codexのhook・旧起動設定を変更した場合は、完全再起動後の�
 `sessions`の読取りは製品所有の隔離fixtureで確認し、利用者のjob内容を公開しない。
 設定更新前後で既存env、モデル、認証、他MCPが保持されたこと、setup再実行で変更が増えないことを確認する。
 
-さらにread-only MCP initialize／tools listがstderrを汚さず、7 toolsと0.4.18以降のChatGPT限定
+さらにread-only MCP initialize／tools listがstderrを汚さず、13 toolsとprovider別の
 discovery契約を維持することを確認する。Chrome runtimeへ変更があるreleaseだけ、専用profileで
-`browser start`、`models`、hidden中の最小Chat、必要時の`browser show`を実行する。
+`browser start`、`models`、hidden中の最小Chat、必要時の`browser show`を実行する。Grok runtimeへ変更があるreleaseでは`browser start --provider grok`、`grok-modes`、最小の`grok-consult`と`grok-close`も確認する。
 
 ## 巻き戻し
 

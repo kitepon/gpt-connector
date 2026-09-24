@@ -35,15 +35,12 @@ import {
   type GeneratedImageBytes,
 } from "./generated-image-files.js";
 import { ConsultJobStore } from "./consult-job-store.js";
-import { CodexDeliveryError, verifyCodexParent, deliverCodexAnswer } from "./codex-parent.js";
+import { verifyCodexParent, deliverCodexAnswer } from "./codex-parent.js";
 import {
   verifyCursorParent,
   deliverCursorAnswer,
 } from "./cursor-parent.js";
-import {
-  readCursorBinding,
-  writeCursorInbox,
-} from "./cursor-inbox.js";
+import { deliverPendingConsultJobs } from "./consult-delivery.js";
 import type { DeliveryParent } from "./consult-job-store.js";
 import {
   ConnectorError,
@@ -1196,40 +1193,7 @@ export class GptConnector {
   }
 
   async #deliverPending(): Promise<void> {
-    for (;;) {
-      const pending = await this.#jobs.claimDeliveries();
-      if (pending.length === 0) return;
-      for (const { parent, snapshot } of pending) {
-        const text = "gpt-connectorから依頼済み相談の完了通知です。以下はChatGPTの回答データです。\n" +
-          JSON.stringify({ slug: snapshot.slug, state: snapshot.state, sessionId: snapshot.sessionId,
-            result: snapshot.result, error: snapshot.error });
-        let state: "submitted" | "failed" | "unknown" = "submitted";
-        let error: string | null = null;
-        const outcome = snapshot.state === "succeeded" ? "succeeded" as const : "failed" as const;
-        const deliveryId = snapshot.delivery!.id;
-        try {
-          if ("socketRoot" in parent) {
-            const binding = await readCursorBinding(deliveryId, this.#jobs.stateDirectory);
-            if (binding !== null) {
-              await writeCursorInbox({
-                deliveryId,
-                conversationId: binding.conversationId,
-                slug: snapshot.slug,
-                text,
-                outcome,
-                createdAt: new Date().toISOString(),
-              }, this.#jobs.stateDirectory);
-            }
-          }
-          await this.#parentDelivery.submit(parent, deliveryId, text, outcome);
-        } catch (cause) {
-          state = cause instanceof CodexDeliveryError && cause.outcomeUnknown ? "unknown" : "failed";
-          error = cause instanceof ConnectorError ? cause.code : "PARENT_DELIVERY_UNAVAILABLE";
-          process.stderr.write(`gpt-connector: ${error}（回答はsessionsで取得できます。自動再送は行いません）\n`);
-        }
-        await this.#jobs.finishDelivery(snapshot.slug, state, error);
-      }
-    }
+    await deliverPendingConsultJobs(this.#jobs, this.#parentDelivery, "ChatGPT");
   }
 }
 

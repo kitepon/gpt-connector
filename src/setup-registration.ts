@@ -6,11 +6,12 @@ import { isDeepStrictEqual } from "node:util";
 import { parse } from "smol-toml";
 import { archiveSetupConfig } from "./platform/setup-backup.js";
 import { ensurePrivateDirectory, makeFilePrivate } from "./platform/state.js";
-import { addTomlValues } from "./setup-toml.js";
+import { addTomlValues, replaceTomlValue } from "./setup-toml.js";
 
 export const setupClients = ["claude", "codex", "grok", "cursor"] as const;
 export type SetupClient = typeof setupClients[number];
-export const setupTools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics"];
+export const setupTools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics", "grok_modes", "grok_chat", "grok_consult", "grok_sessions", "grok_diagnostics", "grok_close"];
+const previousDefaultTools = setupTools.slice(0, 7);
 type Table = Record<string, unknown>;
 export interface SetupServer extends Table { command: string; args: string[]; env: Record<string, string>; }
 
@@ -42,12 +43,18 @@ export function mergeRegistration(source: string, client: SetupClient, command: 
   } : client === "grok" ? { enabled: true } : {};
   const env = existing.env === undefined ? {} : table(existing.env);
   if (Object.values(env).some((value) => typeof value !== "string")) throw new Error("MCP envには文字列が必要です。");
-  const server: SetupServer = { command, args: existing.command === undefined ? args : [], ...defaults, ...existing, env: { ...environmentDefaults, GPT_CONNECTOR_CDP_ENDPOINT: process.env.GPT_CONNECTOR_CDP_ENDPOINT ?? "http://127.0.0.1:9223", ...(process.env.GPT_CONNECTOR_STATE_DIR ? { GPT_CONNECTOR_STATE_DIR: process.env.GPT_CONNECTOR_STATE_DIR } : {}), ...env } };
+  const upgradeDefaultTools = client === "codex" && isDeepStrictEqual(existing.enabled_tools, previousDefaultTools);
+  const server: SetupServer = { command, args: existing.command === undefined ? args : [], ...defaults, ...existing,
+    ...(upgradeDefaultTools ? { enabled_tools: setupTools } : {}),
+    env: { ...environmentDefaults, GPT_CONNECTOR_CDP_ENDPOINT: process.env.GPT_CONNECTOR_CDP_ENDPOINT ?? "http://127.0.0.1:9223", ...(process.env.GPT_CONNECTOR_STATE_DIR ? { GPT_CONNECTOR_STATE_DIR: process.env.GPT_CONNECTOR_STATE_DIR } : {}), ...env } };
   const changed = !isDeepStrictEqual(existing, server);
   data[key] = { ...servers, gpt_connector: server };
   const additions = Object.entries(server).filter(([name]) => name !== "env" && existing[name] === undefined).map(([name, value]) => ({ path: [key, "gpt_connector", name], value }));
   additions.push(...Object.entries(server.env).filter(([name]) => env[name] === undefined).map(([name, value]) => ({ path: [key, "gpt_connector", "env", name], value })));
-  return { text: changed ? (toml ? addTomlValues(source, additions, servers.gpt_connector === undefined) : `${JSON.stringify(data, null, 2)}\n`) : source, server, changed };
+  const added = toml ? addTomlValues(source, additions, servers.gpt_connector === undefined) : "";
+  return { text: changed ? (toml ? upgradeDefaultTools
+    ? replaceTomlValue(added, [key, "gpt_connector", "enabled_tools"], setupTools)
+    : added : `${JSON.stringify(data, null, 2)}\n`) : source, server, changed };
 }
 
 export async function registerClient(client: SetupClient, command: string, args: string[], path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups"), environmentDefaults: Record<string, string> = {}) {

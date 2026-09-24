@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/gpt-connector.svg)](https://www.npmjs.com/package/gpt-connector)
 [![license](https://img.shields.io/npm/l/gpt-connector.svg)](LICENSE)
 
-Claude・Codex・Grok・Cursorから、ログイン済みChatGPT公式Web runtimeの通常Chatと画像生成を呼び出すローカルconnector。
+Claude・Codex・Grok・Cursorから、ログイン済みChatGPTとGrokの公式Web runtimeへ相談するローカルconnector。ChatGPTの通常Chat・画像生成と、Grok Chatの本文相談に対応する。
 
 [kitepon.dev](https://kitepon.dev/)のクオが開発・メンテナンスしています。
 
@@ -20,9 +20,9 @@ MarkItDownは別区分の第三者CLIです。
 ブラウザは認証・integrity・attestation・conversation lifecycleの実行環境として使う。composer、送信button、回答DOM、React fiberは操作・参照しない。
 
 > [!WARNING]
-> consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
+> consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.9.11`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.10.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -44,13 +44,15 @@ MarkItDownは別区分の第三者CLIです。
 - 256KiB CDP chunk転送とpage側SHA-256照合。
 - server attachment metadata read-backとモデル読取確認。
 - caller既知slugによるconsult冪等性、terminal result回収、owner-only durable job台帳。
+- 別のAIクライアントからの相談を同時に受け付け、各会話を独立して監視・配送する。
+- Grok公式Web runtimeの本文相談、同時送信、会話継続、Codex／Cursor親への完了通知。Grokは自動modeのみで、添付と画像生成は対象外。
 - upload／conversationを作らないdry-run、既存diagnostics、factory diagnostics。
 - CLIとstdio MCP adapter。
 
 ## 前提
 
 - Node.js 22以上とnpm（macOS・Windows・Linux）。
-- liveブラウザ機能にはmacOSまたはWindows、Google Chrome、ChatGPTへログインできるaccount。
+- liveブラウザ機能にはmacOSまたはWindows、Google Chrome、利用するproviderへログインできるaccount。
 - Windowsの操作シェルはPowerShell 7。
 - Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。公式キューと同期hookを使い、Codexの起動設定を差し替えない。
 
@@ -63,7 +65,7 @@ npx --yes gpt-connector@latest setup
 ```
 
 初回も更新も同じ入口を使う。実行した版を公式npmでglobal installしてから、導入済みCLIへ処理を引き継ぐ。
-Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録し、MCP initialize／7 tools／診断応答とstate読取りを確認する。
+Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録し、MCP initialize／13 tools／診断応答とstate読取りを確認する。
 既存command、args、env、モデル、認証、他MCP、利用者のtimeout・無効化・ツール制限は保持する。
 変更前の設定は`~/.gpt-connector/setup-backups/`へtarで保存する。
 
@@ -72,6 +74,7 @@ MacとWindowsでは`startBrowser`／`showBrowser`が専用Chromeを準備する�
 パスワード入力や認証challengeの自動化はしない。
 ログイン状態は`~/.gpt-connector/browser-profile/`へ保存し、通常の起動・更新では再利用する。
 ログアウトやChatGPTの認証失効時だけ再ログインする。
+Grok初回利用時は`gpt-connector browser start --provider grok`で同じ専用ChromeにGrokのtabを準備する。Grok側のログインが必要なら表示した画面で手動ログインし、同じコマンドを再実行する。MCPのGrok toolはこの準備を自動で試みる。
 
 Codexを登録するMacとWindowsではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。
@@ -144,6 +147,15 @@ gpt-connector chat \
 ```
 
 `--level 高`のように段階名を指定できます。`--level`を省略すると「最新」の右端を使います。
+
+Grok Chatの本文相談:
+
+```bash
+gpt-connector grok-consult --prompt '設計案を検討してください' --slug grok-review-001 --keep-open
+gpt-connector grok-sessions --slug grok-review-001
+```
+
+同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。現在は自動modeの本文のみを送れる。Grokのmode一覧は`grok-modes`で確認できる。
 
 CLIの`chat`はone-shot専用。`consult` jobはdurable台帳へ残るため、別processの`sessions`から回収できる。複数turnの会話sessionはMCP adapterを使う。
 
@@ -262,7 +274,7 @@ startup_timeout_sec = 20
 tool_timeout_sec = 240
 enabled = true
 required = false
-enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics"]
+enabled_tools = ["chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "consult", "sessions", "diagnostics", "grok_modes", "grok_chat", "grok_consult", "grok_sessions", "grok_diagnostics", "grok_close"]
 
 [mcp_servers.gpt_connector.env]
 GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
@@ -280,11 +292,9 @@ GPT_CONNECTOR_STATE_DIR = "/absolute/product-owned/state/gpt-connector"
 5. second opinionはcaller既知slugを付けて`consult`を呼ぶ。
 6. 画像生成はcaller既知slug、model、absolute `workspaceRoot`、relative `output`を付けて`chatgpt_image`を呼ぶ。
 7. timeout時は再送せず、同じslugを`sessions`へ渡す。
-8. 継続相談は`keepOpen=true`で会話を保持し、同じ`sessionId`と新しい`slug`で追加質問する。最後に`chatgpt_close`を呼ぶ。
+8. 継続相談は`keepOpen=true`で会話を保持し、同じ`sessionId`と新しい`slug`で追加質問する。最後に`chatgpt_close`を呼ぶ。Grokへ相談する場合は`grok_consult`を使い、状態確認は`grok_sessions`、終了は`grok_close`を使う。
 
-MCP tools（すべてOpenAI ChatGPT専用。`consult`／`sessions`／`diagnostics`はtool名が中立だが、
-Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない。server instructionsと
-各tool descriptionでもこの境界を宣言している）:
+MCP tools（`consult`／`sessions`／`diagnostics`はChatGPT用。Grokには`grok_`で始まるtoolを使う）:
 
 - `chatgpt_models`: 「最新」の順序付き`levels`、右端の`defaultLevel`と`defaultModel`、互換用model／effort一覧。
 - `chatgpt_chat`: 新規またはsession継続。既定`keepOpen=false`で応答後archive。
@@ -293,6 +303,12 @@ Claude・Gemini等へのsecond opinionやcaller環境の診断には使えない
 - `consult`: slug冪等化、会話の継続、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。`wait=false`は回答完了前に受付結果を返す。
 - `sessions`: exact slug 1件の状態／sessionId／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
+- `grok_modes`: Grokのlive mode一覧。送信は自動modeのみ。
+- `grok_chat`: Grokへの本文送信。
+- `grok_consult`: 本文相談をslugで冪等化し、親への完了通知と会話継続に対応する。
+- `grok_sessions`: Grokの既知slugの状態と回答を返す。
+- `grok_diagnostics`: Grokの接続、bridge、jobを診断する。
+- `grok_close`: Grok会話をsoft deleteして継続を終える。
 
 `diagnostics`は専用Chrome未接続時も`gpt-connector.diagnostics.v1`の`not_ready`結果を正常応答として返し、
 read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Chat、consult、画像生成など実操作の

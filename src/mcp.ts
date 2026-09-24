@@ -2,16 +2,18 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { createGptConnectorMcpServer, LazyConnectorHost } from "./mcp-server.js";
+import { createGptConnectorMcpServer, LazyConnectorHost, LazyGrokConnectorHost } from "./mcp-server.js";
 
+const endpoint = process.env.GPT_CONNECTOR_CDP_ENDPOINT ?? "http://127.0.0.1:9223";
 const host = new LazyConnectorHost(
-  process.env.GPT_CONNECTOR_CDP_ENDPOINT ?? "http://127.0.0.1:9223",
+  endpoint,
   process.env.GPT_CONNECTOR_STATE_DIR,
 );
-const server = createGptConnectorMcpServer(host);
+const grokHost = new LazyGrokConnectorHost(endpoint, process.env.GPT_CONNECTOR_STATE_DIR);
+const server = createGptConnectorMcpServer(host, undefined, grokHost);
 
 async function shutdown(): Promise<void> {
-  await host.shutdown();
+  await Promise.all([host.shutdown(), grokHost.shutdown()]);
 }
 
 process.once("SIGINT", () => {

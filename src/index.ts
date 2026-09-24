@@ -1,5 +1,6 @@
 export * from "./contract.js";
 export * from "./connector.js";
+export * from "./grok-connector.js";
 export * from "./cdp.js";
 export * from "./errors.js";
 export * from "./factory-diagnostics.js";

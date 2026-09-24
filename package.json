@@ -1,7 +1,7 @@
 {
   "name": "gpt-connector",
-  "version": "0.9.11",
-  "description": "UIに依存せず、ログイン済みChatGPT Web runtimeの通常Chatと画像生成をAIクライアントから呼び出すローカルconnector",
+  "version": "0.10.0",
+  "description": "ログイン済みChatGPTとGrokのWeb runtimeへAIクライアントから相談するローカルconnector",
   "license": "MIT",
   "author": {
     "name": "Quo / クオ at kitepon.dev",

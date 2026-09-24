@@ -80,8 +80,9 @@ function isCdpTarget(value: unknown): value is CdpTarget {
   );
 }
 
-export async function discoverChatGptTarget(
+export async function discoverProviderTarget(
   endpoint: string,
+  provider: "chatgpt" | "grok",
   fetchImplementation: typeof fetch = fetch,
 ): Promise<CdpTarget> {
   const base = validateCdpEndpoint(endpoint);
@@ -111,7 +112,7 @@ export async function discoverChatGptTarget(
   const matches = targets.filter((target) => {
     if (target.type !== "page") return false;
     try {
-      return new URL(target.url).origin === "https://chatgpt.com";
+      return new URL(target.url).origin === (provider === "chatgpt" ? "https://chatgpt.com" : "https://grok.com");
     } catch {
       return false;
     }
@@ -120,19 +121,26 @@ export async function discoverChatGptTarget(
   if (matches.length === 0) {
     throw new ConnectorError(
       "CDP_UNAVAILABLE",
-      "専用ChromeにChatGPT公式page targetがありません。",
+      `専用Chromeに${provider === "chatgpt" ? "ChatGPT" : "Grok"}公式page targetがありません。`,
     );
   }
 
   if (matches.length > 1) {
     throw new ConnectorError(
       "CDP_UNAVAILABLE",
-      "ChatGPT page targetが複数あります。専用Chromeでは1tabだけ開いてください。",
+      `${provider === "chatgpt" ? "ChatGPT" : "Grok"} page targetが複数あります。専用Chromeではproviderごとに1tabだけ開いてください。`,
       { count: matches.length },
     );
   }
 
   return matches[0]!;
+}
+
+export function discoverChatGptTarget(
+  endpoint: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<CdpTarget> {
+  return discoverProviderTarget(endpoint, "chatgpt", fetchImplementation);
 }
 
 export class CdpClient {

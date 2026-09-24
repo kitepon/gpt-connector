@@ -2,14 +2,19 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
+import { GrokConnector } from "./grok-connector.js";
+import { startBrowser } from "./browser-launcher.js";
 import { parentFromRequest } from "./codex-parent.js";
 import { cursorParentFromRequest } from "./cursor-parent.js";
 import type { DeliveryParent } from "./consult-job-store.js";
 import { defaultConsultStateDirectory } from "./platform/state.js";
+import { join } from "node:path";
 import {
   chatInputSchema,
   consultInputSchema,
   imageInputSchema,
+  grokChatInputSchema,
+  grokConsultInputSchema,
   sessionsInputSchema,
   type ChatInput,
   type CloseInput,
@@ -148,6 +153,78 @@ export class LazyConnectorHost {
   }
 }
 
+export class LazyGrokConnectorHost {
+  readonly #endpoint: string;
+  readonly #rootStateDirectory: string;
+  readonly #stateDirectory: string;
+  #connectorPromise: Promise<GrokConnector> | null = null;
+
+  constructor(endpoint = "http://127.0.0.1:9223", stateDirectory = defaultConsultStateDirectory()) {
+    this.#endpoint = endpoint;
+    this.#rootStateDirectory = stateDirectory;
+    this.#stateDirectory = join(stateDirectory, "grok");
+  }
+
+  get stateDirectory(): string { return this.#stateDirectory; }
+
+  #connect(): Promise<GrokConnector> {
+    return (async () => {
+      if (this.#endpoint === "http://127.0.0.1:9223") await startBrowser({ provider: "grok", stateDirectory: this.#rootStateDirectory });
+      return GrokConnector.connect({ endpoint: this.#endpoint, stateDirectory: this.#rootStateDirectory });
+    })();
+  }
+
+  async run<T>(action: (connector: GrokConnector) => Promise<T>): Promise<T> {
+    this.#connectorPromise ??= this.#connect().catch((error) => { this.#connectorPromise = null; throw error; });
+    let promise = this.#connectorPromise;
+    let connector = await promise;
+    if (connector.transportFailed) {
+      if (this.#connectorPromise === promise) {
+        const replacement = connector.shutdown().then(() => this.#connect()).catch((error) => {
+          if (this.#connectorPromise === replacement) this.#connectorPromise = null;
+          throw error;
+        });
+        this.#connectorPromise = replacement;
+      }
+      promise = this.#connectorPromise;
+      connector = await promise;
+    }
+    try { return await action(connector); }
+    catch (error) {
+      if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" && this.#connectorPromise === promise) {
+        connector.close();
+        this.#connectorPromise = null;
+      }
+      throw error;
+    }
+  }
+
+  async sessions(input: SessionsInput): Promise<ReturnType<GrokConnector["sessions"]>> {
+    if (this.#connectorPromise) return (await this.#connectorPromise).sessions(input);
+    const store = new ConsultJobStore({ stateDirectory: this.#stateDirectory, readOnly: true });
+    await store.initialize();
+    try { return store.get(sessionsInputSchema.parse(input).slug); }
+    finally { store.close(); }
+  }
+
+  async diagnostics(): Promise<Awaited<ReturnType<typeof GrokConnector.doctor>>> {
+    if (this.#connectorPromise) {
+      try { return await (await this.#connectorPromise).diagnostics(); }
+      catch (error) {
+        if (!(error instanceof ConnectorError) || error.code !== "CDP_UNAVAILABLE") throw error;
+        this.#connectorPromise = null;
+      }
+    }
+    return GrokConnector.doctor({ endpoint: this.#endpoint, stateDirectory: this.#rootStateDirectory });
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.#connectorPromise) return;
+    try { await (await this.#connectorPromise).shutdown(); }
+    finally { this.#connectorPromise = null; }
+  }
+}
+
 export const mcpToolNames = [
   "chatgpt_models",
   "chatgpt_chat",
@@ -156,6 +233,12 @@ export const mcpToolNames = [
   "consult",
   "sessions",
   "diagnostics",
+  "grok_modes",
+  "grok_chat",
+  "grok_consult",
+  "grok_sessions",
+  "grok_diagnostics",
+  "grok_close",
 ] as const;
 
 export const mcpServerVersion = packageVersion;
@@ -170,7 +253,7 @@ const chatgptContextWarning =
 // callerが最初に読む境界宣言。検索索引は否定文も一致させるため、他provider固有名を列挙せず
 // 本serverが実行できるChatGPTの肯定能力だけを書く。
 export const mcpServerInstructions =
-  "このserverはログイン済みOpenAI ChatGPT (consumer Web) 専用のconnectorである。" +
+  "このserverはログイン済みChatGPTとGrokのconsumer Web connectorである。" +
   chatgptContextWarning +
   "通常Chatは「最新」の5段階をlevelで選ぶ。指定がなければ最新スライダーの右端を使う。" +
   "段階名と順序はchatgpt_modelsのlevelsが正。内部model/effortの変換はconnectorが行う。" +
@@ -181,7 +264,8 @@ export const mcpServerInstructions =
   "他のクライアントではwait=trueで回答を待つか、sessionsで同じslugから取得する。完了後の追加質問は同じsessionId・新しいslug・keepOpen=trueで送る。" +
   "slugは1問い合わせの重複防止ID、sessionIdは複数問い合わせで共有する会話ID。最後はchatgpt_closeで会話を閉じる。" +
   "caller timeout後は再送せずsessionsで同じslugを確認する。最新の段階と互換model一覧はchatgpt_models、" +
-  "既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。";
+  "既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。" +
+  "Grokへ相談する場合はgrok_consult、状態確認はgrok_sessions、追加質問は同じsessionIdと新しいslug、終了はgrok_closeを使う。Grokは現在、本文のみ・自動modeに対応する。";
 
 export const mcpToolDescriptions = {
   chatgpt_models:
@@ -204,6 +288,12 @@ export const mcpToolDescriptions = {
     "本server自身をread-only診断し、会話やuploadを作らず接続・bridge・job/session件数だけを返す。",
   chatgpt_close:
     "本serverがChatGPT上に保持したsessionをserver archiveし、継続用sessionIdを破棄する。MCP再接続後も専用Chromeのpageに会話が残っていれば利用できる。deleteは行わない。",
+  grok_modes: "Grok公式Web runtimeのmode一覧を返す。送信は自動modeを使う。",
+  grok_chat: "Grok公式Web runtimeへ本文を送信する。keepOpen=trueならsessionIdで継続できる。",
+  grok_consult: "Grok公式Web runtimeへ本文で相談する。slugで冪等化し、CodexとCursorの親には完了時に自動配送する。添付ファイルには未対応。",
+  grok_sessions: "Grok相談の既知slugの状態と回答を返す。再送は行わない。",
+  grok_diagnostics: "Grokへの接続、bridge、job件数を診断する。会話は作らない。",
+  grok_close: "指定したGrok会話をsoft deleteして継続を終える。",
 } as const;
 
 /** Codexは従来どおり。Cursor clientのときだけsocket配送親を返す。 */
@@ -223,6 +313,7 @@ export function createGptConnectorMcpServer(
     clientName: string | undefined,
     metadata: unknown,
   ) => DeliveryParent | null = (name, meta) => resolveDeliveryParent(name, meta, host.stateDirectory),
+  grokHost: LazyGrokConnectorHost = new LazyGrokConnectorHost(),
 ): McpServer {
   const server = new McpServer(
     { name: "gpt-connector", version: mcpServerVersion },
@@ -336,6 +427,47 @@ export function createGptConnectorMcpServer(
     },
     async (input) => toolResult(async () => host.run((connector) => connector.closeSession(input))),
   );
+
+  server.registerTool("grok_modes", {
+    title: "Grokのmode一覧", description: mcpToolDescriptions.grok_modes,
+    inputSchema: z.object({}).strict(),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async () => toolResult(async () => grokHost.run((connector) => connector.modes())));
+
+  server.registerTool("grok_chat", {
+    title: "Grok Chatへ送信", description: mcpToolDescriptions.grok_chat,
+    inputSchema: grokChatInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }, async (input) => toolResult(async () => grokHost.run((connector) => connector.chat(input))));
+
+  server.registerTool("grok_consult", {
+    title: "Grokへ相談", description: mcpToolDescriptions.grok_consult,
+    inputSchema: grokConsultInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, async (input, extra) => toolResult(async () => {
+    const parent = input.dryRun ? null : resolveDeliveryParent(
+      server.server.getClientVersion()?.name, extra._meta, grokHost.stateDirectory,
+    );
+    return grokHost.run((connector) => connector.consult(input, parent ?? undefined));
+  }));
+
+  server.registerTool("grok_sessions", {
+    title: "Grok相談の状態を回収", description: mcpToolDescriptions.grok_sessions,
+    inputSchema: sessionsInputSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async (input) => toolResult(async () => grokHost.sessions(input)));
+
+  server.registerTool("grok_diagnostics", {
+    title: "Grok connectorの診断", description: mcpToolDescriptions.grok_diagnostics,
+    inputSchema: z.object({}).strict(),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, async () => toolResult(async () => grokHost.diagnostics()));
+
+  server.registerTool("grok_close", {
+    title: "Grok会話を削除して閉じる", description: mcpToolDescriptions.grok_close,
+    inputSchema: z.object({ sessionId: z.string().uuid() }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  }, async (input) => toolResult(async () => grokHost.run((connector) => connector.closeSession(input))));
 
   return server;
 }

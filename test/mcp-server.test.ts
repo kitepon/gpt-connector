@@ -27,6 +27,12 @@ test("MCP tool名を固定する", () => {
     "consult",
     "sessions",
     "diagnostics",
+    "grok_modes",
+    "grok_chat",
+    "grok_consult",
+    "grok_sessions",
+    "grok_diagnostics",
+    "grok_close",
   ]);
 });
 
@@ -58,6 +64,8 @@ test("MCPから親metadataを受け取り、モデル入力へ宛先パラメー
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   const tools = await client.listTools();
+  assert.equal(tools.tools.length, 13);
+  assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [...mcpToolNames].sort());
   const consult = tools.tools.find(tool => tool.name === "consult")!;
   assert.match(consult.description!, /10秒.*自動Steer.*監視ループは不要/u);
   assert.equal("parent" in consult.inputSchema.properties!, false);
@@ -72,11 +80,12 @@ test("MCP server versionをpackage公開versionと一致させる", () => {
   assert.equal(mcpServerVersion, packageVersion);
 });
 
-test("server instructionsは冒頭でChatGPT専用のprovider境界を宣言する", () => {
+test("server instructionsは冒頭でChatGPTとGrokのprovider境界を宣言する", () => {
   const head = mcpServerInstructions.slice(0, 80);
   assert.match(head, /ChatGPT/u);
-  assert.match(head, /専用/u);
+  assert.match(head, /Grok/u);
   assert.match(mcpServerInstructions, /chatgpt_models/u);
+  assert.match(mcpServerInstructions, /grok_consult/u);
 });
 
 test("tool discovery textへ他provider固有名を混入させない", () => {

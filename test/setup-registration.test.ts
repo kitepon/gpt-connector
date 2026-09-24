@@ -28,6 +28,21 @@ test("Codex: 工場登録へ不足契約だけを追加し、利用者env・モ�
   assert.deepEqual((fresh.mcp_servers as Record<string, Record<string, unknown>>).gpt_connector!.enabled_tools, setupTools);
 });
 
+test("Codex: 旧版の製品既定tool一覧だけGrok対応へ更新する", () => {
+  const old = setupTools.slice(0, 7);
+  const source = `[mcp_servers.gpt_connector]\ncommand = "gpt-connector-mcp"\nenabled_tools = ${JSON.stringify(old)} # 既定値\n`;
+  const updated = mergeRegistration(source, "codex", "/node", []);
+  assert.deepEqual((parse(updated.text).mcp_servers as Record<string, Record<string, unknown>>).gpt_connector!.enabled_tools, setupTools);
+  assert.match(updated.text, /# 既定値/u);
+  assert.equal(mergeRegistration(updated.text, "codex", "/node", []).changed, false);
+  const custom = source.replace(JSON.stringify(old), '["sessions"]');
+  assert.deepEqual((parse(mergeRegistration(custom, "codex", "/node", []).text).mcp_servers as Record<string, Record<string, unknown>>).gpt_connector!.enabled_tools, ["sessions"]);
+  const inline = `mcp_servers = { gpt_connector = { command = "gpt-connector-mcp", enabled_tools = ${JSON.stringify(old)} } } # 維持\n`;
+  const inlineUpdated = mergeRegistration(inline, "codex", "/node", []);
+  assert.deepEqual((parse(inlineUpdated.text).mcp_servers as Record<string, Record<string, unknown>>).gpt_connector!.enabled_tools, setupTools);
+  assert.match(inlineUpdated.text, /# 維持/u);
+});
+
 test("Grok: inline envと大きな整数を保持する", () => {
   const result = mergeRegistration('model = "chosen"\nserial = 9223372036854775807\n[mcp_servers.gpt_connector]\ncommand = "gpt-connector-mcp"\nenv = { PATH = "/usr/bin", SECRET = "fixture" }\n', "grok", "/node", ["/gpt-connector/dist/src/mcp.js"]);
   const data = parse(result.text, { integersAsBigInt: true });

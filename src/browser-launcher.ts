@@ -1,8 +1,9 @@
 import { chmod, lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { CdpClient, discoverChatGptTarget } from "./cdp.js";
+import { CdpClient, discoverProviderTarget } from "./cdp.js";
 import { GptConnector } from "./connector.js";
+import { GrokConnector } from "./grok-connector.js";
 import { ConnectorError } from "./errors.js";
 import { browserPlatform, type BrowserPlatform, type ListenerProcess } from "./platform/browser.js";
 
@@ -23,6 +24,8 @@ type ProcessRevealer = (pid: number, timeoutMs: number) => Promise<void>;
 type ProcessActivator = (pid: number, timeoutMs: number) => Promise<void>;
 type WindowVisibilityVerifier = (pid: number, expectedVisible: boolean, timeoutMs: number) => Promise<void>;
 interface BrowserOptions {
+  readonly provider?: "chatgpt" | "grok";
+  readonly stateDirectory?: string;
   readonly platform?: NodeJS.Platform;
   readonly home?: string;
   readonly fetch?: typeof globalThis.fetch;
@@ -51,22 +54,26 @@ interface BrowserOptions {
 
 const endpoint = "http://127.0.0.1:9223" as const;
 const chatGptUrl = "https://chatgpt.com/";
+const grokUrl = "https://grok.com/";
 const probeTimeoutMs = 500;
 const appProbeTimeoutMs = 3_000;
 const readyDeadlineMs = 30_000;
 const ownershipProbeGraceMs = 3_000;
 const windowVisibilityGraceMs = 5_000;
 const lockWaitMarginMs = 1_000;
-let inFlight: Promise<BrowserLaunchResult> | undefined;
+const inFlight = new Map<"chatgpt" | "grok", Promise<BrowserLaunchResult>>();
 
 export async function startBrowser(options: BrowserOptions = {}): Promise<BrowserLaunchResult> {
-  if (inFlight === undefined) {
-    inFlight = startBrowserOnce(options).finally(() => { inFlight = undefined; });
-  }
-  return inFlight;
+  const provider = options.provider ?? "chatgpt";
+  const existing = inFlight.get(provider);
+  if (existing) return existing;
+  const started = startBrowserOnce(options).finally(() => { inFlight.delete(provider); });
+  inFlight.set(provider, started);
+  return started;
 }
 
 export async function showBrowser(options: BrowserOptions = {}): Promise<BrowserShowResult> {
+  const provider = options.provider ?? "chatgpt";
   const adapter = browserPlatform(options.platform);
   const { inspectListenerProcesses, revealProcess, activateProcess, verifyWindowVisibility } = adapter;
   const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));
@@ -79,7 +86,7 @@ export async function showBrowser(options: BrowserOptions = {}): Promise<Browser
   const showTimeout = options.appProbeTimeoutMs ?? appProbeTimeoutMs;
   const ownershipTimeout = Math.max(timeout, options.ownershipProbeGraceMs ?? adapter.ownershipProbeTimeoutMs ?? ownershipProbeGraceMs);
   if (!await bounded(ownershipReady(), ownershipTimeout, "CDP endpoint所有確認がtimeoutしました")) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。");
-  await showOwnedWindow(inspect, options.windowShower ?? (() => showChatGptWindow(fetcher, showTimeout)), options.processRevealer ?? revealProcess, options.processActivator ?? activateProcess, options.windowVisibilityVerifier ?? verifyWindowVisibility, showTimeout, "専用Chromeを表示可能状態へ復帰できませんでした。", "CDP_UNAVAILABLE");
+  await showOwnedWindow(inspect, options.windowShower ?? (() => showProviderWindow(fetcher, showTimeout, provider)), options.processRevealer ?? revealProcess, options.processActivator ?? activateProcess, options.windowVisibilityVerifier ?? verifyWindowVisibility, showTimeout, "専用Chromeを表示可能状態へ復帰できませんでした。", "CDP_UNAVAILABLE");
   return { ok: true, status: "shown", endpoint };
 }
 
@@ -111,22 +118,23 @@ async function startBrowserOnce(options: BrowserOptions): Promise<BrowserLaunchR
 }
 
 async function startBrowserLocked(options: BrowserOptions, profile: string, adapter: BrowserPlatform): Promise<BrowserLaunchResult> {
+  const provider = options.provider ?? "chatgpt";
   const { chromeLaunchCommand, spawnDetached, hideProcess, revealProcess, activateProcess, verifyWindowVisibility } = adapter;
   const timeout = options.probeTimeoutMs ?? probeTimeoutMs;
-  const appTimeout = options.appProbeTimeoutMs ?? appProbeTimeoutMs;
-  const deadline = options.readyDeadlineMs ?? readyDeadlineMs;
+  const appTimeout = options.appProbeTimeoutMs ?? (provider === "grok" ? 15_000 : appProbeTimeoutMs);
+  const deadline = options.readyDeadlineMs ?? (provider === "grok" ? 60_000 : readyDeadlineMs);
   const ownershipGrace = options.ownershipProbeGraceMs ?? adapter.ownershipProbeTimeoutMs ?? ownershipProbeGraceMs;
   const visibilityGrace = options.windowVisibilityGraceMs ?? windowVisibilityGraceMs;
   const fetcher = timedFetch(options.fetch ?? globalThis.fetch, timeout);
   const endpointReady = options.endpointReady ?? (() => endpointIsReady(fetcher));
   const processInspector = ownedProcessInspector(profile, options.processInspector ?? adapter.inspectListenerProcesses, adapter);
   const ownershipReady = () => ownsEndpoint(processInspector);
-  const appReady = options.appReady ?? options.connectorProbe ?? (() => ready(fetcher, timeout, appTimeout));
-  const windowPreparer = options.windowPreparer ?? (() => prepareChatGptWindow(fetcher, appTimeout));
-  const coldTargetCreator = options.coldTargetCreator ?? (() => createBackgroundChatGptTarget(fetcher, appTimeout));
-  const coldWindowVerifier = options.coldWindowVerifier ?? ((targetId) => verifyCreatedChatGptWindow(fetcher, appTimeout, targetId));
-  const windowShower = options.windowShower ?? (() => showChatGptWindow(fetcher, appTimeout));
-  const existingTargetAbsent = options.existingTargetAbsent ?? (() => chatGptTargetAbsent(fetcher));
+  const appReady = options.appReady ?? options.connectorProbe ?? (() => ready(fetcher, timeout, appTimeout, provider, options.stateDirectory));
+  const windowPreparer = options.windowPreparer ?? (() => prepareProviderWindow(fetcher, appTimeout, provider));
+  const coldTargetCreator = options.coldTargetCreator ?? (() => createBackgroundProviderTarget(fetcher, appTimeout, provider));
+  const coldWindowVerifier = options.coldWindowVerifier ?? ((targetId) => verifyCreatedProviderWindow(fetcher, appTimeout, targetId, provider));
+  const windowShower = options.windowShower ?? (() => showProviderWindow(fetcher, appTimeout, provider));
+  const existingTargetAbsent = options.existingTargetAbsent ?? (() => providerTargetAbsent(fetcher, provider));
   const processHider = options.processHider ?? hideProcess;
   const processRevealer = options.processRevealer ?? revealProcess;
   const visibilityVerifier = options.windowVisibilityVerifier ?? verifyWindowVisibility;
@@ -203,8 +211,8 @@ interface WindowForTarget { readonly windowId?: unknown; }
 interface WindowBounds { readonly bounds?: { readonly windowState?: unknown; }; }
 interface BrowserVersion { readonly webSocketDebuggerUrl?: unknown; }
 interface CreatedTarget { readonly targetId?: unknown; }
-async function prepareChatGptWindow(fetcher: typeof globalThis.fetch, timeoutMs: number): Promise<"ready"> {
-  const target = await discoverChatGptTarget(endpoint, fetcher);
+async function prepareProviderWindow(fetcher: typeof globalThis.fetch, timeoutMs: number, provider: "chatgpt" | "grok"): Promise<"ready"> {
+  const target = await discoverProviderTarget(endpoint, provider, fetcher);
   const client = await CdpClient.connect(target.webSocketDebuggerUrl, timeoutMs);
   try {
     const window = await client.call<WindowForTarget>("Browser.getWindowForTarget", { targetId: target.id }, timeoutMs);
@@ -218,8 +226,8 @@ async function prepareChatGptWindow(fetcher: typeof globalThis.fetch, timeoutMs:
   }
 }
 
-async function showChatGptWindow(fetcher: typeof globalThis.fetch, timeoutMs: number): Promise<"normal"> {
-  const target = await discoverChatGptTarget(endpoint, fetcher);
+async function showProviderWindow(fetcher: typeof globalThis.fetch, timeoutMs: number, provider: "chatgpt" | "grok"): Promise<"normal"> {
+  const target = await discoverProviderTarget(endpoint, provider, fetcher);
   const client = await CdpClient.connect(target.webSocketDebuggerUrl, timeoutMs);
   try {
     const window = await client.call<WindowForTarget>("Browser.getWindowForTarget", { targetId: target.id }, timeoutMs);
@@ -232,7 +240,7 @@ async function showChatGptWindow(fetcher: typeof globalThis.fetch, timeoutMs: nu
   } finally { client.close(); }
 }
 
-async function createBackgroundChatGptTarget(fetcher: typeof globalThis.fetch, timeoutMs: number): Promise<string> {
+async function createBackgroundProviderTarget(fetcher: typeof globalThis.fetch, timeoutMs: number, provider: "chatgpt" | "grok"): Promise<string> {
   let response: Response;
   try {
     response = await fetcher(`${endpoint}/json/version`);
@@ -244,7 +252,7 @@ async function createBackgroundChatGptTarget(fetcher: typeof globalThis.fetch, t
   if (typeof version.webSocketDebuggerUrl !== "string") throw new Error("CDP browser WebSocket URLが不正です");
   const client = await CdpClient.connect(version.webSocketDebuggerUrl, timeoutMs);
   try {
-    const created = await client.call<CreatedTarget>("Target.createTarget", { url: chatGptUrl, newWindow: true, background: true, windowState: "minimized" }, timeoutMs);
+    const created = await client.call<CreatedTarget>("Target.createTarget", { url: provider === "chatgpt" ? chatGptUrl : grokUrl, newWindow: true, background: true, windowState: "minimized" }, timeoutMs);
     if (typeof created.targetId !== "string" || created.targetId.length === 0) throw new Error("CDP targetIdが不正です");
     return created.targetId;
   } finally {
@@ -252,8 +260,8 @@ async function createBackgroundChatGptTarget(fetcher: typeof globalThis.fetch, t
   }
 }
 
-async function verifyCreatedChatGptWindow(fetcher: typeof globalThis.fetch, timeoutMs: number, targetId: string): Promise<"ready"> {
-  const target = await discoverChatGptTarget(endpoint, fetcher);
+async function verifyCreatedProviderWindow(fetcher: typeof globalThis.fetch, timeoutMs: number, targetId: string, provider: "chatgpt" | "grok"): Promise<"ready"> {
+  const target = await discoverProviderTarget(endpoint, provider, fetcher);
   if (target.id !== targetId) throw new Error("作成したChatGPT targetと一致しません");
   const client = await CdpClient.connect(target.webSocketDebuggerUrl, timeoutMs);
   try {
@@ -311,13 +319,13 @@ async function bounded<T>(operation: Promise<T>, timeoutMs: number, message: str
 }
 
 async function endpointIsReady(fetcher: typeof globalThis.fetch): Promise<boolean> { try { return (await fetcher(`${endpoint}/json/version`)).ok; } catch { return false; } }
-async function chatGptTargetAbsent(fetcher: typeof globalThis.fetch): Promise<boolean> {
+async function providerTargetAbsent(fetcher: typeof globalThis.fetch, provider: "chatgpt" | "grok"): Promise<boolean> {
   const response = await fetcher(`${endpoint}/json/list`);
   if (!response.ok) throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧の取得に失敗しました。");
   const raw: unknown = await response.json();
   if (!Array.isArray(raw)) throw new ConnectorError("RUNTIME_DRIFT", "CDP target一覧の形式が不正です。");
-  const count = raw.filter((value) => typeof value === "object" && value !== null && (value as { type?: unknown }).type === "page" && (() => { try { return new URL(String((value as { url?: unknown }).url)).origin === "https://chatgpt.com"; } catch { return false; } })()).length;
-  if (count > 1) throw new ConnectorError("CDP_UNAVAILABLE", "ChatGPT page targetが複数あります。専用Chromeでは1tabだけ開いてください。");
+  const count = raw.filter((value) => typeof value === "object" && value !== null && (value as { type?: unknown }).type === "page" && (() => { try { return new URL(String((value as { url?: unknown }).url)).origin === (provider === "chatgpt" ? "https://chatgpt.com" : "https://grok.com"); } catch { return false; } })()).length;
+  if (count > 1) throw new ConnectorError("CDP_UNAVAILABLE", "同じproviderのpage targetが複数あります。専用Chromeでは1providerにつき1tabだけ開いてください。");
   return count === 0;
 }
 function ownedProcessInspector(profile: string, inspect: ProcessInspector, adapter: BrowserPlatform): ProcessInspector {
@@ -366,6 +374,21 @@ async function acquireBrowserLock(profile: string, waitDeadlineMs: number): Prom
 function isLiveProcess(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error: unknown) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
-async function ready(fetcher: typeof globalThis.fetch, cdpTimeoutMs: number, operationTimeoutMs: number): Promise<boolean> { let connector: GptConnector | undefined; try { connector = await GptConnector.connect({ endpoint, fetch: fetcher, cdpTimeoutMs, operationTimeoutMs, pollIntervalMs: 100, readOnlyJobs: true }); await connector.models(); return true; } catch (error) { if (error instanceof ConnectorError && (error.code === "AUTH_REQUIRED" || error.code === "RUNTIME_DRIFT")) throw error; return false; } finally { connector?.close(); } }
+async function ready(fetcher: typeof globalThis.fetch, cdpTimeoutMs: number, operationTimeoutMs: number, provider: "chatgpt" | "grok", stateDirectory?: string): Promise<boolean> {
+  let connector: GptConnector | GrokConnector | undefined;
+  try {
+    if (provider === "grok") {
+      connector = await GrokConnector.connect({ endpoint, fetch: fetcher, cdpTimeoutMs, operationTimeoutMs, pollIntervalMs: 100, stateDirectory, readOnlyJobs: true });
+      await connector.modes();
+    } else {
+      connector = await GptConnector.connect({ endpoint, fetch: fetcher, cdpTimeoutMs, operationTimeoutMs, pollIntervalMs: 100, readOnlyJobs: true, stateDirectory });
+      await connector.models();
+    }
+    return true;
+  } catch (error) {
+    if (error instanceof ConnectorError && (error.code === "AUTH_REQUIRED" || error.code === "RUNTIME_DRIFT")) throw error;
+    return false;
+  } finally { connector?.close(); }
+}
 async function spawnError(child: Spawned | Promise<void>): Promise<void> { if (child instanceof Promise) return child; await new Promise<void>((resolve, reject) => { child.once("error", reject); setTimeout(resolve, 0); }); }
 async function ensurePrivateProfile(profile: string): Promise<void> { try { const info = await lstat(profile); if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("browser profile pathが不正です"); } catch (error: unknown) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await mkdir(profile, { recursive: true, mode: 0o700 }); } await chmod(profile, 0o700); }
