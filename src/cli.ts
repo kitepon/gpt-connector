@@ -2,6 +2,7 @@
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
+import { connectGrokWithBrowser } from "./grok-connection.js";
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
 import { factoryDiagnostics } from "./factory-diagnostics.js";
@@ -231,8 +232,7 @@ async function main(): Promise<void> {
       if (diagnostics.overall !== "ready") process.exitCode = 1;
       return;
     }
-    if (endpoint === "http://127.0.0.1:9223") await startBrowser({ provider: "grok", stateDirectory });
-    const grok = await GrokConnector.connect({ endpoint, stateDirectory });
+    const grok = await connectGrokWithBrowser({ endpoint, stateDirectory });
     try {
       if (command === "grok-modes") writeJson(await grok.modes());
       else if (command === "grok-chat") {

@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.10.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.10.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -76,6 +76,7 @@ Mac、Windows、Linuxでは`startBrowser`／`showBrowser`が専用Chromeを準�
 ログイン状態は`~/.gpt-connector/browser-profile/`へ保存し、通常の起動・更新では再利用する。
 ログアウトやChatGPTの認証失効時だけ再ログインする。
 Grok初回利用時は`gpt-connector browser start --provider grok`で同じ専用ChromeにGrokのtabを準備する。Grok側のログインが必要なら表示した画面で手動ログインし、同じコマンドを再実行する。MCPのGrok toolはこの準備を自動で試みる。
+SSH転送されたCDP endpointで既にGrok tabへログイン済みなら、Grok toolは転送先から直接接続する。Grok tabの初回準備と手動ログインはChromeを所有する端末で行う。
 
 Codexを登録するMacとWindowsではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。

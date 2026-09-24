@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
-import { startBrowser } from "./browser-launcher.js";
+import { connectGrokWithBrowser } from "./grok-connection.js";
 import { parentFromRequest } from "./codex-parent.js";
 import { cursorParentFromRequest } from "./cursor-parent.js";
 import type { DeliveryParent } from "./consult-job-store.js";
@@ -168,10 +168,7 @@ export class LazyGrokConnectorHost {
   get stateDirectory(): string { return this.#stateDirectory; }
 
   #connect(): Promise<GrokConnector> {
-    return (async () => {
-      if (this.#endpoint === "http://127.0.0.1:9223") await startBrowser({ provider: "grok", stateDirectory: this.#rootStateDirectory });
-      return GrokConnector.connect({ endpoint: this.#endpoint, stateDirectory: this.#rootStateDirectory });
-    })();
+    return connectGrokWithBrowser({ endpoint: this.#endpoint, stateDirectory: this.#rootStateDirectory });
   }
 
   async run<T>(action: (connector: GrokConnector) => Promise<T>): Promise<T> {

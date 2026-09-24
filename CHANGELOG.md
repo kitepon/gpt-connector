@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.10.1 - 2026-09-24
+
+- SSH転送された9223番ポートにログイン済みGrok tabがある時、Grok toolとCLIがそのtargetへ直接接続するよう直した。転送先にChromeの所有権やX11がなくても相談できる。
+- Grok targetが無い、認証が必要、または初期化中の場合だけ、従来の専用Chrome準備を試みる。job台帳とMCP toolの形式は0.10.0から変更しない。旧版へ戻すと転送先のGrok相談は再び所有確認で止まる。
+
 ## 0.10.0 - 2026-09-24
 
 - Grok Chatの本文相談を同じMCPに追加した。専用ChromeのGrok tabで公式Web runtimeを使い、会話継続、同時送信、回答のサーバー照合、Codex／Cursor親への完了通知、soft deleteによる終了に対応する。Grokの送信は自動modeのみで、添付・画像生成は含まない。
