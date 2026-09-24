@@ -189,6 +189,7 @@ export class ConsultJobStore {
   #ownsTransactionLock = false;
   #ownsOwnerLease = false;
   #exclusiveTail: Promise<void> = Promise.resolve();
+  #readOnlyRecoveries = new Map<string, { source: string; job: StoredJob }>();
 
   constructor(options: ConsultJobStoreOptions = {}) {
     this.#stateDirectory = options.stateDirectory ?? defaultConsultStateDirectory();
@@ -522,7 +523,25 @@ export class ConsultJobStore {
   }
 
   #refreshJobsForRead(): void {
-    this.#jobs = this.#recoverNonTerminal(this.#readJobsSync()).jobs;
+    const persisted = this.#readJobsSync();
+    const recovered = this.#recoverNonTerminal(persisted).jobs;
+    if (this.#readOnly) {
+      for (const [slug, original] of persisted) {
+        const job = recovered.get(slug)!;
+        if (job === original) {
+          this.#readOnlyRecoveries.delete(slug);
+          continue;
+        }
+        const source = JSON.stringify(original);
+        const cached = this.#readOnlyRecoveries.get(slug);
+        if (cached?.source === source) recovered.set(slug, cached.job);
+        else this.#readOnlyRecoveries.set(slug, { source, job });
+      }
+      for (const slug of this.#readOnlyRecoveries.keys()) {
+        if (!persisted.has(slug)) this.#readOnlyRecoveries.delete(slug);
+      }
+    }
+    this.#jobs = recovered;
   }
 
   async #loadCurrent(): Promise<Map<string, StoredJob>> {
