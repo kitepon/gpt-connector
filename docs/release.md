@@ -52,6 +52,8 @@ npm Trusted Publisherはrepository `kitepon/gpt-connector`、workflow `.github/w
 4. npmに同versionが既に存在する再実行ではpublishだけをskipし、versionを上書きしない。
 5. tag CIとnpm registryを確認した後、同じtagへGitHub Releaseを公開する。
 
+publish jobの成功直後はnpmがpackageを処理中で、registry照会やinstallが一時的に`E404`／`ETARGET`になることがある。CIのpublish結果とregistryの現行値を分けて確認し、反映を待ってから導入する。端末のnpm cacheだけが古い場合は、公式registryを別端末からも照会して切り分ける。
+
 ```bash
 release_version=$(node -p "require('./package.json').version")
 release_commit=$(git rev-parse HEAD)
@@ -87,6 +89,7 @@ Codexのhook・旧起動設定を変更した場合は、完全再起動後の�
 さらにread-only MCP initialize／tools listがstderrを汚さず、13 toolsとprovider別の
 discovery契約を維持することを確認する。Chrome runtimeへ変更があるreleaseだけ、専用profileで
 `browser start`、`models`、hidden中の最小Chat、必要時の`browser show`を実行する。Grok runtimeへ変更があるreleaseでは`browser start --provider grok`、`grok-modes`、最小の`grok-consult`と`grok-close`も確認する。
+Windowsのbrowser表示制御を変更したreleaseでは、対話画面にログイン中の同じユーザーからSSHで`browser start --provider grok`と`browser show --provider grok`を実行し、結果と一時taskの後片付けを確認する。Grokのログイン後は`grok-doctor`が`ready`であることと、選んだmodeの最小Chatが成功することも確認する。
 
 ## 巻き戻し
 

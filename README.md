@@ -77,6 +77,7 @@ Mac、Windows、Linuxでは`startBrowser`／`showBrowser`が専用Chromeを準�
 ログアウトやChatGPTの認証失効時だけ再ログインする。
 Grok初回利用時は`gpt-connector browser start --provider grok`で同じ専用ChromeにGrokのtabを準備する。Grok側のログインが必要なら表示した画面で手動ログインし、同じコマンドを再実行する。MCPのGrok toolはこの準備を自動で試みる。
 SSH転送されたCDP endpointで既にGrok tabへログイン済みなら、Grok toolは転送先から直接接続する。Grok tabの初回準備と手動ログインはChromeを所有する端末で行う。
+WindowsでSSHから同じ端末の専用Chromeを操作する場合、ログイン中の画面とSSHが別sessionでも、既存Chromeのwindow操作は製品が画面側のsessionで実行する。画面上のGrokログインは本人が行い、`grok-doctor`が`ready`になってから送信する。
 
 Codexを登録するMacとWindowsではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。
@@ -94,7 +95,8 @@ gpt-connector setup --check
 | npm導入・4AIへのMCP登録 | 対応 | 対応 | 対応 |
 | MCP initialize・tools list・診断応答 | 対応 | 対応 | 対応 |
 | `sessions`による既存job読取り・state診断 | 対応 | 対応 | 対応 |
-| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
+| 専用Chrome起動・ChatGPTのlive model・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
+| Grok Chatのmode取得・本文相談・会話継続 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 | Cursor親への受け口押し込み | 対応 | 対応 | 対応 |
 
@@ -122,7 +124,7 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必�
 
 Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない専用Chromeを起動する。Codex等の終了にChromeを巻き込まない。
 9223の所有PID・実行file・ネイティブ解析した引数を照合し、
-そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。所有確認と表示状態の読戻しが成立してから成功を返す。
+そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。呼出元とChromeが別sessionなら、ログイン中の同じユーザーの対話sessionで一時taskを実行し、結果を呼出元へ返す。taskと一時記録は終了時に削除する。所有確認と表示状態の読戻しが成立してから成功を返す。
 
 Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
 呼出元の終了後もChromeは残る。`--ozone-platform=x11`で専用ChromeのwindowをX11に固定する。
@@ -161,13 +163,17 @@ gpt-connector chat \
 Grok Chatの本文相談:
 
 ```bash
+gpt-connector grok-doctor
+gpt-connector grok-modes
 gpt-connector grok-consult --prompt '設計案を検討してください' --slug grok-review-001 --mode expert --keep-open
 gpt-connector grok-sessions --slug grok-review-001
 ```
 
-同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。`--mode`は`auto`・`fast`・`expert`・`heavy`から選び、省略時は`auto`。`build`はGrok Chatの送信対象外。Grokのmode一覧と現在の選択は`grok-modes`で確認できる。回答の`requestedMode`は送信したmode、`reportedModel`と`resolvedEffort`はGrokが回答に記録したモデルIDとエフォートを示す。Webの回答記録から具体的なモデル名を確認できないため、`resolvedModel`は`null`を返す。
+同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。
 
-CLIの`chat`はone-shot専用。`consult` jobはdurable台帳へ残るため、別processの`sessions`から回収できる。複数turnの会話sessionはMCP adapterを使う。
+`--mode`は`auto`・`fast`・`expert`・`heavy`から選び、省略時は`auto`。`build`はGrok Chatの送信対象外。Grokのmode一覧と現在の選択は`grok-modes`で確認できる。回答の`requestedMode`は送信したmode、`reportedModel`と`resolvedEffort`はGrokが回答に記録したモデルIDとエフォートを示す。Webの回答記録から自動modeの内側で使われた具体的なモデル名を確認できないため、`resolvedModel`は`null`を返す。
+
+CLIの`chat`／`grok-chat`はone-shot専用。`consult`／`grok-consult`のjobはdurable台帳へ残り、別processの`sessions`／`grok-sessions`から回収できる。複数turnはCLI・MCPともに`keepOpen`と`sessionId`で継続する。
 
 ChatGPT通常枠で画像を生成してworkspaceへ保存する。この経路はOpenAI APIを呼ばず、
 `OPENAI_API_KEY`も使わない。利用可否と生成枠は、専用ChromeへログインしたChatGPT accountのplanに従う。
@@ -396,24 +402,24 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - server conversation IDやclient thread IDを含まない。
 - `keepOpen=true`の会話は専用Chromeのpage bridgeが保持する。MCP切断・再接続後も同じIDで継続・closeできる。
 - page再読込、Chrome終了、bridge更新でIDは無効になる。`SESSION_NOT_FOUND`を返し、新規会話への自動置換は行わない。
-- `consult`は`keepOpen=true`で受付時からsnapshot直下に`sessionId`を保存する。成功結果の`result.sessionId`も同じ値。
+- `consult`／`grok_consult`は`keepOpen=true`で受付時からsnapshot直下に`sessionId`を保存する。成功結果の`result.sessionId`も同じ値。
 - 次の質問は前の質問の成功後に送る。生成失敗時も受付IDは記録に残るが、初回生成の失敗では会話が破棄される。
 - 同一sessionへの並行turnは`SESSION_BUSY`。
 - 異なるAIクライアントのMCPプロセスから、別々のsessionへ同時に相談できる。
-- one-shotと`chatgpt_close`はserverの`is_archived=true`をread-backしてから成功を返す。
-- 回答生成後のarchive失敗は`ARCHIVE_FAILED`で返す。HTTPエラーの場合はstatusをメッセージへ含める。認証失敗は`AUTH_REQUIRED`を維持する。
-- delete機能はない。
+- ChatGPTのone-shotと`chatgpt_close`はserverの`is_archived=true`をread-backしてから成功を返す。ChatGPTのdelete機能はない。
+- ChatGPTの回答生成後のarchive失敗は`ARCHIVE_FAILED`で返す。HTTPエラーの場合はstatusをメッセージへ含める。認証失敗は`AUTH_REQUIRED`を維持する。
+- Grokのone-shotはtemporary chatとして送る。保持した会話は`grok_close`でsoft deleteする。
 
-`consult`／`chatgpt_image` jobは別契約:
+`consult`／`chatgpt_image`／`grok_consult` jobは別契約:
 
 - callerが`^[a-z0-9][a-z0-9._-]{2,63}$`のslugを事前指定する。
-- 同slug／同fingerprintは既存snapshotを返し、再upload／再送しない。
+- 同provider内の同slug／同fingerprintは既存snapshotを返し、再upload／再送しない。
 - 同slugへ異なるinputは`JOB_CONFLICT`。
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
 - jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。異なるMCPプロセスの更新は短いtransaction lockで順序付ける。
 - 実行元が終了した非terminal jobだけを`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。他の実行元のjobは継続する。
-- 台帳はversion 6。version 1〜5を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
-- Codex相談は配送状態も保存する。宛先の親ID・socketは台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
+- ChatGPTとGrokは別のjob台帳を使う。既定のstate rootは`$XDG_STATE_HOME/gpt-connector/`（未設定時は`~/.local/state/gpt-connector/`）で、Grokの台帳はその`grok/`配下に置く。両方の台帳はversion 7で、version 1〜6を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
+- Codex／Cursor親への相談は配送状態も保存する。宛先情報は台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
 
 ## failure codes
 
@@ -461,13 +467,13 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 ## architecture
 
 ```text
-AI client ──stdio MCP──> resolver／job store ──> GptConnector core ──raw CDP──> ChatGPT page main world
-                            │                                      │
-                            └─ slug status                         ├─ official upload client
-                                                                   ├─ builder／sender
-                                                                   ├─ Library／server turn read-back
-                                                                   └─ verified image chunk download
+AI client ──stdio MCP──> provider別connector ──CDP──> 専用Chrome
+                            │                         ├─ ChatGPT page: Chat・添付・画像生成
+                            │                         └─ Grok page: 本文Chat・mode選択
+                            └─ provider別job台帳: slug・状態・回答・親への配送
 ```
+
+異なるクライアントのjobは短いtransaction lockで台帳更新を順序付け、相談の実行中は各processが自分のjobを所有する。ChatGPTの添付は公式upload clientで送信し、画像はLibraryと回答の相関を確認して回収する。Grokは回答のサーバー読戻しで本文・mode・記録されたmodel／effortを照合する。
 
 runtime roleは上限付きasset import graph、function source signature、object method shape、read-only catalog probeで一意検出する。候補が0件または複数なら実行しない。DOM selector、file input、React fiber、座標操作は本番経路に含まない。
 

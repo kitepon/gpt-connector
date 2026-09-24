@@ -1,5 +1,7 @@
 # 製品所有の導入入口
 
+この文書は2026-09-10の0.5.2公開工程を記録する。現在の対応範囲と操作は[README](../README.md)と[セットアップ契約](ai-installer-setup-contract.md)を参照。
+
 ## 目的と範囲
 
 一回の製品入口でnpm導入、ブラウザ準備、診断、Claude・Codex・Grok・Cursor登録を完結する。変更は本repoと製品の導入先だけ。dotagentsの既存配線は読取り専用とする。Macのlive機能と全OSのMCP・state読取りを区別し、既存env・認証・モデル・他MCP・利用者の制限設定を保つ。

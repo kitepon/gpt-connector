@@ -1,5 +1,7 @@
 # setup導入の検証状況
 
+この文書は2026-09-10の0.5.2実機受入記録。現在の対応範囲と操作は[README](../README.md)と[セットアップ契約](ai-installer-setup-contract.md)を参照。
+
 2026-09-10時点。**0.5.2の公開とMac・Linux・Windowsの実機受入を完了した。**
 Macはこの端末のローカルAiterm永続PTY、Linux・WindowsはSSH先のAiterm永続PTYで確認した。
 

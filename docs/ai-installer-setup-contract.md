@@ -90,7 +90,8 @@ GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 | stdio initialize、公開版照合、13 tools list | 対応 | 対応 | 対応 |
 | `diagnostics`の診断応答、既存state読取り | 対応 | 対応 | 対応 |
 | `sessions`の既存job読取り | 対応 | 対応 | 対応 |
-| browser起動・表示、models、Chat、画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
+| 専用Chrome起動・表示、ChatGPTのmodels・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
+| Grok Chatのmode取得・本文相談・会話継続 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 
 setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと公開tool集合を確認する。
@@ -121,10 +122,9 @@ setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しな�
 認証待ちでは既存`showBrowser`、または`startBrowser`自身の認証復帰処理で専用Chromeを表示してから停止する。
 人がログインした後、同じsetupを再実行する。
 
-`browser start`はcold startで窓なしChromeのCDP browser endpointから指定providerのbackground targetを作り、
-正規PIDをAppKit `hidden`へ移してからapp readyを待つ。成功条件はhiddenかつWindowServer layer 0の表示window 0件。
-`browser show`は正規PIDをunhide／activateし、unhiddenかつ表示window 1件以上を確認する。
-Windowsは同じPIDのChrome windowをWin32 APIで非表示／再表示し、所有と表示状態を読んでから成功にする。
+`browser start`はcold startで窓なしChromeのCDP browser endpointから指定providerのbackground targetを作る。
+macOSでは正規PIDをAppKit `hidden`へ移し、WindowServer layer 0の表示window 0件を確認する。`browser show`は同じPIDをunhide／activateし、表示window 1件以上を確認する。
+Windowsは同じPIDのChrome windowをWin32 APIで非表示／再表示し、所有と表示状態を読んでから成功にする。SSHの呼出元とChromeが別sessionなら、ログイン中の同じユーザーの対話sessionで一時taskを実行し、結果をSSH側へ返す。taskと一時記録は終了時に削除する。
 Linuxは公式Chromeを新しいsessionで起動し、`127.0.0.1:9223`の所有processと専用profileを`/proc`で照合する。
 表示の正本は、そのPID（と子孫）のX11 window（class `Google-chrome`）のmap state。
 接続先DISPLAYはChrome processの環境変数、呼出元の`DISPLAY`、ローカル`/tmp/.X11-unix`を順に選ぶ。
@@ -146,6 +146,6 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の最小Chat、
 ## 境界と最終報告
 
 通常Chrome、Oracle、他製品のprofileや認証を再利用しない。password、cookie、tokenを要求・取得・表示しない。
-本serverが提供するmodelはOpenAI ChatGPTだけ。Claude・Codex・Grok・Cursorは呼出し元AIであり、提供modelのprovider集合を増やすものではない。
+本serverの相談先はChatGPTとGrok。Claude・Codex・Grok・CursorはMCPの呼出し元AI名であり、呼出し元の名前から相談先は決まらない。ChatGPTには`consult`、Grokには`grok_consult`を使う。GrokのChat modeは`auto`・`fast`・`expert`・`heavy`から選び、省略時は`auto`。Grokの添付・画像生成は提供しない。
 最終報告には公開version、正規コマンド、OS/AI/機能別の実測・未実施、設定fileとbackup、
 未完了なら失敗段階・reason・次に必要な操作を記す。工場が所有する他MCP、AI本体、host管理を製品へ取り込まない。

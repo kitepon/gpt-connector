@@ -2,7 +2,7 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
-- [setup/windows-ssh-browser-20260924.md](setup/windows-ssh-browser-20260924.md) — SSHのsession 0から対話session 1の専用Chrome windowを操作できない原因と対話taskでの実機修理（2026-09-24）。
+- [setup/windows-ssh-browser-20260924.md](setup/windows-ssh-browser-20260924.md) — SSHのsession 0から対話session 1の専用Chrome windowを操作できない原因、対話taskでの修理、公開版0.12.1のGrok実機確認（2026-09-24）。
 - [setup/raw/windows-session-task-20260924.md](setup/raw/windows-session-task-20260924.md) — Microsoft公式のwindow stationと`Interactive` scheduled task資料（2026-09-24）。
 
 - [chatgpt-app/windows-browser-archive-causes-20260919.md](chatgpt-app/windows-browser-archive-causes-20260919.md) — Codex終了jobを継承するChrome起動と、archiveのHTTP 500を回答失敗へ誤分類する欠陥の再現・修理（2026-09-19）
@@ -48,4 +48,4 @@
 - [chatgpt-app/raw/codex-app-server-20260713.md](chatgpt-app/raw/codex-app-server-20260713.md) — OpenAI 公式 Codex App Server 全文（MarkItDown、2026-07-13取得）
 - [chatgpt-app/raw/chatgpt-desktop-whats-new-20260713.md](chatgpt-app/raw/chatgpt-desktop-whats-new-20260713.md) — Codex app の ChatGPT desktop app 統合と Chat/Work/Codex の並存（OpenAI公式、2026-07-13取得）
 - [chatgpt-app/raw/chatgpt-work-20260713.md](chatgpt-app/raw/chatgpt-work-20260713.md) — Chat と Work の役割境界、desktop Work と Codex の関係（OpenAI公式、2026-07-13取得）
-- [Grok Webと実測した接続境界](grok/observations.md) — 公式Webの提供範囲、本文相談・継続・同時処理、Chat modeの選択、回答に記録されたmodelとeffortの範囲（2026-09-24）
+- [Grok Webと実測した接続境界](grok/observations.md) — 公式Webの提供範囲、本文相談・継続・同時処理、Chat modeの選択、回答に記録されたmodelとeffort、Windows公開版0.12.1のauto／expert実測（2026-09-24）

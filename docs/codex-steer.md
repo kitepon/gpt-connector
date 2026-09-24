@@ -1,6 +1,6 @@
 # Codexへの自動Steer
 
-Codex Desktopから`consult`を呼ぶと、受付後もMCPが相談を監視し、完了時に同じ親タスクへ回答を送る。
+Codex Desktopから`consult`または`grok_consult`を呼ぶと、受付後もMCPが相談を監視し、完了時に同じ親タスクへ回答を送る。
 実行中は公式の同期hookから同じターンへ取り込み、終了後は公式キューから同じタスクを再開する。利用AIの監視ループは不要。
 
 ## 単独導入
@@ -51,10 +51,10 @@ gpt-connector setup --codex-steer disable
 宛先はMCP client名`codex-mcp-client`、Codexが付ける要求metadataの`threadId`、MCPの`CODEX_HOME`から決める。
 利用AIへ親IDや接続先の指定を要求しない。独立した公式App Serverを通常stdioで起動し、同じCodex環境の公式キューへ接続する。
 相談送信前に親タスク、queue API、自分のhookの有効化・承認、導入後の起動を確認する。native sub-agentは対象外。
-配送できない場合は`PARENT_DELIVERY_UNAVAILABLE`で止め、ChatGPTへ相談を送らない。
+配送できない場合は`PARENT_DELIVERY_UNAVAILABLE`で止め、選択した相談先へ送らない。
 
-`consult`の`wait`指定にかかわらず、受付時にslug・状態と、`keepOpen=true`なら会話用の`sessionId`を返す。
-MCPは10秒ごとにpage bridgeの状態を読み、公式senderの完了と`finished_successfully`・`endTurn=true`で判定する。
+`consult`／`grok_consult`の`wait`指定にかかわらず、受付時にslug・状態と、`keepOpen=true`なら会話用の`sessionId`を返す。
+MCPは10秒ごとに選択したproviderのpage bridgeの状態を読み、回答のサーバー読戻しと`finished_successfully`・`endTurn=true`で完了を判定する。
 通常Chatの回答待ちに時間制限は設けず、生成の成功・明示的な失敗・通信エラーまで待つ。
 接続やuploadなど個別操作の期限は維持する。結果を台帳へ保存してから親へ通知する。
 
@@ -63,7 +63,7 @@ MCPは10秒ごとにpage bridgeの状態を読み、公式senderの完了と`fin
 `Stop`は`decision:block`と`reason`で本文を出力する。利用者や他製品の入力は取り出さない。
 hook通過後やターン終了後に届いた回答は、通常の公式キューが処理する。
 
-snapshotの`delivery`は`id`、`mode=steer`、`state`、`error`を持ち、ChatGPTの成否とは別に記録する。
+snapshotの`delivery`は`id`、`mode=steer`、`state`、`error`を持ち、相談先の回答成否とは別に記録する。
 
 | 配送状態 | 意味 |
 | --- | --- |
@@ -77,11 +77,11 @@ hookによる取り出しが中断した場合も`sessions`は`unknown`を返す
 再接続では未送信の完了結果だけを配送する。送信中だった記録は`unknown`とし、MCP終了時に相談が未完了なら
 `JOB_RECOVERY_UNAVAILABLE`とする。MCP停止中の監視は行わない。保存済み回答は`sessions`で回収する。
 
-台帳version 4はversion 1・2・3を読める。読取りでは変更せず、初回書込み前に元fileを`.v<元version>-backup`へ保存する。
+ChatGPTとGrokは別のjob台帳を使う。現行の台帳version 7はversion 1〜6を読める。読取りでは変更せず、初回書込み前に元fileを`.v<元version>-backup`へ保存する。
 旧版で受付済みのsocket宛先は旧配送契約のまま保持し、新規相談は公式キューを使う。新方式から旧中継への自動切替は行わない。
 旧版へ戻す場合は[CHANGELOG](../CHANGELOG.md)の巻き戻し条件に従う。
 
-自動配送の対象はCodexの要求metadataを持つ`consult`。他クライアント、互換`chatgpt_chat`、画像生成は従来の応答方式を使う。
+Codex公式キューへの自動配送は、Codexの要求metadataを持つ`consult`と`grok_consult`が対象。Cursor親は`receiveCommand`とhookで受け取り、その他のクライアント、`chatgpt_chat`／`grok_chat`、画像生成は通常の応答方式を使う。
 
 ## 検証と由来
 
