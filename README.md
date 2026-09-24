@@ -373,6 +373,7 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - `consult`は`keepOpen=true`で受付時からsnapshot直下に`sessionId`を保存する。成功結果の`result.sessionId`も同じ値。
 - 次の質問は前の質問の成功後に送る。生成失敗時も受付IDは記録に残るが、初回生成の失敗では会話が破棄される。
 - 同一sessionへの並行turnは`SESSION_BUSY`。
+- 異なるAIクライアントのMCPプロセスから、別々のsessionへ同時に相談できる。
 - one-shotと`chatgpt_close`はserverの`is_archived=true`をread-backしてから成功を返す。
 - 回答生成後のarchive失敗は`ARCHIVE_FAILED`で返す。HTTPエラーの場合はstatusをメッセージへ含める。認証失敗は`AUTH_REQUIRED`を維持する。
 - delete機能はない。
@@ -383,9 +384,9 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - 同slug／同fingerprintは既存snapshotを返し、再upload／再送しない。
 - 同slugへ異なるinputは`JOB_CONFLICT`。
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
-- terminal jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。
-- 再起動前の非terminal jobは完了有無を断定せず`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。
-- 台帳はversion 3。version 1・2も読め、初回書込み前に`consult-jobs.json.v1-backup`または`.v2-backup`へ元の台帳を保存する。旧版へ戻す条件は[CHANGELOG](CHANGELOG.md)の0.8.0を参照。
+- jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。異なるMCPプロセスの更新は短いtransaction lockで順序付ける。
+- 実行元が終了した非terminal jobだけを`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。他の実行元のjobは継続する。
+- 台帳はversion 5。version 1〜4を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
 - Codex相談は配送状態も保存する。宛先の親ID・socketは台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
 
 ## failure codes

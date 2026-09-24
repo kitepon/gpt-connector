@@ -983,13 +983,26 @@ export const bridgeBuildId = createHash("sha256")
   .digest("hex")
   .slice(0, 16);
 
+export function createSingleFlightBootstrapExpression(key: string, callExpression: string): string {
+  return `(() => {
+    const key = ${JSON.stringify(key)};
+    if (globalThis[key]) return globalThis[key];
+    const pending = ${callExpression};
+    globalThis[key] = pending;
+    const clear = () => { if (globalThis[key] === pending) delete globalThis[key]; };
+    void pending.then(clear, clear);
+    return pending;
+  })()`;
+}
+
 export function createBridgeBootstrapExpression(
   coreUrl: string,
   conversationUrl: string,
   uploadUrl: string,
   sharedUrl: string,
 ): string {
-  return `(${bridgeBootstrapSource})(${JSON.stringify(coreUrl)}, ${JSON.stringify(conversationUrl)}, ${JSON.stringify(uploadUrl)}, ${JSON.stringify(sharedUrl)}, ${JSON.stringify(bridgeBuildId)})`;
+  const call = `(${bridgeBootstrapSource})(${JSON.stringify(coreUrl)}, ${JSON.stringify(conversationUrl)}, ${JSON.stringify(uploadUrl)}, ${JSON.stringify(sharedUrl)}, ${JSON.stringify(bridgeBuildId)})`;
+  return createSingleFlightBootstrapExpression("__gptConnectorBootstrapV1", call);
 }
 
 export function createBridgeCallExpression(

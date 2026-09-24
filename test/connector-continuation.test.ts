@@ -22,6 +22,7 @@ async function fixture(t: TestContext) {
   const sent: Array<{ sessionId: string; keepOpen: boolean; model: string; effort?: string }> = [];
   const operations = new Map<string, { state: string; result?: unknown; error?: unknown }>();
   const polls: number[] = [];
+  const pending = new Map<string, { finish: () => void; fail: (code?: string) => void }>();
   let finish = () => {};
   let fail: (code?: string) => void = () => {};
   const bridge = {
@@ -56,6 +57,7 @@ async function fixture(t: TestContext) {
         conversation.busy = false;
         operations.set(operationId, { state: "failed", error: { code, message: "回答生成が失敗しました。" } });
       };
+      pending.set(sessionId, { finish, fail });
       return { operationId, sessionId };
     },
     startClose: ({ sessionId }: { sessionId: string }) => {
@@ -90,9 +92,33 @@ async function fixture(t: TestContext) {
     connectors.push(connector);
     return connector;
   };
-  t.after(async () => { finish(); for (const c of connectors) await c.shutdown(); await rm(stateDirectory, { recursive: true, force: true }); });
-  return { connect, conversations, sent, polls, finish: () => finish(), fail: (code?: string) => fail(code), stateDirectory };
+  t.after(async () => { for (const request of pending.values()) request.finish(); for (const c of connectors) await c.shutdown(); await rm(stateDirectory, { recursive: true, force: true }); });
+  return { connect, conversations, sent, polls, finish: (sessionId?: string) => sessionId ? pending.get(sessionId)?.finish() : finish(), fail: (code?: string) => fail(code), stateDirectory };
 }
+
+test("二つのMCP接続が別々の相談を同時に受け付けて完了する", async t => {
+  const f = await fixture(t);
+  const first = await f.connect();
+  const second = await f.connect();
+  const [a, b] = await Promise.all([
+    first.consult({ prompt: "最初の相談", slug: "parallel-first", keepOpen: true, wait: false }),
+    second.consult({ prompt: "次の相談", slug: "parallel-second", keepOpen: true, wait: false }),
+  ]) as [ConsultSnapshot, ConsultSnapshot];
+  assert.equal(a.state, "running");
+  assert.equal(b.state, "running");
+  assert.notEqual(a.sessionId, b.sessionId);
+  assert.equal(f.sent.length, 2);
+  f.finish(a.sessionId);
+  f.finish(b.sessionId);
+  const [doneA, doneB] = await Promise.all([
+    first.consult({ prompt: "最初の相談", slug: "parallel-first", keepOpen: true, wait: true }),
+    second.consult({ prompt: "次の相談", slug: "parallel-second", keepOpen: true, wait: true }),
+  ]) as [ConsultSnapshot, ConsultSnapshot];
+  assert.equal(doneA.state, "succeeded");
+  assert.equal(doneB.state, "succeeded");
+  assert.equal(first.sessions({ slug: "parallel-second" }).state, "succeeded");
+  assert.equal(second.sessions({ slug: "parallel-first" }).state, "succeeded");
+});
 
 for (const timing of ["受付前", "受付後"] as const) test(`${timing}の非同期相談がCDP失敗した後は、結果を保持して次の要求だけ再接続する`, async t => {
   const f = await fixture(t);

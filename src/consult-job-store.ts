@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
@@ -92,12 +93,19 @@ const snapshotSchema = z.object({
   error: failureSchema.nullable(),
 }).strict();
 
+const ownerSchema = z.object({
+  pid: z.number().int().positive(),
+  instanceId: z.string().uuid(),
+}).strict();
+
 const persistedSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
     parent: deliveryParentSchema.optional(),
     snapshot: snapshotSchema,
+    owner: ownerSchema.optional(),
+    deliveryOwner: ownerSchema.optional(),
   }).strict()),
 }).strict();
 
@@ -111,6 +119,8 @@ interface StoredJob {
   readonly fingerprint: string;
   readonly parent?: DeliveryParent;
   readonly snapshot: ConsultSnapshot;
+  readonly owner?: z.output<typeof ownerSchema>;
+  readonly deliveryOwner?: z.output<typeof ownerSchema>;
 }
 
 function visibleSnapshot(job: StoredJob): ConsultSnapshot {
@@ -167,20 +177,25 @@ export { defaultConsultStateDirectory } from "./platform/state.js";
 export class ConsultJobStore {
   readonly #stateDirectory: string;
   readonly #statePath: string;
-  readonly #lockPath: string;
+  readonly #legacyLockPath: string;
+  readonly #transactionLockPath: string;
+  readonly #ownerPath: string;
   readonly #readOnly: boolean;
   readonly #instanceId = randomUUID();
+  readonly #owner = { pid: process.pid, instanceId: this.#instanceId };
   #jobs = new Map<string, StoredJob>();
   #initialized = false;
   #closed = false;
-  #ownsWriterLock = false;
-  #readOnlyRecovered = false;
+  #ownsTransactionLock = false;
+  #ownsOwnerLease = false;
   #exclusiveTail: Promise<void> = Promise.resolve();
 
   constructor(options: ConsultJobStoreOptions = {}) {
     this.#stateDirectory = options.stateDirectory ?? defaultConsultStateDirectory();
     this.#statePath = join(this.#stateDirectory, "consult-jobs.json");
-    this.#lockPath = join(this.#stateDirectory, "consult-jobs.lock");
+    this.#legacyLockPath = join(this.#stateDirectory, "consult-jobs.lock");
+    this.#transactionLockPath = join(this.#stateDirectory, "consult-jobs.transaction.lock");
+    this.#ownerPath = join(this.#stateDirectory, `consult-owner-${this.#instanceId}.json`);
     this.#readOnly = options.readOnly ?? false;
   }
 
@@ -193,26 +208,20 @@ export class ConsultJobStore {
       if (this.#initialized) return;
       this.#assertOpen();
       await this.#prepareStateDirectory();
-      const loaded = await this.#readJobs();
-      const hasNonTerminal = [...loaded.values()].some(hasPendingWork);
-      const writerActive = hasNonTerminal && await this.#hasLiveWriter();
-      if (hasNonTerminal && !writerActive) {
-        const recovered = this.#recoverNonTerminal(loaded);
-        if (this.#readOnly) {
-          this.#jobs = recovered;
-          this.#readOnlyRecovered = true;
-        } else {
-          await this.#acquireWriterLock();
-          try {
-            const current = this.#recoverNonTerminal(await this.#readJobs());
-            await this.#persist(current);
-            this.#jobs = current;
-          } finally {
-            this.#releaseWriterLock();
-          }
-        }
+      if (this.#readOnly) {
+        this.#jobs = this.#readJobsSync();
       } else {
-        this.#jobs = loaded;
+        await writeFile(this.#ownerPath, JSON.stringify(this.#owner), { mode: 0o600, flag: "wx" });
+        this.#ownsOwnerLease = true;
+        try {
+          await this.#withTransaction(async () => {
+            await this.#loadCurrent();
+            await this.#pruneDeadOwnerLeases();
+          });
+        } catch (error) {
+          this.#releaseOwnerLease();
+          throw error;
+        }
       }
       this.#initialized = true;
     });
@@ -220,7 +229,7 @@ export class ConsultJobStore {
 
   close(): void {
     if (this.#closed) return;
-    this.#releaseWriterLock();
+    this.#releaseOwnerLease();
     this.#closed = true;
   }
 
@@ -231,28 +240,10 @@ export class ConsultJobStore {
       if (!consultSlugSchema.safeParse(slug).success || fingerprint.length === 0) {
         throw new ConnectorError("INVALID_INPUT", "consult job keyが不正です。");
       }
-      if (!this.#ownsWriterLock) this.#jobs = await this.#readJobs();
-      let existing = this.#jobs.get(slug);
-      if (existing !== undefined) {
-        if (existing.fingerprint !== fingerprint) {
-          throw new ConnectorError(
-            "JOB_CONFLICT",
-            "同じslugへ異なるconsult inputは送信できません。",
-          );
-        }
-        return { created: false, snapshot: visibleSnapshot(existing) };
-      }
-
-      const alreadyOwnedWriterLock = this.#ownsWriterLock;
-      await this.#acquireWriterLock();
-      try {
-        const current = alreadyOwnedWriterLock
-          ? new Map(this.#jobs)
-          : this.#recoverNonTerminal(await this.#readJobs());
-        this.#jobs = current;
-        existing = this.#jobs.get(slug);
+      return this.#withTransaction(async () => {
+        const current = await this.#loadCurrent();
+        const existing = current.get(slug);
         if (existing !== undefined) {
-          this.#releaseWriterLock();
           if (existing.fingerprint !== fingerprint) {
             throw new ConnectorError(
               "JOB_CONFLICT",
@@ -267,6 +258,7 @@ export class ConsultJobStore {
         const parsedParent = parent ? deliveryParentSchema.parse(parent) : undefined;
         const job: StoredJob = {
           fingerprint,
+          owner: this.#owner,
           ...(parsedParent ? { parent: parsedParent } : {}),
           snapshot: {
             slug,
@@ -283,15 +275,12 @@ export class ConsultJobStore {
             } : {}),
           },
         };
-        const next = new Map(this.#jobs);
+        const next = new Map(current);
         next.set(slug, job);
         await this.#persist(next);
         this.#jobs = next;
         return { created: true, snapshot: structuredClone(job.snapshot) };
-      } catch (error) {
-        if (this.#ownsWriterLock) this.#releaseWriterLock();
-        throw error;
-      }
+      });
     });
   }
 
@@ -303,46 +292,44 @@ export class ConsultJobStore {
     return this.#exclusive(async () => {
       this.#assertInitialized();
       this.#assertWritable();
-      if (!this.#ownsWriterLock) {
-        throw new ConnectorError(
-          "JOB_RECOVERY_UNAVAILABLE",
-          "このprocessはconsult jobのwriter leaseを所有していません。",
-        );
-      }
-      const current = this.#jobs.get(slug);
-      if (current === undefined) {
-        throw new ConnectorError("JOB_NOT_FOUND", "指定slugのconsult jobは存在しません。");
-      }
-      if (!allowedTransitions.get(current.snapshot.state)?.includes(state)) {
-        throw new ConnectorError("RUNTIME_DRIFT", "consult job state transitionが不正です。");
-      }
-      const candidate = snapshotSchema.safeParse({
-        ...current.snapshot,
-        ...(update.sessionId === undefined ? {} : { sessionId: update.sessionId }),
-        state,
-        updatedAt: new Date().toISOString(),
-        result: state === "succeeded" ? (update.result ?? null) : null,
-        error: state === "failed" ? (update.error ?? null) : null,
+      return this.#withTransaction(async () => {
+        const jobs = await this.#loadCurrent();
+        const current = jobs.get(slug);
+        if (current === undefined) {
+          throw new ConnectorError("JOB_NOT_FOUND", "指定slugのconsult jobは存在しません。");
+        }
+        if (current.owner?.instanceId !== this.#instanceId) {
+          throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "このprocessはconsult jobの実行元ではありません。");
+        }
+        if (!allowedTransitions.get(current.snapshot.state)?.includes(state)) {
+          throw new ConnectorError("RUNTIME_DRIFT", "consult job state transitionが不正です。");
+        }
+        const candidate = snapshotSchema.safeParse({
+          ...current.snapshot,
+          ...(update.sessionId === undefined ? {} : { sessionId: update.sessionId }),
+          state,
+          updatedAt: new Date().toISOString(),
+          result: state === "succeeded" ? (update.result ?? null) : null,
+          error: state === "failed" ? (update.error ?? null) : null,
+        });
+        if (
+          !candidate.success ||
+          (state === "succeeded" && candidate.data.result === null) ||
+          (state === "failed" && candidate.data.error === null)
+        ) {
+          throw new ConnectorError("RUNTIME_DRIFT", "consult job terminal payloadが不正です。");
+        }
+        const next = new Map(jobs);
+        next.set(slug, {
+          ...current,
+          owner: (state === "succeeded" || state === "failed") && current.snapshot.delivery?.state !== "waiting"
+            ? undefined : current.owner,
+          snapshot: candidate.data,
+        });
+        await this.#persist(next);
+        this.#jobs = next;
+        return structuredClone(candidate.data);
       });
-      if (
-        !candidate.success ||
-        (state === "succeeded" && candidate.data.result === null) ||
-        (state === "failed" && candidate.data.error === null)
-      ) {
-        throw new ConnectorError("RUNTIME_DRIFT", "consult job terminal payloadが不正です。");
-      }
-      const next = new Map(this.#jobs);
-      next.set(slug, {
-        ...current,
-        snapshot: candidate.data,
-      });
-      await this.#persist(next);
-      this.#jobs = next;
-      const hasNonTerminal = [...next.values()].some(hasPendingWork);
-      if ((state === "succeeded" || state === "failed") && !hasNonTerminal) {
-        this.#releaseWriterLock();
-      }
-      return structuredClone(candidate.data);
     });
   }
 
@@ -356,50 +343,48 @@ export class ConsultJobStore {
     return visibleSnapshot(job);
   }
 
-  /** writer leaseと永続化したsendingで配送を一つに決め、受付不明時の再送を防ぐ。 */
+  /** 短期transaction lockと永続化したsendingで配送を一つに決め、受付不明時の再送を防ぐ。 */
   async claimDeliveries(): Promise<Array<{ parent: DeliveryParent; snapshot: ConsultSnapshot }>> {
     return this.#exclusive(async () => {
       this.#assertInitialized();
       this.#assertWritable();
-      if (!this.#ownsWriterLock && await this.#hasLiveWriter()) return [];
-      const recovered = !this.#ownsWriterLock;
-      if (!this.#ownsWriterLock) {
-        const current = await this.#readJobs();
-        if (![...current.values()].some(job => job.snapshot.delivery?.state === "waiting" || job.snapshot.delivery?.state === "sending")) return [];
-        await this.#acquireWriterLock();
-        this.#jobs = this.#recoverNonTerminal(await this.#readJobs());
-      }
-      const next = new Map(this.#jobs);
-      const claimed: Array<{ parent: DeliveryParent; snapshot: ConsultSnapshot }> = [];
-      for (const [slug, job] of next) {
-        if (job.snapshot.delivery?.state !== "waiting" || !job.parent ||
-            (job.snapshot.state !== "succeeded" && job.snapshot.state !== "failed")) continue;
-        const snapshot: ConsultSnapshot = { ...job.snapshot, updatedAt: new Date().toISOString(),
-          delivery: { ...job.snapshot.delivery, state: "sending" } };
-        next.set(slug, { ...job, snapshot });
-        claimed.push({ parent: job.parent, snapshot: structuredClone(snapshot) });
-      }
-      if (!recovered && claimed.length === 0) return [];
-      await this.#persist(next);
-      this.#jobs = next;
-      if (![...next.values()].some(hasPendingWork)) this.#releaseWriterLock();
-      return claimed;
+      return this.#withTransaction(async () => {
+        const next = new Map(await this.#loadCurrent());
+        const claimed: Array<{ parent: DeliveryParent; snapshot: ConsultSnapshot }> = [];
+        for (const [slug, job] of next) {
+          if (job.snapshot.delivery?.state !== "waiting" || !job.parent ||
+              (job.snapshot.state !== "succeeded" && job.snapshot.state !== "failed")) continue;
+          if (job.owner?.instanceId !== this.#instanceId && job.owner && this.#ownerLive(job.owner)) continue;
+          const snapshot: ConsultSnapshot = { ...job.snapshot, updatedAt: new Date().toISOString(),
+            delivery: { ...job.snapshot.delivery, state: "sending" } };
+          next.set(slug, { ...job, owner: undefined, snapshot, deliveryOwner: this.#owner });
+          claimed.push({ parent: job.parent, snapshot: structuredClone(snapshot) });
+        }
+        if (claimed.length > 0) {
+          await this.#persist(next);
+          this.#jobs = next;
+        }
+        return claimed;
+      });
     });
   }
 
   async finishDelivery(slug: string, state: "submitted" | "failed" | "unknown", error: string | null): Promise<void> {
     await this.#exclusive(async () => {
       this.#assertInitialized();
-      const job = this.#jobs.get(slug);
-      if (!this.#ownsWriterLock || job?.snapshot.delivery?.state !== "sending") {
-        throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "配送のwriter leaseまたは状態が一致しません。");
-      }
-      const next = new Map(this.#jobs);
-      next.set(slug, { ...job, snapshot: { ...job.snapshot, updatedAt: new Date().toISOString(),
-        delivery: { ...job.snapshot.delivery, state, error } } });
-      await this.#persist(next);
-      this.#jobs = next;
-      if (![...next.values()].some(hasPendingWork)) this.#releaseWriterLock();
+      this.#assertWritable();
+      await this.#withTransaction(async () => {
+        const next = new Map(await this.#loadCurrent());
+        const job = next.get(slug);
+        if (job?.deliveryOwner?.instanceId !== this.#instanceId || job.snapshot.delivery?.state !== "sending") {
+          throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "配送の実行元または状態が一致しません。");
+        }
+        next.set(slug, { ...job, deliveryOwner: undefined,
+          snapshot: { ...job.snapshot, updatedAt: new Date().toISOString(),
+            delivery: { ...job.snapshot.delivery, state, error } } });
+        await this.#persist(next);
+        this.#jobs = next;
+      });
     });
   }
 
@@ -417,14 +402,14 @@ export class ConsultJobStore {
   }
 
   async #persist(jobs: ReadonlyMap<string, StoredJob>): Promise<void> {
-    if (!this.#ownsWriterLock) {
+    if (!this.#ownsTransactionLock || this.#readTransactionLock()?.instanceId !== this.#instanceId) {
       throw new ConnectorError(
         "JOB_RECOVERY_UNAVAILABLE",
-        "writer leaseなしでconsult job台帳を書き換えられません。",
+        "transaction lockなしでconsult job台帳を書き換えられません。",
       );
     }
     const payload = JSON.stringify({
-      version: 4,
+      version: 5,
       jobs: [...jobs.values()].sort((left, right) =>
         left.snapshot.slug.localeCompare(right.snapshot.slug, "en")),
     });
@@ -436,7 +421,7 @@ export class ConsultJobStore {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const previousVersion = previous === undefined ? null : JSON.parse(previous).version;
-      if (previous !== undefined && (previousVersion === 1 || previousVersion === 2 || previousVersion === 3)) {
+      if (previous !== undefined && (previousVersion === 1 || previousVersion === 2 || previousVersion === 3 || previousVersion === 4)) {
         try { await writeFile(`${this.#statePath}.v${previousVersion}-backup`, previous, { mode: 0o600, flag: "wx" }); } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
@@ -537,26 +522,51 @@ export class ConsultJobStore {
   }
 
   #refreshJobsForRead(): void {
-    // dead writerをread-only初期化で回収したsnapshotは、このprocess内の正規回答。
-    // raw台帳を再読込するとrunningへ巻き戻るため、sessions完了まで固定する。
-    if (this.#ownsWriterLock || this.#readOnlyRecovered) return;
-    this.#jobs = this.#readJobsSync();
+    this.#jobs = this.#recoverNonTerminal(this.#readJobsSync()).jobs;
   }
 
-  #recoverNonTerminal(jobs: ReadonlyMap<string, StoredJob>): Map<string, StoredJob> {
-    const recovered = new Map<string, StoredJob>();
-    for (const [slug, original] of jobs) {
-      const job: StoredJob = original.snapshot.delivery?.state === "sending" ? { ...original, snapshot: {
-        ...original.snapshot, updatedAt: new Date().toISOString(), delivery: { ...original.snapshot.delivery,
-          state: "unknown", error: "PARENT_DELIVERY_UNKNOWN" },
-      } } : original;
-      if (job.snapshot.state === "succeeded" || job.snapshot.state === "failed") {
-        recovered.set(slug, job);
-        continue;
+  async #loadCurrent(): Promise<Map<string, StoredJob>> {
+    const recovered = this.#recoverNonTerminal(await this.#readJobs());
+    if (recovered.changed) await this.#persist(recovered.jobs);
+    this.#jobs = recovered.jobs;
+    return recovered.jobs;
+  }
+
+  async #pruneDeadOwnerLeases(): Promise<void> {
+    const entries = await readdir(this.#stateDirectory);
+    for (const name of entries) {
+      if (!/^consult-owner-[0-9a-f-]{36}\.json$/u.test(name)) continue;
+      const path = join(this.#stateDirectory, name);
+      let owner: z.output<typeof ownerSchema>;
+      try {
+        owner = ownerSchema.parse(JSON.parse(await readFile(path, "utf8")));
+      } catch {
+        throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "job実行元の記録が破損しています。");
       }
-      recovered.set(slug, {
-        ...job,
-        snapshot: {
+      if (name !== `consult-owner-${owner.instanceId}.json`) {
+        throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "job実行元の記録名が一致しません。");
+      }
+      if (!this.#processLive(owner.pid)) await rm(path);
+    }
+  }
+
+  #recoverNonTerminal(jobs: ReadonlyMap<string, StoredJob>): { jobs: Map<string, StoredJob>; changed: boolean } {
+    const recovered = new Map<string, StoredJob>();
+    let changed = false;
+    const legacyWriterLive = this.#hasLiveLegacyWriter();
+    for (const [slug, original] of jobs) {
+      let job = original;
+      if (job.snapshot.delivery?.state === "sending" &&
+          !(job.deliveryOwner ? this.#ownerLive(job.deliveryOwner) : legacyWriterLive)) {
+        job = { ...job, deliveryOwner: undefined, snapshot: {
+          ...job.snapshot, updatedAt: new Date().toISOString(), delivery: { ...job.snapshot.delivery,
+            state: "unknown", error: "PARENT_DELIVERY_UNKNOWN" },
+        } };
+        changed = true;
+      }
+      if (job.snapshot.state !== "succeeded" && job.snapshot.state !== "failed" &&
+          !(job.owner ? this.#ownerLive(job.owner) : legacyWriterLive)) {
+        job = { ...job, owner: undefined, snapshot: {
           ...job.snapshot,
           state: "failed",
           updatedAt: new Date().toISOString(),
@@ -566,74 +576,133 @@ export class ConsultJobStore {
             message: "process再起動前のconsult完了有無を安全に確定できないため再送しません。",
             retry: "status_first",
           },
-        },
-      });
+        } };
+        changed = true;
+      }
+      recovered.set(slug, job);
     }
-    return recovered;
+    return { jobs: recovered, changed };
   }
 
-  async #hasLiveWriter(): Promise<boolean> {
+  #ownerLive(owner: z.output<typeof ownerSchema>): boolean {
     let raw: string;
     try {
-      raw = await readFile(this.#lockPath, "utf8");
+      raw = readFileSync(join(this.#stateDirectory, `consult-owner-${owner.instanceId}.json`), "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "writer lockを読めませんでした。");
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "job実行元の記録を読めませんでした。");
     }
-    let lock: z.output<typeof writerLockSchema>;
+    let lease: z.output<typeof ownerSchema>;
     try {
-      lock = writerLockSchema.parse(JSON.parse(raw));
+      lease = ownerSchema.parse(JSON.parse(raw));
     } catch {
-      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "writer lockが破損しています。");
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "job実行元の記録が破損しています。");
     }
+    if (lease.pid !== owner.pid || lease.instanceId !== owner.instanceId) return false;
+    return this.#processLive(owner.pid);
+  }
+
+  #processLive(pid: number): boolean {
     try {
-      process.kill(lock.pid, 0);
+      process.kill(pid, 0);
       return true;
     } catch (error) {
       return (error as NodeJS.ErrnoException).code !== "ESRCH";
     }
   }
 
-  async #acquireWriterLock(): Promise<void> {
-    if (this.#ownsWriterLock) return;
-    this.#assertWritable();
-    const payload = JSON.stringify({ version: 1, pid: process.pid, instanceId: this.#instanceId });
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+  #hasLiveLegacyWriter(): boolean {
+    let raw: string;
+    try {
+      raw = readFileSync(this.#legacyLockPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "旧writer lockを読めませんでした。");
+    }
+    let lock: z.output<typeof writerLockSchema>;
+    try {
+      lock = writerLockSchema.parse(JSON.parse(raw));
+    } catch {
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "旧writer lockが破損しています。");
+    }
+    return this.#processLive(lock.pid);
+  }
+
+  async #withTransaction<T>(operation: () => Promise<T>): Promise<T> {
+    await this.#acquireTransactionLock();
+    try {
+      if (this.#hasLiveLegacyWriter()) {
+        throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "旧版のconsult job writerがまだ実行中です。");
+      }
+      return await operation();
+    } finally {
+      this.#releaseTransactionLock();
+    }
+  }
+
+  async #acquireTransactionLock(): Promise<void> {
+    const payload = JSON.stringify({ version: 1, ...this.#owner });
+    for (let attempt = 0; attempt < 200; attempt += 1) {
       try {
-        await writeFile(this.#lockPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
-        this.#ownsWriterLock = true;
+        await writeFile(this.#transactionLockPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        this.#ownsTransactionLock = true;
         return;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-          throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "writer lockを作成できませんでした。");
+          throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockを作成できませんでした。");
         }
-        if (await this.#hasLiveWriter()) {
-          throw new ConnectorError(
-            "JOB_RECOVERY_UNAVAILABLE",
-            "別processがconsult jobのwriter leaseを保持しています。",
-          );
-        }
-        try {
-          await rm(this.#lockPath);
-        } catch {
-          throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "stale writer lockを除去できませんでした。");
+        const lock = this.#readTransactionLock(true);
+        if (lock && !this.#ownerLive(lock)) {
+          try { await rm(this.#transactionLockPath); } catch (removeError) {
+            if ((removeError as NodeJS.ErrnoException).code !== "ENOENT") {
+              throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "stale transaction lockを除去できませんでした。");
+            }
+          }
+        } else {
+          await delay(25);
         }
       }
     }
-    throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "writer lockを取得できませんでした。");
+    throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockの待機がtimeoutしました。");
   }
 
-  #releaseWriterLock(): void {
-    if (!this.#ownsWriterLock) return;
+  #readTransactionLock(tolerateIncomplete = false): z.output<typeof writerLockSchema> | null {
+    let raw: string;
     try {
-      const lock = writerLockSchema.parse(JSON.parse(readFileSync(this.#lockPath, "utf8")));
-      if (lock.instanceId !== this.#instanceId) {
-        throw new Error("writer_lock_owner_mismatch");
-      }
-      rmSync(this.#lockPath);
-      this.#ownsWriterLock = false;
+      raw = readFileSync(this.#transactionLockPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockを読めませんでした。");
+    }
+    try {
+      return writerLockSchema.parse(JSON.parse(raw));
     } catch {
-      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "writer lockを安全に解放できませんでした。");
+      if (tolerateIncomplete) return null;
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockが破損しています。");
+    }
+  }
+
+  #releaseTransactionLock(): void {
+    if (!this.#ownsTransactionLock) return;
+    const lock = this.#readTransactionLock();
+    if (lock?.instanceId !== this.#instanceId) {
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockの所有者が一致しません。");
+    }
+    try {
+      rmSync(this.#transactionLockPath);
+      this.#ownsTransactionLock = false;
+    } catch {
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "transaction lockを解放できませんでした。");
+    }
+  }
+
+  #releaseOwnerLease(): void {
+    if (!this.#ownsOwnerLease) return;
+    try {
+      rmSync(this.#ownerPath);
+      this.#ownsOwnerLease = false;
+    } catch {
+      throw new ConnectorError("JOB_RECOVERY_UNAVAILABLE", "job実行元の記録を解放できませんでした。");
     }
   }
 
@@ -676,9 +745,4 @@ function parsePersistedJobs(source: string): Map<string, StoredJob> {
       loaded.set(job.snapshot.slug, job);
   }
   return loaded;
-}
-
-function hasPendingWork(job: StoredJob): boolean {
-  return (job.snapshot.state !== "succeeded" && job.snapshot.state !== "failed") ||
-    job.snapshot.delivery?.state === "waiting" || job.snapshot.delivery?.state === "sending";
 }

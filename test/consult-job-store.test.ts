@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { ConsultJobStore } from "../src/consult-job-store.js";
 import { ConnectorError } from "../src/errors.js";
 import { randomUUID } from "node:crypto";
 import { codexHookDirectory, codexInputDirectory, writeHookJson } from "../src/codex-hook-state.js";
+
+const execFileAsync = promisify(execFile);
+const secondProcessFixture = fileURLToPath(new URL("./fixtures/consult-job-second-process.ts", import.meta.url));
 
 type JobState = "queued" | "uploading" | "submitted" | "running" | "succeeded" | "failed";
 
@@ -237,7 +243,7 @@ test("terminal resultをstate transitionと再initialize後にも保持する", 
   });
 });
 
-for (const version of [1, 2, 3]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
+for (const version of [1, 2, 3, 4]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
   await withStateDirectory(async (stateDirectory) => {
     const path = join(stateDirectory, "consult-jobs.json");
     const legacy = JSON.stringify({ version, jobs: [{ fingerprint, snapshot: {
@@ -261,7 +267,7 @@ for (const version of [1, 2, 3]) test(`旧台帳v${version}は読取りで変更
     await writer.transition("new-question", "failed", {
       error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
     });
-    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 4);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 5);
     assert.equal(await readFile(`${path}.v${version}-backup`, "utf8"), legacy);
     if (process.platform !== "win32") assert.equal((await stat(`${path}.v${version}-backup`)).mode & 0o777, 0o600);
     writer.close();
@@ -431,7 +437,7 @@ test("dead writerの非terminal jobはreadOnly sessionsでも回収結果を巻�
   });
 });
 
-test("writer lock保持中でもsecond writerは既存snapshotを読めるが別slugの新規reserveはJOB_RECOVERY_UNAVAILABLEにする", async () => {
+test("別writerが実行中でも別slugの相談を受け付け、交互の更新を失わない", async () => {
   await withStateDirectory(async (stateDirectory) => {
     const first = createStore(stateDirectory);
     await first.initialize();
@@ -444,11 +450,45 @@ test("writer lock保持中でもsecond writerは既存snapshotを読めるが別
     const reused = await second.reserve(slug, fingerprint);
     assert.equal(reused.created, false);
     assert.equal(reused.snapshot.state, "uploading");
-    await assert.rejects(
-      second.reserve("another-job-001", "another-fingerprint"),
-      (error) => error instanceof ConnectorError && error.code === "JOB_RECOVERY_UNAVAILABLE",
-    );
+    const otherSlug = "another-job-001";
+    const accepted = await second.reserve(otherSlug, "another-fingerprint");
+    assert.equal(accepted.created, true);
+    await Promise.all([
+      first.transition(slug, "submitted", {}),
+      second.transition(otherSlug, "submitted", {}),
+    ]);
+    assert.equal(first.get(otherSlug).state, "submitted");
+    assert.equal(second.get(slug).state, "submitted");
+    await first.transition(slug, "running", {});
+    await second.transition(otherSlug, "running", {});
+    await first.transition(slug, "succeeded", { result: succeededResult });
+    await second.transition(otherSlug, "succeeded", { result: succeededResult });
+    assert.equal(first.get(otherSlug).state, "succeeded");
+    assert.equal(second.get(slug).state, "succeeded");
     second.close();
+    first.close();
+  });
+});
+
+test("別processの相談を受け付け、終了した実行元のjobだけを回収する", async () => {
+  await withStateDirectory(async (stateDirectory) => {
+    const first = createStore(stateDirectory);
+    await first.initialize();
+    await first.reserve(slug, fingerprint);
+    await first.transition(slug, "uploading", {});
+
+    await execFileAsync(process.execPath, ["--import", "tsx", secondProcessFixture,
+      stateDirectory, "other-client-finished", "finish"], { timeout: 10_000 });
+    assert.equal(first.get("other-client-finished").state, "failed");
+    assert.equal(first.get(slug).state, "uploading");
+
+    await execFileAsync(process.execPath, ["--import", "tsx", secondProcessFixture,
+      stateDirectory, "other-client-exited", "exit"], { timeout: 10_000 });
+    const reader = createStore(stateDirectory, true);
+    await reader.initialize();
+    assert.equal(reader.get("other-client-exited").error?.code, "JOB_RECOVERY_UNAVAILABLE");
+    assert.equal(reader.get(slug).state, "uploading");
+    reader.close();
     first.close();
   });
 });
@@ -482,7 +522,7 @@ test("status readerはlive writerのterminal更新を台帳から再読込する
   });
 });
 
-test("同一writerの複数active jobは最後のterminalまでleaseを保持する", async () => {
+test("同一writerの複数active jobは個別に完了できる", async () => {
   await withStateDirectory(async (stateDirectory) => {
     const store = createStore(stateDirectory);
     await store.initialize();

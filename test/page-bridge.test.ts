@@ -6,7 +6,22 @@ import {
   bridgeBuildId,
   createBridgeBootstrapExpression,
   createBridgeCallExpression,
+  createSingleFlightBootstrapExpression,
 } from "../src/page-bridge.js";
+
+test("同時接続はpage bridgeを一度だけ初期化する", async () => {
+  let finish!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const context = vm.createContext({ starts: 0, gate });
+  const expression = createSingleFlightBootstrapExpression("__testBootstrap", "(async () => { globalThis.starts += 1; await gate; return { ready: true }; })()");
+  const first = vm.runInContext(expression, context);
+  const second = vm.runInContext(expression, context);
+  assert.equal(context.starts, 1);
+  finish();
+  assert.equal((await first).ready, true);
+  assert.equal((await second).ready, true);
+  assert.equal(vm.runInContext("globalThis.__testBootstrap", context), undefined);
+});
 
 test("同じモデル一覧を返す録音用clientを除き、標準clientだけを選ぶ", async () => {
   const expression = createBridgeBootstrapExpression("core", "conversation", "upload", "shared");
