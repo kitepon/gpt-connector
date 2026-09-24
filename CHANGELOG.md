@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.12.0 - 2026-09-24
+
+- Grok Chatの`grok_chat`／`grok_consult`とCLIにmode選択を追加する。auto・fast・expert・heavyから指定でき、省略時はauto。Grokの回答記録で実際のmodeを照合し、共有tabの選択状態は送信後に戻す。buildはChat送信対象外。
+- Grok相談のslug冪等性にmodeを含める。job台帳をversion 7へ更新し、version 1〜6は初回書込み前に元形式のbackupを残して移行する。旧版へ戻す時は全MCPを停止し、version 7の台帳を退避して移行前のbackupを復元するか、旧版専用の空state directoryを使う。移行後の回答はversion 7を読める版で回収する。
+
 ## 0.11.0 - 2026-09-24
 
 - Grok Chatの回答から、送信したmode、Grokが回答に記録したモデルIDとエフォートを返す。自動modeの内側で使われた具体的なモデル名は確認できないため`resolvedModel`は`null`とする。`grok_modes`は現在選択中のmodeも返す。

@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.11.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.12.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -45,7 +45,7 @@ MarkItDownは別区分の第三者CLIです。
 - server attachment metadata read-backとモデル読取確認。
 - caller既知slugによるconsult冪等性、terminal result回収、owner-only durable job台帳。
 - 別のAIクライアントからの相談を同時に受け付け、各会話を独立して監視・配送する。
-- Grok公式Web runtimeの本文相談、同時送信、会話継続、Codex／Cursor親への完了通知。Grokは自動modeのみで、添付と画像生成は対象外。
+- Grok公式Web runtimeの本文相談、同時送信、会話継続、Codex／Cursor親への完了通知。Grok Chatのmodeはauto・fast・expert・heavyから選べる。添付と画像生成は対象外。
 - upload／conversationを作らないdry-run、既存diagnostics、factory diagnostics。
 - CLIとstdio MCP adapter。
 
@@ -161,11 +161,11 @@ gpt-connector chat \
 Grok Chatの本文相談:
 
 ```bash
-gpt-connector grok-consult --prompt '設計案を検討してください' --slug grok-review-001 --keep-open
+gpt-connector grok-consult --prompt '設計案を検討してください' --slug grok-review-001 --mode expert --keep-open
 gpt-connector grok-sessions --slug grok-review-001
 ```
 
-同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。現在は自動modeの本文のみを送れる。Grokのmode一覧と現在の選択は`grok-modes`で確認できる。回答の`requestedMode`は送信したmode、`reportedModel`と`resolvedEffort`はGrokが回答に記録したモデルIDとエフォートを示す。実測した応答には自動modeが内部で選んだ具体的なモデル名が含まれないため、`resolvedModel`は`null`を返す。
+同じGrok会話へ続ける時は、新しいslugと返された`sessionId`を`--session-id`へ渡す。最後は`grok-close --session-id <uuid>`でGrok会話をsoft deleteする。`keep-open`を省略した新規相談はtemporary chatとして送る。`--mode`は`auto`・`fast`・`expert`・`heavy`から選び、省略時は`auto`。`build`はGrok Chatの送信対象外。Grokのmode一覧と現在の選択は`grok-modes`で確認できる。回答の`requestedMode`は送信したmode、`reportedModel`と`resolvedEffort`はGrokが回答に記録したモデルIDとエフォートを示す。Webの回答記録から具体的なモデル名を確認できないため、`resolvedModel`は`null`を返す。
 
 CLIの`chat`はone-shot専用。`consult` jobはdurable台帳へ残るため、別processの`sessions`から回収できる。複数turnの会話sessionはMCP adapterを使う。
 
@@ -313,7 +313,7 @@ MCP tools（`consult`／`sessions`／`diagnostics`はChatGPT用。Grokには`gro
 - `consult`: slug冪等化、会話の継続、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。`wait=false`は回答完了前に受付結果を返す。
 - `sessions`: exact slug 1件の状態／sessionId／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
 - `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
-- `grok_modes`: Grokのlive mode一覧と選択中のmode。送信は自動modeのみ。
+- `grok_modes`: Grokのlive mode一覧と選択中のmode。Chat送信はauto・fast・expert・heavyに対応。
 - `grok_chat`: Grokへの本文送信。
 - `grok_consult`: 本文相談をslugで冪等化し、親への完了通知と会話継続に対応する。
 - `grok_sessions`: Grokの既知slugの状態と回答を返す。

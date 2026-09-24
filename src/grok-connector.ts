@@ -7,7 +7,7 @@ import { CdpClient, discoverProviderTarget } from "./cdp.js";
 import { deliverPendingConsultJobs, type ParentDelivery } from "./consult-delivery.js";
 import { ConsultJobStore, type DeliveryParent } from "./consult-job-store.js";
 import {
-  grokChatInputSchema, grokConsultInputSchema, sessionsInputSchema, closeInputSchema,
+  grokChatInputSchema, grokConsultInputSchema, grokChatModeSchema, sessionsInputSchema, closeInputSchema,
   type ChatResult, type ConsultSnapshot, type GrokChatInput, type GrokConsultInput,
   type SessionsInput, type CloseInput,
 } from "./contract.js";
@@ -32,7 +32,7 @@ const operationSchema = z.object({
 const chatResultSchema = z.object({
   text: z.string().min(1), status: z.string(), endTurn: z.literal(true),
   resolvedModel: z.string().nullable(), resolvedEffort: z.string().nullable(),
-  requestedMode: z.literal("auto"), reportedModel: z.string().nullable(),
+  requestedMode: grokChatModeSchema, reportedModel: z.string().nullable(),
   sessionId: z.string().uuid().optional(),
   attachments: z.object({
     count: z.literal(0), names: z.array(z.string()).length(0),
@@ -161,19 +161,19 @@ export class GrokConnector {
   }
 
   async consult(input: GrokConsultInput, parent?: DeliveryParent): Promise<ConsultSnapshot | {
-    dryRun: true; slug: string; requestedMode: "auto"; conversationWouldRun: false;
+    dryRun: true; slug: string; requestedMode: z.output<typeof grokChatModeSchema>; conversationWouldRun: false;
   }> {
     let parsed: z.output<typeof grokConsultInputSchema>;
     try { parsed = grokConsultInputSchema.parse(input); }
     catch { throw new ConnectorError("INVALID_INPUT", "Grok consult inputが公開schemaに一致しません。"); }
-    if (parsed.dryRun) return { dryRun: true, slug: parsed.slug, requestedMode: "auto", conversationWouldRun: false };
+    if (parsed.dryRun) return { dryRun: true, slug: parsed.slug, requestedMode: parsed.mode, conversationWouldRun: false };
     if (parent) {
       await this.#parentDelivery.verify(parent);
       parsed.wait = false;
     }
     const fingerprint = createHash("sha256").update(JSON.stringify({
       provider: "grok", promptSha256: createHash("sha256").update(parsed.prompt).digest("hex"),
-      sessionId: parsed.sessionId ?? null, keepOpen: parsed.keepOpen,
+      sessionId: parsed.sessionId ?? null, keepOpen: parsed.keepOpen, mode: parsed.mode,
       parentThreadId: parent && "threadId" in parent ? parent.threadId : null,
     })).digest("hex");
     const reservation = await this.#jobs.reserve(parsed.slug, fingerprint, parent);

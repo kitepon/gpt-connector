@@ -262,7 +262,7 @@ export const mcpServerInstructions =
   "slugは1問い合わせの重複防止ID、sessionIdは複数問い合わせで共有する会話ID。最後はchatgpt_closeで会話を閉じる。" +
   "caller timeout後は再送せずsessionsで同じslugを確認する。最新の段階と互換model一覧はchatgpt_models、" +
   "既存互換chatはchatgpt_chat、終了はchatgpt_closeを使う。" +
-  "Grokへ相談する場合はgrok_consult、状態確認はgrok_sessions、追加質問は同じsessionIdと新しいslug、終了はgrok_closeを使う。Grokは現在、本文のみ・自動modeに対応する。";
+  "Grokへ相談する場合はgrok_consult、状態確認はgrok_sessions、追加質問は同じsessionIdと新しいslug、終了はgrok_closeを使う。Grokは本文のみ、modeはauto・fast・expert・heavyから選べる（省略時auto）。";
 
 export const mcpToolDescriptions = {
   chatgpt_models:
@@ -285,7 +285,7 @@ export const mcpToolDescriptions = {
     "本server自身をread-only診断し、会話やuploadを作らず接続・bridge・job/session件数だけを返す。",
   chatgpt_close:
     "本serverがChatGPT上に保持したsessionをserver archiveし、継続用sessionIdを破棄する。MCP再接続後も専用Chromeのpageに会話が残っていれば利用できる。deleteは行わない。",
-  grok_modes: "Grok公式Web runtimeのmode一覧と現在選択中のmodeを返す。送信は自動modeを使う。",
+  grok_modes: "Grok公式Web runtimeのmode一覧と現在選択中のmodeを返す。Chat送信ではauto・fast・expert・heavyから選ぶ。",
   grok_chat: "Grok公式Web runtimeへ本文を送信する。回答にGrokが記録したmodel IDとeffortを返す。auto内の具体モデルは取得できない。keepOpen=trueならsessionIdで継続できる。",
   grok_consult: "Grok公式Web runtimeへ本文で相談する。slugで冪等化し、CodexとCursorの親には完了時に自動配送する。回答に記録されたmodel IDとeffortを返す。添付ファイルには未対応。",
   grok_sessions: "Grok相談の既知slugの状態と回答を返す。再送は行わない。",

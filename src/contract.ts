@@ -148,8 +148,11 @@ export const chatInputSchema = z
 
 export type ChatInput = z.input<typeof chatInputSchema>;
 
+export const grokChatModeSchema = z.enum(["auto", "fast", "expert", "heavy"]);
+
 export const grokChatInputSchema = z.object({
   prompt: z.string().min(1),
+  mode: grokChatModeSchema.default("auto").describe("Grok Chatのmode。auto・fast・expert・heavyから選ぶ。省略時はauto。"),
   sessionId: z.string().uuid().optional(),
   keepOpen: z.boolean().default(false),
 }).strict();
@@ -202,8 +205,8 @@ export interface ChatResult {
   readonly endTurn: true;
   readonly resolvedModel: string | null;
   readonly resolvedEffort: string | null;
-  /** Grokだけ。送信したChat modeと、回答に記録されたauto routerのmodel ID。 */
-  readonly requestedMode?: "auto";
+  /** Grokだけ。送信したChat modeと、回答に記録されたmodel ID。 */
+  readonly requestedMode?: z.output<typeof grokChatModeSchema>;
   readonly reportedModel?: string | null;
   readonly sessionId?: string;
 }

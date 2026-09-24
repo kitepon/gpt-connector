@@ -2,6 +2,7 @@
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
+import { grokChatModeSchema } from "./contract.js";
 import { connectGrokWithBrowser } from "./grok-connection.js";
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
@@ -131,7 +132,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> [--provider grok] | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> | grok-consult --prompt <text> --slug <id> | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> [--provider grok] | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> [--mode auto|fast|expert|heavy] | grok-consult --prompt <text> --slug <id> [--mode auto|fast|expert|heavy] | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -238,12 +239,16 @@ async function main(): Promise<void> {
       else if (command === "grok-chat") {
         const prompt = stringArg(values, "prompt");
         if (!prompt) throw new Error("grok-chatには--promptが必要です。");
-        writeJson(await grok.chat({ prompt, sessionId: stringArg(values, "session-id"), keepOpen: flagArg(values, "keep-open") }));
+        const mode = stringArg(values, "mode");
+        writeJson(await grok.chat({ prompt, mode: mode === undefined ? undefined : grokChatModeSchema.parse(mode),
+          sessionId: stringArg(values, "session-id"), keepOpen: flagArg(values, "keep-open") }));
       } else if (command === "grok-consult") {
         const prompt = stringArg(values, "prompt");
         const slug = stringArg(values, "slug");
         if (!prompt || !slug) throw new Error("grok-consultには--promptと--slugが必要です。");
-        const result = await grok.consult({ prompt, slug, sessionId: stringArg(values, "session-id"),
+        const mode = stringArg(values, "mode");
+        const result = await grok.consult({ prompt, slug, mode: mode === undefined ? undefined : grokChatModeSchema.parse(mode),
+          sessionId: stringArg(values, "session-id"),
           keepOpen: flagArg(values, "keep-open"), dryRun: flagArg(values, "dry-run") });
         writeJson(result);
         if ("state" in result && result.state === "failed") process.exitCode = 1;

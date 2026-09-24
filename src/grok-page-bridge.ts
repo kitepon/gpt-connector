@@ -41,7 +41,7 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
     const assertUuid = (value) => typeof value === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-    async function readBack(conversationId, responseIds, expectedPrompt) {
+    async function readBack(conversationId, responseIds, expectedPrompt, expectedMode) {
       if (!assertUuid(conversationId) || responseIds.length === 0) {
         throw new Error("STREAM_INCOMPLETE:Grok回答IDを確認できません");
       }
@@ -55,6 +55,9 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
         const parent = matched[0] && server.find((item) => item.responseId === matched[0].parentResponseId);
         if (matched.length === 1 && parent?.sender === "human" && parent.message === expectedPrompt) {
           const metadata = matched[0].requestMetadata;
+          if (metadata?.mode !== "MODEL_MODE_" + expectedMode.toUpperCase()) {
+            throw new Error("RUNTIME_DRIFT:Grokが記録したmodeと指定modeが一致しません");
+          }
           return { text: matched[0].message,
             reportedModel: typeof metadata?.model === "string" ? metadata.model : null,
             resolvedEffort: typeof metadata?.effort === "string" ? metadata.effort.toLowerCase() : null };
@@ -64,10 +67,18 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
       throw new Error("STREAM_INCOMPLETE:Grok回答をサーバーから照合できません");
     }
 
+    function streamInMode(mode, start) {
+      const previousMode = modesStore.getState().selectedModeId;
+      modesStore.setState({ selectedModeId: mode });
+      try { return start(); }
+      finally { modesStore.setState({ selectedModeId: previousMode }); }
+    }
+
     async function execute(input, operation) {
       await modesStore.getState().ensureLoaded();
-      if (modesStore.getState().selectedModeId !== "auto") {
-        throw new Error("MODEL_NOT_AVAILABLE:Grok専用tabのmodeを自動にしてください");
+      const mode = modesStore.getState().modes?.find((item) => item.id === input.mode);
+      if (!mode?.availability?.available) {
+        throw new Error("MODEL_NOT_AVAILABLE:指定したGrok Chat modeは利用できません");
       }
       const modelName = chatPageStore.getState().activeModelId;
       if (!modelName) throw new Error("RUNTIME_DRIFT:Grokのmodel IDがありません");
@@ -103,28 +114,28 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
         const parent = history?.responses?.filter((item) => item.sender === "ASSISTANT").at(-1);
         if (!assertUuid(parent?.responseId)) throw new Error("SESSION_NOT_FOUND:Grok会話に継続できる回答がありません");
         operation.sessionId = oldId;
-        await responseStore.getState().streamResponse({
+        await streamInMode(input.mode, () => responseStore.getState().streamResponse({
           message: input.prompt, conversationId: oldId, parentResponseId: parent.responseId,
-          modelName, modelMode: "auto", ff: {}, requestType: "followup",
+          modelName, modelMode: input.mode, ff: {}, requestType: "followup",
           onOptimisticUserResponse() {}, onOptimisticModelResponse() {},
           ...callbacks,
-        });
+        }));
       } else {
-        await responseStore.getState().streamCreateAndRespond({
+        await streamInMode(input.mode, () => responseStore.getState().streamCreateAndRespond({
           temporary: !input.keepOpen, message: input.prompt,
-          modelName, modelMode: "auto", ff: {}, requestType: "new_chat",
+          modelName, modelMode: input.mode, ff: {}, requestType: "new_chat",
           ...callbacks,
           onConversation(value) {
             conversationId = value?.conversationId;
             if (assertUuid(conversationId)) operation.sessionId = conversationId;
           },
-        });
+        }));
       }
       if (streamError) throw streamError;
-      const read = await readBack(conversationId, closedIds, input.prompt);
+      const read = await readBack(conversationId, closedIds, input.prompt, input.mode);
       operation.result = {
         text: read.text, status: "finished_successfully", endTurn: true,
-        requestedMode: "auto", reportedModel: read.reportedModel,
+        requestedMode: input.mode, reportedModel: read.reportedModel,
         resolvedModel: null, resolvedEffort: read.resolvedEffort,
         ...(input.keepOpen ? { sessionId: conversationId } : {}),
         attachments: { count: 0, names: [], mimeTypes: [], readBack: "confirmed",
@@ -159,6 +170,7 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
       },
       startChat(input) {
         if (typeof input?.prompt !== "string" || !input.prompt ||
+            !["auto", "fast", "expert", "heavy"].includes(input.mode) ||
             (input.sessionId && !assertUuid(input.sessionId))) {
           throw new Error("INVALID_INPUT:Grok chat入力が不正です");
         }
@@ -179,7 +191,7 @@ const bootstrapSource = String.raw`async function(ids, expectedBuildId) {
             SESSION_NOT_FOUND: "Grok会話が見つかりません。",
             STREAM_INCOMPLETE: "Grok回答をサーバーから照合できませんでした。",
             RUNTIME_DRIFT: "Grok Web runtimeの形式が変わりました。",
-            MODEL_NOT_AVAILABLE: "Grok専用tabのmodeを自動にしてください。",
+            MODEL_NOT_AVAILABLE: "指定したGrok Chat modeは利用できません。",
             CHAT_FAILED: "Grok Chatが失敗しました。"
           };
           operation.error = { code, message: descriptions[code] };

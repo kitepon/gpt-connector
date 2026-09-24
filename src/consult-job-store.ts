@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import {
   consultSlugSchema,
+  grokChatModeSchema,
   type ConsultJobState,
   type ConsultSnapshot,
 } from "./contract.js";
@@ -62,7 +63,7 @@ const successResultSchema = z.object({
   endTurn: z.literal(true),
   resolvedModel: z.string().nullable(),
   resolvedEffort: z.string().nullable(),
-  requestedMode: z.literal("auto").optional(),
+  requestedMode: grokChatModeSchema.optional(),
   reportedModel: z.string().nullable().optional(),
   sessionId: z.string().uuid().optional(),
   attachments: attachmentSummarySchema,
@@ -101,7 +102,7 @@ const ownerSchema = z.object({
 }).strict();
 
 const persistedSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
     parent: deliveryParentSchema.optional(),
@@ -412,7 +413,7 @@ export class ConsultJobStore {
       );
     }
     const payload = JSON.stringify({
-      version: 6,
+      version: 7,
       jobs: [...jobs.values()].sort((left, right) =>
         left.snapshot.slug.localeCompare(right.snapshot.slug, "en")),
     });
@@ -424,7 +425,7 @@ export class ConsultJobStore {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const previousVersion = previous === undefined ? null : JSON.parse(previous).version;
-      if (previous !== undefined && [1, 2, 3, 4, 5].includes(previousVersion)) {
+      if (previous !== undefined && [1, 2, 3, 4, 5, 6].includes(previousVersion)) {
         try { await writeFile(`${this.#statePath}.v${previousVersion}-backup`, previous, { mode: 0o600, flag: "wx" }); } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }
