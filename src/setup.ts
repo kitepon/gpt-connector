@@ -125,7 +125,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         item.live = live;
         if (live.status === "action_required") actionRequired = true;
         else if (live.status !== "ready") failed = true;
-      } else item.live = { status: "unsupported", reason: "live_browser_requires_macos" };
+      } else item.live = { status: "unsupported", reason: "live_browser_host_unsupported" };
     } catch (error) {
       failed = true;
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。

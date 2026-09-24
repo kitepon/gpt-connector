@@ -52,7 +52,8 @@ MarkItDownは別区分の第三者CLIです。
 ## 前提
 
 - Node.js 22以上とnpm（macOS・Windows・Linux）。
-- liveブラウザ機能にはmacOSまたはWindows、Google Chrome、利用するproviderへログインできるaccount。
+- liveブラウザ機能にはmacOS、Windows、またはLinuxの公式Google Chromeと、利用するChatGPT／Grokへログインできるaccount。
+- Linuxの専用ChromeはローカルX11（XWaylandを含む）の`DISPLAY`で表示を確認する。X11が無いWayland専用セッションはlive未対応。
 - Windowsの操作シェルはPowerShell 7。
 - Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。公式キューと同期hookを使い、Codexの起動設定を差し替えない。
 
@@ -69,7 +70,7 @@ Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録�
 既存command、args、env、モデル、認証、他MCP、利用者のtimeout・無効化・ツール制限は保持する。
 変更前の設定は`~/.gpt-connector/setup-backups/`へtarで保存する。
 
-MacとWindowsでは`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、
+Mac、Windows、Linuxでは`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、
 `action_required`で停止する。そのChromeで手動ログインしてから同じコマンドを再実行する。
 パスワード入力や認証challengeの自動化はしない。
 ログイン状態は`~/.gpt-connector/browser-profile/`へ保存し、通常の起動・更新では再利用する。
@@ -92,11 +93,11 @@ gpt-connector setup --check
 | npm導入・4AIへのMCP登録 | 対応 | 対応 | 対応 |
 | MCP initialize・tools list・診断応答 | 対応 | 対応 | 対応 |
 | `sessions`による既存job読取り・state診断 | 対応 | 対応 | 対応 |
-| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 対応 | 未対応 |
+| 専用Chrome起動・live model・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 | Cursor親への受け口押し込み | 対応 | 対応 | 対応 |
 
-`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、Linuxで対応機能の確認が済みliveだけ未対応なら
+`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、liveブラウザを提供しないOSで対応機能の確認が済みなら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
 各AIは新しいセッションで設定を読み込む。setupのMCP確認と、既存AIセッションへの反映は別の確認項目である。
 
@@ -121,6 +122,14 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必�
 Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない専用Chromeを起動する。Codex等の終了にChromeを巻き込まない。
 9223の所有PID・実行file・ネイティブ解析した引数を照合し、
 そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。所有確認と表示状態の読戻しが成立してから成功を返す。
+
+Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
+呼出元の終了後もChromeは残る。`--ozone-platform=x11`で専用ChromeのwindowをX11に固定する。
+9223の所有は`/proc/net/tcp`の`127.0.0.1`待受と、`/proc/<pid>/exe`・cmdlineの専用profileで照合する。
+表示制御は、Chrome processの`DISPLAY`（`/proc/<pid>/environ`）、呼出元の`DISPLAY`、`/tmp/.X11-unix`上のローカルXを順に試し、
+そのPID（と子孫）のclass `Google-chrome` windowだけをUnmap／Mapする。再表示時は`_NET_ACTIVE_WINDOW`で前面へ出す。
+複数DISPLAYがあるホストでは、起動時に使う`DISPLAY`（例: エージェント画面の`:12`）を揃えるか、上記の探索に任せる。
+表示の正本はX11のmap stateであり、CDPの`minimized`は作成時のhintのまま使わない。
 
 ## source setup
 

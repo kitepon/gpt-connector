@@ -29,13 +29,19 @@ test("factory diagnosticsはChrome起動中のCDP異常（HTTP error）をnot_re
 });
 
 test("factory diagnosticsはlive browser非対応hostをCDP不備でなくunsupportedにする", async () => {
-  for (const platform of ["linux"] as const) {
+  for (const platform of ["freebsd"] as const) {
     const result = await factoryDiagnostics({ endpoint: "https://example.com", platform });
     assert.equal(result.overall, "unsupported");
     assert.deepEqual(result.checks.map((check) => check.id), ["version", "state_schema", "job_schema", "migration", "cdp", "official_origin", "auth", "runtime_bridge", "mcp_contract"]);
     assert.equal(result.checks.find((check) => check.id === "cdp")?.status, "unsupported");
     assert.equal(result.checks.find((check) => check.id === "runtime_bridge")?.reason, "live_connector_host_unsupported");
   }
+});
+
+test("factory diagnosticsはLinuxの未起動Chromeをidleとしてunverifiedにする", async () => {
+  const result = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "linux" });
+  assert.equal(result.overall, "unverified");
+  assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "unverified", reason: "chrome_idle" });
 });
 
 test("factory diagnosticsは不正なuser endpointを通常入力拒否しbugへ分類しない", async () => {

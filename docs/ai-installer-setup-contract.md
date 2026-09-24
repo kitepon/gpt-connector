@@ -3,7 +3,7 @@
 ## 正規入口
 
 初回導入・更新はこの一回の入口で行う。Node.js 22以上とnpmが前提。WindowsではPowerShell 7を使う。
-live機能にはmacOSまたはWindowsとインストール済みGoogle Chrome、利用するChatGPT／Grok accountが必要。
+live機能にはmacOS、Windows、またはX11を利用できるLinuxと、インストール済みGoogle Chrome、利用するChatGPT／Grok accountが必要。
 
 ```bash
 npx --yes gpt-connector@latest setup
@@ -90,7 +90,7 @@ GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 | stdio initialize、公開版照合、13 tools list | 対応 | 対応 | 対応 |
 | `diagnostics`の診断応答、既存state読取り | 対応 | 対応 | 対応 |
 | `sessions`の既存job読取り | 対応 | 対応 | 対応 |
-| browser起動・表示、models、Chat、画像・添付 | 対応 | 対応 | 未対応 |
+| browser起動・表示、models、Chat、画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
 
 setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと公開tool集合を確認する。
@@ -102,9 +102,10 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 | `ready` | 0 | 指定した登録、MCP、state、live、Codex登録時のSteerの確認が完了 |
 | `action_required` | 1 | 手動ログイン、Codex再起動、または利用者の無効化設定への対応が必要 |
 | `failed` | 1 | 導入・登録・MCP・state・browserのいずれかが失敗 |
-| `partial` | 2 | Linuxの対応機能は完了、liveブラウザ操作は未対応 |
+| `partial` | 2 | liveブラウザを提供しないOSで、登録・MCP・stateの確認は完了 |
 
-Linuxの`partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
+`partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
+Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む。Codexへの自動SteerはLinuxでは未対応のまま、失敗にはしない。
 `registrations`にAI別の保存先、backup、MCP、state、live、失敗段階を返す。秘密値や構文errorの生内容は出力しない。
 `SETUP_PACKAGE_FAILED`はnpm導入・引継ぎ、`SETUP_REGISTRATION_FAILED`は設定読取・構文・保存、
 `SETUP_MCP_FAILED`はcommand解決・版・stdio応答、`SETUP_STATE_FAILED`はstate読取、
@@ -113,16 +114,21 @@ Linuxの`partial`をpackage導入やMCP登録の未対応へ読み替えず、li
 各AIは新しいセッションで設定を読む。`clientActivation = new_client_session_required`は既存AIセッションへの反映済みを意味しない。
 最終導入確認では対象AI自身から登録・read-only toolを確認する。Codex project設定ではtrusted projectを開く。
 
-## MacとWindowsのブラウザとログイン
+## Mac、Windows、Linuxのブラウザとログイン
 
 専用profileは`~/.gpt-connector/browser-profile`、製品が起動・表示を所有するendpointは`http://127.0.0.1:9223`。
 setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しない。`cdp_unavailable`なら既存`startBrowser`を呼び、再診断する。
 認証待ちでは既存`showBrowser`、または`startBrowser`自身の認証復帰処理で専用Chromeを表示してから停止する。
 人がログインした後、同じsetupを再実行する。
 
-`browser start`はcold startで窓なしChromeのCDP browser endpointからbackground ChatGPT targetを作り、
+`browser start`はcold startで窓なしChromeのCDP browser endpointから指定providerのbackground targetを作り、
 正規PIDをAppKit `hidden`へ移してからapp readyを待つ。成功条件はhiddenかつWindowServer layer 0の表示window 0件。
 `browser show`は正規PIDをunhide／activateし、unhiddenかつ表示window 1件以上を確認する。
+Windowsは同じPIDのChrome windowをWin32 APIで非表示／再表示し、所有と表示状態を読んでから成功にする。
+Linuxは公式Chromeを新しいsessionで起動し、`127.0.0.1:9223`の所有processと専用profileを`/proc`で照合する。
+表示の正本は、そのPID（と子孫）のX11 window（class `Google-chrome`）のmap state。
+接続先DISPLAYはChrome processの環境変数、呼出元の`DISPLAY`、ローカル`/tmp/.X11-unix`を順に選ぶ。
+X11の`DISPLAY`が無い環境は起動しない。
 CDPの`minimized`はcold target作成時のhintであり、画面非表示状態の正本ではない。
 
 doctor単体の`reasonCode`が`auth_required`なら、

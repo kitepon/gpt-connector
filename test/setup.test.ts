@@ -57,20 +57,34 @@ function setupPorts(platform: NodeJS.Platform) {
   };
 }
 
-for (const platform of ["linux"] as const) {
-  test(`${platform}: live未対応でも4AI登録・MCP・stateを実行する`, async () => {
-    const deps = setupPorts(platform);
-    deps.browser = async () => { throw new Error("非Macでbrowserを起動しました"); };
-    const result = await setup({}, deps);
-    assert.equal(result.overall, "partial");
-    assert.deepEqual(result.registrations.map((item) => item.client), setupClients);
-    for (const item of result.registrations) {
-      assert.equal(item.stateRead, "ready");
-      assert.deepEqual(item.live, { status: "unsupported", reason: "live_browser_requires_macos" });
-      assert.equal(item.failure, undefined);
-    }
-  });
-}
+test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerは起動しない", async () => {
+  const deps = setupPorts("linux");
+  let browserCalls = 0;
+  let steerCalls = 0;
+  deps.browser = async () => { browserCalls++; return { status: "ready", reason: "ready" }; };
+  deps.steer = (async () => { steerCalls++; return { status: "ready" }; }) as typeof configureCodexSteer;
+  const result = await setup({}, deps);
+  assert.equal(result.overall, "ready");
+  assert.equal(result.live.supported, true);
+  assert.equal(browserCalls, 1);
+  assert.equal(steerCalls, 0);
+  assert.deepEqual(result.registrations.map((item) => item.client), setupClients);
+  assert.ok(result.registrations.every((item) => (item.live as { status: string }).status === "ready"));
+});
+
+test("live未対応のOSは登録とMCPを実行し、liveを未対応のままpartialにする", async () => {
+  const deps = setupPorts("freebsd");
+  deps.browser = async () => { throw new Error("未対応OSでbrowserを起動しました"); };
+  const result = await setup({}, deps);
+  assert.equal(result.overall, "partial");
+  assert.equal(result.live.supported, false);
+  assert.deepEqual(result.registrations.map((item) => item.client), setupClients);
+  for (const item of result.registrations) {
+    assert.equal(item.stateRead, "ready");
+    assert.deepEqual(item.live, { status: "unsupported", reason: "live_browser_host_unsupported" });
+    assert.equal(item.failure, undefined);
+  }
+});
 
 test("Windows: 4AIの登録から共通のlive準備へ進み、readyを確認する", async () => {
   const deps = setupPorts("win32");
