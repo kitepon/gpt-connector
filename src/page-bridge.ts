@@ -3,75 +3,79 @@ import { modelResolutionMatches } from "./model-catalog.js";
 
 export const bridgeGlobalName = "__gptConnectorBridgeV1";
 
-const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl, uploadUrl, sharedUrl, expectedBuildId) {
+const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuildId) {
   const globalName = "__gptConnectorBridgeV1";
   const selectionMatches = ${modelResolutionMatches.toString()};
   if (globalThis[globalName]?.version === 1 && globalThis[globalName]?.buildId === expectedBuildId) {
     return globalThis[globalName].summary();
   }
 
-  const [core, conversationModule, uploadModule, shared] = await Promise.all([
-    import(coreUrl),
-    import(conversationUrl),
-    import(uploadUrl),
-    import(sharedUrl)
-  ]);
-
-  const entries = (module) => Object.entries(module);
+  const runtime = (await import(runtimeUrl)).__webpack_require__;
+  if (!runtime || typeof runtime !== "function" || !runtime.c || !runtime.m) {
+    throw new Error("RUNTIME_DRIFT:rspack_runtime");
+  }
+  const exports = Object.values(runtime.c).flatMap((module) => Object.entries(module.exports ?? {}));
   const functionSource = (value) => Function.prototype.toString.call(value);
   const unique = (role, candidates) => {
-    if (candidates.length !== 1) {
-      throw new Error("RUNTIME_DRIFT:" + role + ":" + candidates.length);
-    }
-    return candidates[0][1];
+    const values = [...new Set(candidates.map(([, value]) => value))];
+    if (values.length !== 1) throw new Error("RUNTIME_DRIFT:" + role + ":" + values.length);
+    return values[0];
   };
-  // 現行bundleは任意のkeyへ関数を返すlazy proxy exportを含み、shape判定を全通過してしまう。
-  // 実在しないkeyが関数として返る候補はstore実体ではないので一意化の前に除外する。
-  const concrete = (value) => {
-    try { return typeof value.__gptConnectorAbsentProbe !== "function"; } catch { return false; }
+  const bySource = (role, predicate) => unique(role, exports.filter(([, value]) =>
+    typeof value === "function" && predicate(functionSource(value), value)
+  ));
+  const sender = unique("sender", exports.filter(([key, value]) =>
+    key === "submitChatGPTCompletion" && typeof value === "function" &&
+    value.length === 2 && functionSource(value).includes("onServerThreadIdChange")
+  ));
+  const uploadClient = bySource("uploader", (source, value) =>
+    value.length === 3 && source.startsWith("async function") &&
+    source.includes("process_upload_stream") && source.includes("libraryPersistenceMode") &&
+    source.includes("uploadPurpose") && source.includes("storeInLibrary")
+  );
+  const scopeToken = unique("appScope", exports.filter(([, value]) =>
+    value?.__scopeBrand === "AppScope" && value.parent == null
+  ));
+  const scopeWrapper = bySource("scopeWrapper", (source, value) =>
+    value.length === 6 && source.includes("getOwnValue") &&
+    source.includes("queryClient") && source.includes("watch=s")
+  );
+  const atomModule = unique("atomModule", Object.entries(runtime.c).filter(([, module]) =>
+    Object.values(module.exports ?? {}).some((value) =>
+      typeof value === "function" && functionSource(value).includes("n={toString:()=>r}")
+    ) && Object.values(module.exports ?? {}).some((value) =>
+      typeof value === "function" && functionSource(value).includes("return n?n()")
+    )
+  ).map(([key, module]) => [key, module.exports]));
+  const atom = unique("atom", Object.entries(atomModule).filter(([, value]) =>
+    typeof value === "function" && functionSource(value).includes("n={toString:()=>r}")
+  ));
+  const createStore = unique("createStore", Object.entries(atomModule).filter(([, value]) =>
+    typeof value === "function" && functionSource(value).includes("return n?n()")
+  ));
+  const Scheduler = unique("scheduler", exports.filter(([, value]) =>
+    typeof value === "function" && typeof value.prototype?.schedule === "function" &&
+    typeof value.prototype?.cancel === "function"
+  ));
+  const QueryClient = unique("queryClient", exports.filter(([, value]) =>
+    typeof value === "function" && typeof value.prototype?.getQueryCache === "function" &&
+    typeof value.prototype?.getMutationCache === "function"
+  ));
+  const node = {
+    cachedBindings: new WeakMap(), contextVersionAtom: atom(0), debugEntries: new Set(),
+    familyBindings: new Map(), familyKeysByOwner: new Map(), disposalLifecycles: new Set(),
+    autoDisposeScheduler: new Scheduler(), imperativeReadAtoms: new WeakSet(),
+    imperativeReadDepth: 0, key: "{}", parent: undefined, queryClient: new QueryClient(),
+    retainedScopeEntries: new Map(), signalBindings: new WeakMap(), store: createStore(),
+    token: scopeToken, value: {}
   };
+  const scope = scopeWrapper(scopeToken, new Map([[scopeToken.id, node]]), node);
 
-  const sender = unique("sender", entries(core).filter(([, value]) => {
-    if (typeof value !== "function" || value.length !== 1) return false;
-    const source = functionSource(value);
-    return source.startsWith("async function") &&
-      source.includes("promptMessage") &&
-      source.includes("followups_v2_followup_source") &&
-      source.includes("conversational_onboarding_") &&
-      source.includes("onRequestSettled");
-  }));
-
-  const builder = unique("builder", entries(conversationModule).filter(([, value]) => {
-    if (typeof value !== "function") return false;
-    const source = functionSource(value);
-    return source.includes("contentToSend") &&
-      source.includes("allSystemHints") &&
-      source.includes("selectedSkillIds") &&
-      source.includes("composerController") &&
-      source.includes("build_request_params.prompt_message");
-  }));
-
-  const threadStore = unique("threadStore", entries(shared).filter(([, value]) =>
-    value && typeof value === "object" && concrete(value) &&
-    typeof value.initThread === "function" &&
-    typeof value.setServerIdForNewThread === "function" &&
-    typeof value.deleteThread === "function" &&
-    typeof value.retainThread === "function"
-  ));
-
-  const treeApi = unique("treeApi", entries(shared).filter(([, value]) =>
-    value && typeof value === "object" && concrete(value) &&
-    typeof value.getLastAssistantMessage === "function" &&
-    typeof value.getCurrentMessage === "function" &&
-    typeof value.getConversationTurns === "function"
-  ));
-
-  const apiClientCandidates = entries(shared).filter(([, value]) =>
-    value && typeof value === "object" && concrete(value) &&
-    typeof value.safeGet === "function" &&
-    typeof value.safePost === "function" &&
-    typeof value.safePatch === "function" &&
-    typeof value.safeDelete === "function"
+  const apiClientCandidates = exports.filter(([key, value]) =>
+    key === "Request" &&
+    value && typeof value === "object" &&
+    typeof value.safeGet === "function" && typeof value.safePost === "function" &&
+    typeof value.safePatch === "function" && typeof value.safeDelete === "function"
   );
   const apiClientProbeResults = await Promise.all(apiClientCandidates.map(async ([, value]) => {
     try {
@@ -79,55 +83,13 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
         parameters: { query: { supports_model_picker_upgrade_presets: true } }
       });
       if (!Array.isArray(catalog?.models) || typeof catalog?.default_model_slug !== "string") return false;
-      // 録音用adapterも同じ/modelsを返す。URLの解決だけで標準clientを識別し、通信前に止める。
-      const routeProbe = Symbol("gpt-connector-route-probe");
-      let canonicalRoute = false;
-      try {
-        await value.safeGet("/record", {
-          overrideBaseUrl: location.origin,
-          overrideUrl(url) { canonicalRoute = url.pathname === "/record"; throw routeProbe; }
-        });
-      } catch (error) { return error === routeProbe && canonicalRoute; }
-      return false;
+      return true;
     } catch {
       return false;
     }
   }));
   const apiClient = unique("apiClient", apiClientCandidates.filter((_, index) => apiClientProbeResults[index]));
 
-  const threadGetter = unique("threadGetter", entries(shared).filter(([, value]) => {
-    if (typeof value !== "function" || value.length !== 1) return false;
-    const source = functionSource(value);
-    return /return [\w$]+\.threads\[[\w$]+\]\}$/.test(source);
-  }));
-
-  const factoryCandidates = entries(shared).filter(([, value]) => {
-    if (typeof value !== "function") return false;
-    const source = functionSource(value);
-    return /^function [^(]+\([A-Za-z_$][\w$]*\)\{return [\w$]+\([\w$]+\(\),[\w$]+\(\),[A-Za-z_$][\w$]*\)\}$/.test(source);
-  });
-  const conversationFactory = unique("conversationFactory", factoryCandidates);
-
-  const uploadClient = unique("uploadClient", entries(uploadModule).filter(([, value]) => {
-    if (!value || typeof value !== "object") return false;
-    const required = [
-      "attachLibraryFile",
-      "createFileCompleted",
-      "remove",
-      "removeUserInitiated",
-      "reset",
-      "restoreFiles",
-      "updateProgress",
-      "uploadCompleted",
-      "uploadFile"
-    ];
-    return required.every((key) => key in value) && typeof value.uploadFile === "function";
-  }));
-
-  // 上流builderがcomposer拡張slotをcomposerController keyのWeakMapで引くようになったため、
-  // undefinedを渡すと「Invalid value used as weak map key」で全turnが失敗する。UI composerを
-  // 持たない本connectorは、拡張slotが空のまま解決される専用tokenを1つだけ使い回す。
-  const composerController = {};
 
   const sessions = new Map();
   const operations = new Map();
@@ -185,12 +147,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
     return downloads.delete(handle);
   };
 
-  const serverIdOf = (conversation) => {
-    const signal = conversation?.serverId$;
-    if (typeof signal === "function") return signal();
-    if (signal && typeof signal.get === "function") return signal.get();
-    return null;
-  };
+  const serverIdOf = (conversation) => conversation?.serverId ?? null;
 
   const getCatalog = async () => {
     const raw = await apiClient.safeGet("/models", {
@@ -231,32 +188,14 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
   };
 
   const normalizeUploadedAttachment = (upload, uploaded) => {
-    const spec = uploaded?.fileSpec;
-    const mimeType = spec?.mimeType ?? uploaded?.file?.type ?? null;
-    // 外部runtimeの変更箇所だけを示し、添付名や本文はエラーへ含めない。
-    if (uploaded?.status !== "ready") throw new Error("RUNTIME_DRIFT:upload_metadata:status");
-    if (!spec) throw new Error("RUNTIME_DRIFT:upload_metadata:fileSpec");
-    if (typeof spec.id !== "string" || spec.id.length === 0) throw new Error("RUNTIME_DRIFT:upload_metadata:id");
-    if (spec.name !== upload.name) throw new Error("RUNTIME_DRIFT:upload_metadata:name");
-    if (spec.size !== upload.size) throw new Error("RUNTIME_DRIFT:upload_metadata:size");
-    // 公式uploadは拡張子からMIME型を確定するため、送信時の型と異なることがある。
-    if (typeof mimeType !== "string" || mimeType.length === 0) throw new Error("RUNTIME_DRIFT:upload_metadata:mimeType");
+    if (typeof uploaded?.id !== "string" || uploaded.id.length === 0 ||
+        uploaded.name !== upload.name || uploaded.size !== upload.size ||
+        typeof uploaded.mimeType !== "string" || uploaded.mimeType.length === 0) {
+      throw new Error("RUNTIME_DRIFT:upload_metadata");
+    }
     return {
-      id: spec.id,
-      size: spec.size,
-      name: spec.name,
-      context_connector_info: undefined,
-      mime_type: mimeType,
-      width: spec.width,
-      height: spec.height,
-      file_token_size: spec.fileTokenSize,
-      source: uploaded.source,
-      library_file_id: uploaded.libraryFileId,
-      library_artifact_type: uploaded.libraryArtifactType,
-      library_persistence_result: spec.libraryPersistenceResult,
-      library_persistence_reason: spec.libraryPersistenceReason,
-      non_library_my_files_injest_upload: spec.nonLibraryMyFilesInjestUpload,
-      is_big_paste: spec.isBigPaste ?? false
+      id: uploaded.id, size: uploaded.size, name: uploaded.name,
+      mime_type: uploaded.mimeType, library_file_id: uploaded.libraryFileId
     };
   };
 
@@ -306,23 +245,9 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
   const readBackGeneratedImages = async (conversation) => {
     const serverId = serverIdOf(conversation);
     if (!serverId) throw new Error("IMAGE_READBACK_FAILED:no_server_id");
-    let terminal = null;
-    let turnExchangeId = null;
-    let workingTurnId = null;
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const thread = threadGetter(conversation.id);
-      terminal = treeApi.getLastAssistantMessage(thread);
-      turnExchangeId = terminal?.metadata?.turn_exchange_id ?? null;
-      workingTurnId = terminal?.metadata?.working_turn_id ?? null;
-      if (
-        terminal?.author?.role === "assistant" &&
-        terminal?.status === "finished_successfully" &&
-        terminal?.end_turn === true &&
-        typeof turnExchangeId === "string" &&
-        typeof workingTurnId === "string"
-      ) break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+    const terminal = conversation.lastMessage;
+    const turnExchangeId = terminal?.metadata?.turn_exchange_id ?? null;
+    const workingTurnId = terminal?.metadata?.working_turn_id ?? null;
     if (
       terminal?.author?.role !== "assistant" ||
       terminal?.status !== "finished_successfully" ||
@@ -331,14 +256,10 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
       typeof workingTurnId !== "string"
     ) throw new Error("IMAGE_READBACK_FAILED:terminal_turn_mismatch");
 
-    let data = null;
-    let mapping = {};
+    let data = conversation.lastData;
+    let mapping = data?.mapping ?? {};
     let turnMessages = [];
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      data = await apiClient.safeGet("/conversation/{conversation_id}", {
-        parameters: { path: { conversation_id: serverId } }
-      });
-      mapping = data?.mapping ?? {};
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       turnMessages = Object.values(mapping)
         .map((node) => node?.message)
         .filter((message) =>
@@ -352,14 +273,19 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           .some((part) => part?.content_type === "image_asset_pointer")
       );
       if (hasImageToolMessage) break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      data = await apiClient.safeGet("/conversation/{conversation_id}", {
+        parameters: { path: { conversation_id: serverId } }
+      });
+      mapping = data?.mapping ?? {};
     }
     const turnMessageIds = turnMessages.map((message) => message.id);
     if (turnMessageIds.length === 0) throw new Error("IMAGE_READBACK_FAILED:turn_message_set_empty");
     const turnMessageIdSet = new Set(turnMessageIds);
 
     let matches = [];
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const library = await apiClient.safeGet("/files/library/nodes", {
         parameters: { query: { include_hidden_files: true } }
       });
@@ -374,19 +300,14 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
         item.file_size_bytes > 0
       );
       if (matches.length > 0) break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 10000));
     }
     if (matches.length === 0) throw new Error("IMAGE_NOT_GENERATED:no_correlated_library_image");
 
-    // 画像turnの終端assistantメッセージは画像tool操作サブターン(別model名義, 実測: gpt-5-4-auto-thinking)に
-    // 帰属されるため、requested modelの検証にはturnのuserメッセージ側resolved_model_slugを使う。
-    const promptMessage = Object.values(mapping)
-      .map((node) => node?.message)
-      .filter((message) => message?.author?.role === "user" && typeof message?.create_time === "number")
-      .sort((left, right) => left.create_time - right.create_time)
-      .pop();
-    const promptResolvedModel = typeof promptMessage?.metadata?.resolved_model_slug === "string"
-      ? promptMessage.metadata.resolved_model_slug
+    // 画像toolのサブターンは別model名義になる。one-shot画像会話の指定modelは会話全体に記録される。
+    const promptResolvedModel = typeof data?.default_model_slug === "string"
+      ? data.default_model_slug
       : null;
 
     matches.sort((left, right) =>
@@ -453,27 +374,49 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
     }
   };
 
-  // 画像turnはChatGPT内部のsender promiseが生成完了後もpendingのまま解決しないことがある(実測)。
-  // 完了判定はthread側の終端メッセージ観測を正とし、senderは失敗伝搬のためだけに監視する。
-  const waitForImageTerminalTurn = async (conversation, senderStatus) => {
+  const waitForTerminalTurn = async (conversation, completionStatus, senderFailure, imageMode) => {
     for (let attempt = 0; attempt < 660; attempt += 1) {
-      const status = senderStatus();
-      if (status.state === "rejected") throw status.error;
-      const thread = threadGetter(conversation.id);
-      const message = treeApi.getLastAssistantMessage(thread);
-      if (
-        message?.author?.role === "assistant" &&
-        message?.status === "finished_successfully" &&
-        message?.end_turn === true
-      ) return;
+      if (senderFailure()) throw senderFailure();
+      const status = completionStatus();
+      if (status != null && status !== "completed") {
+        throw new Error("STREAM_INCOMPLETE:sender_" + status);
+      }
+      if (conversation.serverId && status === "completed") {
+        if (imageMode) await new Promise((resolve) => setTimeout(resolve, 30000));
+        for (let read = 0; read < (imageMode ? 10 : 6); read += 1) {
+          const data = await apiClient.safeGet("/conversation/{conversation_id}", {
+            parameters: { path: { conversation_id: conversation.serverId } }
+          });
+          const messages = Object.values(data?.mapping ?? {})
+            .map((entry) => entry?.message)
+            .filter((message) => message?.author?.role === "assistant" &&
+              typeof message?.create_time === "number" &&
+              message.id !== conversation.parentMessageId &&
+              message.create_time > (conversation.lastMessage?.create_time ?? -Infinity))
+            .sort((left, right) => left.create_time - right.create_time);
+          const message = messages.filter((item) =>
+            item.status === "finished_successfully" && item.end_turn === true).at(-1);
+          if (message) {
+            conversation.lastMessage = message;
+            conversation.lastData = data;
+            conversation.parentMessageId = message.id;
+            return;
+          }
+          if (messages.some((item) => item.status === "failed")) {
+            throw new Error("CHAT_FAILED:assistant_message_failed");
+          }
+          if (read === (imageMode ? 9 : 5)) break;
+          await new Promise((resolve) => setTimeout(resolve, imageMode ? 30000 : 2000));
+        }
+        throw new Error("STREAM_INCOMPLETE:terminal_readback");
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    throw new Error("STREAM_INCOMPLETE:image_terminal_turn_not_observed");
+    throw new Error("STREAM_INCOMPLETE:terminal_turn_not_observed");
   };
 
   const extractResult = (conversation, allowEmptyText = false) => {
-    const thread = threadGetter(conversation.id);
-    const message = treeApi.getLastAssistantMessage(thread);
+    const message = conversation.lastMessage;
     const text = Array.isArray(message?.content?.parts)
       ? message.content.parts.filter((part) => typeof part === "string").join("")
       : "";
@@ -619,76 +562,32 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
             throw new Error("UPLOAD_FAILED:upload_digest_mismatch");
           }
 
-          let files = [];
-          const files$ = () => files;
-          files$.set = (next) => {
-            files = typeof next === "function" ? next(files) : next;
-          };
-          const uploadErrors = [];
-          const intl = {
-            formatMessage(descriptor, values = {}) {
-              let message = descriptor?.defaultMessage ?? descriptor?.id ?? "upload error";
-              for (const [key, value] of Object.entries(values)) {
-                message = message.replaceAll("{" + key + "}", String(value));
-              }
-              return message;
-            }
-          };
-          const toaster = { danger() {}, info() {}, toasts$: () => [] };
-          const tempId = crypto.randomUUID();
           const timeoutMs = Number.isSafeInteger(input?.timeoutMs)
             ? Math.min(Math.max(input.timeoutMs, 1_000), 180_000)
             : 120_000;
           const timeout = new Promise((_, reject) => {
             timeoutId = setTimeout(
-              () => reject(new Error("UPLOAD_TIMEOUT:official_upload_timeout")),
-              timeoutMs
+              () => reject(new Error("UPLOAD_TIMEOUT:official_upload_timeout")), timeoutMs
             );
           });
-          const officialUpload = uploadClient.uploadFile(
-            { files$ },
-            tempId,
-            file,
-            3,
-            [],
-            intl,
-            toaster,
-            {
-              entrySurface: "composer",
-              selectionMethod: "file_picker",
-              isBigPaste: false,
-              isUnauthenticated: false,
-              isTemporaryChat: false,
-              isProjectThread: false,
-              onUploadError(_file, error) {
-                uploadErrors.push(error);
-              },
-              suppressDefaultErrorToast: true
-            },
-            undefined
-          );
-          await Promise.race([officialUpload, timeout]);
+          const uploaded = await Promise.race([
+            uploadClient(scope, file, {
+              model: { slug: (await getCatalog()).defaultModel },
+              storeInLibrary: false,
+              uploadPurpose: "composer"
+            }),
+            timeout
+          ]);
           if (timeoutId !== null) clearTimeout(timeoutId);
-          const uploaded = files.find((item) => item.tempId === tempId) ?? null;
-          if (!uploaded || uploaded.status !== "ready") {
-            const failure = uploadErrors[0];
-            const status = failure?.status ?? failure?.response?.status;
-            const serverCode = String(failure?.code ?? "");
-            const code = status === 401 || status === 403 ? "AUTH_REQUIRED"
-              : serverCode === "file_zero_bytes" || serverCode === "file_empty" ? "FILE_EMPTY"
-              : serverCode === "too_many_tokens" ? "FILE_LIMIT_EXCEEDED"
-              : serverCode === "unhandled_mime_type" ? "FILE_TYPE_NOT_SUPPORTED"
-              : "UPLOAD_FAILED";
-            throw new Error(code + ":official_upload_not_ready");
-          }
-          upload.attachment = normalizeUploadedAttachment(upload, uploaded);
+          upload.attachment = uploaded;
+          upload.metadata = normalizeUploadedAttachment(upload, uploaded);
           upload.state = "ready";
           operation.state = "succeeded";
           operation.result = {
             uploadHandle: input.uploadHandle,
             name: upload.name,
             size: upload.size,
-            mimeType: upload.attachment.mime_type
+            mimeType: upload.metadata.mime_type
           };
         } catch (error) {
           if (timeoutId !== null) clearTimeout(timeoutId);
@@ -810,73 +709,51 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           const attachments = turnUploads.map((upload) => upload.attachment);
           for (const handle of attachmentHandles) uploads.delete(handle);
           if (!session.conversation) {
-            const conversation = conversationFactory();
-            if (!conversation || typeof conversation.id !== "string" || !conversation.id.startsWith("WEB:")) {
-              throw new Error("RUNTIME_DRIFT:factory_output");
-            }
-            threadStore.initThread({
-              clientThreadId: conversation.id,
-              conversationMode: { kind: "primary_assistant" },
-              conversationOrigin: null
-            });
-            session.conversation = conversation;
+            session.conversation = {
+              id: null, serverId: null, parentMessageId: null, lastMessage: null
+            };
           }
-          const prompt = String(input.prompt);
-          const params = await builder({
-            composerController,
-            conversation: session.conversation,
+          const conversation = session.conversation;
+          let completionStatus = null;
+          let senderError = null;
+          const senderPromise = sender(scope, {
+            prompt: String(input.prompt),
+            model: input.model,
+            thinkingEffort: input.effort,
+            conversationMode: "primary_assistant",
+            conversationId: conversation.id ?? undefined,
+            parentMessageId: conversation.parentMessageId ?? undefined,
             attachments,
-            content: prompt,
-            contentToSend: { content: prompt, metadata: null },
-            conversationMode: { kind: "primary_assistant" },
-            hasSelectedApps: false,
-            desktopOrigin: null,
-            shouldCollectSidebarContext: false,
-            selectedApps: [],
-            selectedSources: undefined,
-            selectedMCPConnectors: undefined,
-            selectedConnectorIds: undefined,
-            searchConnectorIds: undefined,
-            startedWithByoMcp: false,
-            // 上流builderが sourceEvent.timeStamp を無条件に読むようになったため、
-            // undefinedを渡すとTypeErrorで全turnが失敗する。DOM Eventと同じ時間基準
-            // (performance.now()由来の高分解能タイムスタンプ)を持つ最小のevent様objectを渡す。
-            sourceEvent: { timeStamp: performance.now() },
-            allSystemHints: [],
-            systemHints: [],
-            firstInputTimestampMs: performance.now(),
-            isN7jupdActive: false,
-            isForceAllowCustomMcpModeEnabled: false,
-            selectedSkillIds: [],
-            thinkingEffort: input.effort,
-            serviceTier: undefined
+            onServerThreadIdChange: (...args) => {
+              const id = args.find((item) => typeof item === "string");
+              if (id) conversation.serverId = id;
+            },
+            onCompletion: (status) => { completionStatus = status; }
           });
-          const senderPromise = sender({
-            ...params,
-            conversation: session.conversation,
-            requestedModelId: input.model,
-            thinkingEffort: input.effort,
-            serviceTier: undefined,
-            callsiteId: "request_completion.gpt_connector.1",
-            eventSource: "url"
-          });
+          if (input.imageMode === true) {
+            // 画像の内部送信Promiseは生成後もpendingのことがある。失敗だけ監視する。
+            void senderPromise.then((dispatch) => {
+              if (typeof dispatch?.conversationId === "string") conversation.id = dispatch.conversationId;
+              if (dispatch?.serverConversationId) conversation.serverId = dispatch.serverConversationId;
+            }, (error) => { senderError = error; });
+          } else {
+            const dispatch = await senderPromise;
+            if (!dispatch || typeof dispatch.conversationId !== "string") {
+              throw new Error("RUNTIME_DRIFT:sender_result");
+            }
+            conversation.id = dispatch.conversationId;
+            conversation.serverId = dispatch.serverConversationId ?? conversation.serverId;
+          }
+          await waitForTerminalTurn(conversation, () => completionStatus, () => senderError,
+            input.imageMode === true);
           let promptResolvedModel = null;
           if (input.imageMode === true) {
-            let senderStatus = { state: "pending", error: null };
-            senderPromise.then(
-              () => { senderStatus = { state: "resolved", error: null }; },
-              (error) => { senderStatus = { state: "rejected", error }; }
-            );
-            await waitForImageTerminalTurn(session.conversation, () => senderStatus);
-            const readBack = await readBackGeneratedImages(session.conversation);
+            const readBack = await readBackGeneratedImages(conversation);
             generatedImages = readBack.images;
             promptResolvedModel = readBack.promptResolvedModel;
-          } else {
-            await senderPromise;
           }
           const result = extractResult(session.conversation, generatedImages.length > 0);
-          // 画像turnの終端assistantメッセージのmodel slugはtool操作サブターン名義。
-          // requested modelの照合対象はuserメッセージ側のresolved_model_slugに置き換える(nullなら照合失敗として上位で弾く)。
+          // 画像turnの終端assistantはtoolサブターン名義。会話全体のmodel記録で照合する。
           if (input.imageMode === true) result.resolvedModel = promptResolvedModel;
           if (input.imageMode !== true && !selectionMatches(
             input.model, input.effort, result.resolvedModel, result.resolvedEffort
@@ -885,7 +762,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           }
           const attachmentSummary = await readBackAttachments(
             session.conversation,
-            attachments
+            turnUploads.map((upload) => upload.metadata)
           );
           if (input.keepOpen === true) {
             operation.result = { ...result, attachments: attachmentSummary, images: generatedImages, sessionId };
@@ -899,7 +776,7 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
           for (const image of generatedImages) clearDownload(image.downloadHandle);
           let cleanupError = null;
           if (session && (createdSession || input.keepOpen !== true)) {
-            if (serverIdOf(session.conversation)) {
+            if (serverIdOf(session.conversation) && !String(error?.message ?? error).startsWith("ARCHIVE_FAILED")) {
               try {
                 await archive(session.conversation);
               } catch (archiveError) {
@@ -909,7 +786,9 @@ const bridgeBootstrapSource = String.raw`async function(coreUrl, conversationUrl
             sessions.delete(sessionId);
           }
           if (cleanupError) {
-            finishFailure(operation, cleanupError, "ARCHIVE_FAILED");
+            const original = safeError(error, "CHAT_FAILED");
+            finishFailure(operation, new Error("ARCHIVE_FAILED:cleanup_after_" + original.code + ":" +
+              original.message + "; " + String(cleanupError?.message ?? cleanupError)), "ARCHIVE_FAILED");
             return;
           }
           const message = String(error?.message ?? error);
@@ -996,12 +875,9 @@ export function createSingleFlightBootstrapExpression(key: string, callExpressio
 }
 
 export function createBridgeBootstrapExpression(
-  coreUrl: string,
-  conversationUrl: string,
-  uploadUrl: string,
-  sharedUrl: string,
+  runtimeUrl: string,
 ): string {
-  const call = `(${bridgeBootstrapSource})(${JSON.stringify(coreUrl)}, ${JSON.stringify(conversationUrl)}, ${JSON.stringify(uploadUrl)}, ${JSON.stringify(sharedUrl)}, ${JSON.stringify(bridgeBuildId)})`;
+  const call = `(${bridgeBootstrapSource})(${JSON.stringify(runtimeUrl)}, ${JSON.stringify(bridgeBuildId)})`;
   return createSingleFlightBootstrapExpression("__gptConnectorBootstrapV1", call);
 }
 

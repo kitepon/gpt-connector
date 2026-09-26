@@ -2,6 +2,8 @@
 
 調査・研究の再利用棚。一次ソースは `raw/`、要約・実測・判断はコンパイル記事に分離する。
 
+- [chatgpt-app/chatgpt-rspack-runtime-20260926.md](chatgpt-app/chatgpt-rspack-runtime-20260926.md) — Rspack化後の会話・添付入口と独立AppScope、画像送信Promiseとcallbackの完了境界、短周期API読取りでの429を実測（2026-09-26）。
+
 - [setup/windows-ssh-browser-20260924.md](setup/windows-ssh-browser-20260924.md) — SSHのsession 0から対話session 1の専用Chrome windowを操作できない原因、対話taskでの修理、公開版0.12.1のGrok実機確認（2026-09-24）。
 - [setup/raw/windows-session-task-20260924.md](setup/raw/windows-session-task-20260924.md) — Microsoft公式のwindow stationと`Interactive` scheduled task資料（2026-09-24）。
 

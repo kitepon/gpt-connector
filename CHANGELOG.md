@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.12.3 - 2026-09-26
+
+- ChatGPTの画面資産がRspackのmodule registryへ変わり、従来のasset探索で`RUNTIME_DRIFT`になっていた問題を修正する。現在読み込まれた内部runtimeから送信・アップロード・モデル一覧の入口を一意検出する。
+- DOMやReact fiberを使わずに会話コンテキストを構成し、通常の会話、継続、添付、応答の読戻し、archiveを現行runtimeへ合わせる。job台帳の形式は変えない。
+- 画像生成は内部送信Promiseの終了を待たず、完了通知後にサーバーの結果を読む。生成中の短周期API読取りを避け、会話と画像Libraryの照合を維持する。
+
 ## 0.12.2 - 2026-09-25
 
 - ログイン待ちの`AUTH_REQUIRED`を呼出元へのtyped errorとして返しつつ、工場向けの高重大度runtime errorには記録しない。既存の障害record形式と、CDP・bridge・Chat等の実操作失敗の記録は維持する。

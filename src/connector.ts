@@ -8,7 +8,6 @@ import {
   prepareAttachmentFiles,
   type PreparedAttachmentFile,
 } from "./attachment-files.js";
-import { discoverRuntimeAssets, listLoadedAssetUrls } from "./asset-discovery.js";
 import { CdpClient, discoverChatGptTarget } from "./cdp.js";
 import {
   chatInputSchema,
@@ -1097,16 +1096,22 @@ export class GptConnector {
       .safeParse(existingBridge);
     if (existingBridgeResult.success) return;
 
-    const urls = await listLoadedAssetUrls(this.#client);
-    const assets = await discoverRuntimeAssets(urls);
+    const runtimeUrl = await evaluateByValue<string>(this.#client, String.raw`(async () => {
+      const imports = globalThis.__reactRouterManifest?.entry?.imports;
+      if (!Array.isArray(imports)) throw new Error("RUNTIME_DRIFT:entry_imports");
+      const matches = [];
+      for (const path of imports) {
+        const url = new URL(path, location.origin);
+        if (url.origin !== location.origin || !url.pathname.startsWith("/cdn/assets/")) continue;
+        const runtime = (await import(url.href)).__webpack_require__;
+        if (typeof runtime === "function" && runtime.m && runtime.c) matches.push(url.href);
+      }
+      if (matches.length !== 1) throw new Error("RUNTIME_DRIFT:rspack_runtime:" + matches.length);
+      return matches[0];
+    })()`);
     const summary = await evaluateByValue<unknown>(
       this.#client,
-      createBridgeBootstrapExpression(
-        assets.coreUrl,
-        assets.conversationUrl,
-        assets.uploadUrl,
-        assets.sharedUrl,
-      ),
+      createBridgeBootstrapExpression(runtimeUrl),
     );
     const parsed = z
       .object({
@@ -1116,12 +1121,7 @@ export class GptConnector {
       })
       .safeParse(summary);
     if (!parsed.success) {
-      throw new ConnectorError("RUNTIME_DRIFT", "page bridgeを初期化できませんでした。", {
-        coreFingerprint: assets.coreFingerprint,
-        conversationFingerprint: assets.conversationFingerprint,
-        uploadFingerprint: assets.uploadFingerprint,
-        sharedFingerprint: assets.sharedFingerprint,
-      });
+      throw new ConnectorError("RUNTIME_DRIFT", "page bridgeを初期化できませんでした。");
     }
   }
 

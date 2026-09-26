@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.12.2`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.12.3`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -475,7 +475,7 @@ AI client ──stdio MCP──> provider別connector ──CDP──> 専用Chr
 
 異なるクライアントのjobは短いtransaction lockで台帳更新を順序付け、相談の実行中は各processが自分のjobを所有する。ChatGPTの添付は公式upload clientで送信し、画像はLibraryと回答の相関を確認して回収する。Grokは回答のサーバー読戻しで本文・mode・記録されたmodel／effortを照合する。
 
-runtime roleは上限付きasset import graph、function source signature、object method shape、read-only catalog probeで一意検出する。候補が0件または複数なら実行しない。DOM selector、file input、React fiber、座標操作は本番経路に含まない。
+ChatGPTの現行runtimeは読み込まれたRspack module registryから、function source signature、object method shape、モデル一覧の読取りで必要な役割を一意検出する。候補が0件または複数なら実行しない。DOM selector、file input、React fiber、座標操作は本番経路に含まない。
 
 ## license
 
