@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.12.4 - 2026-09-26
+
+- Codex Desktopに同梱される署名済みCLIの配置変更に追従し、`setup`がCodex側の公式hookを導入できない問題を修正する。
+
 ## 0.12.3 - 2026-09-26
 
 - ChatGPTの画面資産がRspackのmodule registryへ変わり、従来のasset探索で`RUNTIME_DRIFT`になっていた問題を修正する。現在読み込まれた内部runtimeから送信・アップロード・モデル一覧の入口を一意検出する。
