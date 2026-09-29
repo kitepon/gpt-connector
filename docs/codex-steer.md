@@ -79,11 +79,11 @@ hookによる取り出しが中断した場合も`sessions`は`unknown`を返す
 再接続では未送信の完了結果だけを配送する。送信中だった記録は`unknown`とし、MCP終了時に相談が未完了なら
 `JOB_RECOVERY_UNAVAILABLE`とする。MCP停止中の監視は行わない。保存済み回答は`sessions`で回収する。
 
-ChatGPTとGrokは別のjob台帳を使う。現行の台帳version 7はversion 1〜6を読める。読取りでは変更せず、初回書込み前に元fileを`.v<元version>-backup`へ保存する。
+ChatGPTとGrokは別のjob台帳を使う。現行の台帳version 8はversion 1〜7を読める。読取りでは変更せず、初回書込み前に元fileを`.v<元version>-backup`へ保存する。
 旧版で受付済みのsocket宛先は旧配送契約のまま保持し、新規相談は公式キューを使う。新方式から旧中継への自動切替は行わない。
 旧版へ戻す場合は[CHANGELOG](../CHANGELOG.md)の巻き戻し条件に従う。
 
-Codex公式キューへの自動配送は、Codexの要求metadataを持つ`consult`と`grok_consult`が対象。Cursor親は`receiveCommand`とhookで受け取り、その他のクライアント、`chatgpt_chat`／`grok_chat`、画像生成は通常の応答方式を使う。
+Codex公式キューへの自動配送は、Codexの要求metadataを持つ`consult`と`grok_consult`が対象。Cursor親は共通パッケージの公式hookと背景受信（`receiveCommand`）で受け取り、その他のクライアント、`chatgpt_chat`／`grok_chat`、画像生成は通常の応答方式を使う。
 
 ## 検証と由来
 

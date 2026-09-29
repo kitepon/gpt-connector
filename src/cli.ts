@@ -27,7 +27,7 @@ import { configureCodexSteer, type CodexSteerAction } from "./setup-codex-steer.
 import { CodexSteerSetupError } from "./codex-steer-config.js";
 import { CodexDeliveryError } from "./codex-delivery-error.js";
 import { receiveCursorAnswer } from "./cursor-parent.js";
-import { handleCursorHookInput } from "./cursor-hook.js";
+import { handleCursorParentHook } from "./cursor-hook.js";
 import { defaultConsultStateDirectory } from "./platform/state.js";
 
 interface ParsedArgs {
@@ -191,7 +191,7 @@ async function main(): Promise<void> {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
     const raw = Buffer.concat(chunks).toString("utf8");
-    const result = await handleCursorHookInput(raw.length > 0 ? raw : "{}", root);
+    const result = await handleCursorParentHook(raw.length > 0 ? raw : "{}", { legacyStateDirectory: root });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }

@@ -14,12 +14,16 @@ import {
 } from "./contract.js";
 import { ConnectorError, connectorErrorCodes } from "./errors.js";
 import { codexParentSchema, type CodexParent } from "./codex-parent.js";
-import { cursorParentSchema, cursorReceiveCommand, type CursorParent } from "./cursor-parent.js";
+import { cursorParentSchema, cursorReceiveCommand as legacyCursorReceiveCommand, type CursorParent } from "./cursor-parent.js";
+import {
+  cursorHookParentSchema, cursorParentDelivery, cursorReceiveCommand, prepareCursorHookDelivery, type CursorHookParent,
+} from "./cursor-parent-receiver.js";
 import { codexHookDeliveryState } from "./codex-hook-state.js";
 import { chmodPrivateIfPosix, defaultConsultStateDirectory, posixModeExposesOthers } from "./platform/state.js";
 
-export type DeliveryParent = CodexParent | CursorParent;
-const deliveryParentSchema = z.union([cursorParentSchema, codexParentSchema]);
+/** CursorParentは0.14以前の受付（socket＋inbox）。新しい受付はCursorHookParent（aiterm-steer-delivery）。 */
+export type DeliveryParent = CodexParent | CursorParent | CursorHookParent;
+const deliveryParentSchema = z.union([cursorHookParentSchema, cursorParentSchema, codexParentSchema]);
 
 const retrySchema = z.enum([
   "never",
@@ -89,6 +93,14 @@ const snapshotSchema = z.object({
     state: z.enum(["waiting", "sending", "submitted", "failed", "unknown"]), error: z.string().nullable(),
   }).strict().optional(),
   receiveCommand: z.string().min(1).optional(),
+  parent_delivery: z.object({
+    delivery_id: z.string().uuid(),
+    wait_process: z.object({
+      executable: z.string().min(1),
+      args: z.array(z.string()),
+      windows_start_process_argument_list: z.string().nullable(),
+    }).strict(),
+  }).strict().optional(),
   state: z.enum(["queued", "uploading", "submitted", "running", "succeeded", "failed"]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -102,7 +114,7 @@ const ownerSchema = z.object({
 }).strict();
 
 const persistedSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8)]),
   jobs: z.array(z.object({
     fingerprint: z.string().min(1),
     parent: deliveryParentSchema.optional(),
@@ -273,12 +285,18 @@ export class ConsultJobStore {
             error: null,
             ...(deliveryId !== undefined ? {
               delivery: { id: deliveryId, mode: "steer" as const, state: "waiting" as const, error: null },
-              ...("socketRoot" in (parsedParent ?? {}) ? {
-                receiveCommand: cursorReceiveCommand(deliveryId, this.#stateDirectory),
+              ...(parsedParent && "socketRoot" in parsedParent ? {
+                receiveCommand: legacyCursorReceiveCommand(deliveryId, this.#stateDirectory),
               } : {}),
+              ...(parsedParent && "kind" in parsedParent ? (() => {
+                const parentDelivery = cursorParentDelivery(deliveryId);
+                return { receiveCommand: cursorReceiveCommand(parentDelivery.wait_process), parent_delivery: parentDelivery };
+              })() : {}),
             } : {}),
           },
         };
+        // hookは配送記録の無い配送IDを会話へ結ばないので、受付を返す前に作る。
+        if (deliveryId !== undefined && parsedParent && "kind" in parsedParent) prepareCursorHookDelivery(parsedParent, deliveryId);
         const next = new Map(current);
         next.set(slug, job);
         await this.#persist(next);
@@ -413,7 +431,7 @@ export class ConsultJobStore {
       );
     }
     const payload = JSON.stringify({
-      version: 7,
+      version: 8,
       jobs: [...jobs.values()].sort((left, right) =>
         left.snapshot.slug.localeCompare(right.snapshot.slug, "en")),
     });
@@ -425,7 +443,7 @@ export class ConsultJobStore {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       const previousVersion = previous === undefined ? null : JSON.parse(previous).version;
-      if (previous !== undefined && [1, 2, 3, 4, 5, 6].includes(previousVersion)) {
+      if (previous !== undefined && [1, 2, 3, 4, 5, 6, 7].includes(previousVersion)) {
         try { await writeFile(`${this.#statePath}.v${previousVersion}-backup`, previous, { mode: 0o600, flag: "wx" }); } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         }

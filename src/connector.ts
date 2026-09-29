@@ -39,6 +39,7 @@ import {
   verifyCursorParent,
   deliverCursorAnswer,
 } from "./cursor-parent.js";
+import { isCursorHookParent, submitCursorHookAnswer, verifyCursorHookParent } from "./cursor-parent-receiver.js";
 import { deliverPendingConsultJobs } from "./consult-delivery.js";
 import type { DeliveryParent } from "./consult-job-store.js";
 import {
@@ -234,10 +235,12 @@ export class GptConnector {
     this.#parentDelivery = options.parentDelivery ?? {
       async verify(parent) {
         if ("socketRoot" in parent) return verifyCursorParent(parent);
+        if (isCursorHookParent(parent)) return verifyCursorHookParent(parent);
         return verifyCodexParent(parent);
       },
       async submit(parent, id, text, outcome) {
         if ("socketRoot" in parent) return deliverCursorAnswer(parent, id, text, { outcome });
+        if (isCursorHookParent(parent)) return submitCursorHookAnswer(parent, id, text);
         return deliverCodexAnswer(parent, id, text);
       },
     };

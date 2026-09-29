@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.14.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.15.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -32,7 +32,7 @@ MarkItDownは別区分の第三者CLIです。
 - 通常Chatのone-shot送信と自動archive。
 - 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
 - Codex（DesktopまたはCLI）からの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
-- Cursor親からの相談は受付後に戻り、`receiveCommand`を背景シェルで回すと完了時に同じチャットへ回答が届く。実行中は次のツール返りへhookで差し込み、idleなら背景シェル完了で起こす。Codex／Claudeの配送は変更しない。
+- Cursor親（DesktopとCLI）からの相談は受付後に戻る。作業中は次のツール返りへ公式hookで差し込み、idleなら`receiveCommand`（`parent_delivery.wait_process`）を回した背景シェルの完了で起こす。配送はAitermと同じ共通パッケージが行う。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
 - live catalog取得と、既存のmodel／thinking effort明示選択。
@@ -98,7 +98,7 @@ gpt-connector setup --check
 | 専用Chrome起動・ChatGPTのlive model・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Grok Chatのmode取得・本文相談・会話継続 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Codexへの自動Steer | 対応 | 対応 | 対応 |
-| Cursor親への受け口押し込み | 対応 | 対応 | 対応 |
+| Cursor親への差し込みと背景受信 | 対応 | 対応 | 対応 |
 
 `setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、liveブラウザを提供しないOSで対応機能の確認が済みなら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
@@ -341,7 +341,7 @@ read-only診断だけでruntime errorを記録しない。`chatgpt_models`、Cha
 ```
 
 受付結果は`state="running"`、`result=null`と会話の`sessionId`を返す。Codex親には完了時に自動Steerし、監視ループは不要。
-Cursor親には`receiveCommand`が付き、それを背景シェルで回す。完了時にconnectorが受け口へ押し込む。監視ループは不要。
+Cursor親には`parent_delivery`と`receiveCommand`が付く。作業を続ければ次のツール返りに回答が差し込まれ、ターンを終える前に`receiveCommand`を背景シェルで回すとidle中の完了でも起きられる。監視ループは不要。
 他のクライアントでは回答を`sessions({"slug":"design-review-001"})`で取得する。
 `succeeded`を確認したら、返されたIDと新しいslugで追加質問する。
 
@@ -352,7 +352,7 @@ Cursor親には`receiveCommand`が付き、それを背景シェルで回す。�
 同じ会話に送った前提や資料の再送は不要。変更点と追加質問だけを渡せる。最後は`chatgpt_close({"sessionId":"初回に返されたUUID"})`で閉じる。
 `slug`は1問い合わせの重複防止ID、`sessionId`は複数問い合わせで共有する会話ID。
 Codex親の`consult`は`wait`指定にかかわらず受付後に戻り、コードが10秒ごとに完了を監視して自動Steerする。
-Cursor親の`consult`も受付後に戻り、返った`receiveCommand`を背景シェルで回す。
+Cursor親の`consult`も受付後に戻る。ターンを終える前に、返った`receiveCommand`を背景シェルで回す。
 他のクライアントは`wait`の既定が`true`で回答完了まで待つ。`wait=false`の場合は`sessions`で回収する。
 CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`consult --session-id <uuid> --keep-open`へ渡せる。
 
@@ -418,7 +418,7 @@ CLIは回答完了まで待ち、`consult --keep-open`で得たIDを次回の`co
 - stateは`queued | uploading | submitted | running | succeeded | failed`。
 - jobはowner-only JSONへatomic保存し、process再起動後も`sessions`で回収できる。異なるMCPプロセスの更新は短いtransaction lockで順序付ける。
 - 実行元が終了した非terminal jobだけを`JOB_RECOVERY_UNAVAILABLE`へ固定し、自動再送しない。他の実行元のjobは継続する。
-- ChatGPTとGrokは別のjob台帳を使う。既定のstate rootは`$XDG_STATE_HOME/gpt-connector/`（未設定時は`~/.local/state/gpt-connector/`）で、Grokの台帳はその`grok/`配下に置く。両方の台帳はversion 7で、version 1〜6を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
+- ChatGPTとGrokは別のjob台帳を使う。既定のstate rootは`$XDG_STATE_HOME/gpt-connector/`（未設定時は`~/.local/state/gpt-connector/`）で、Grokの台帳はその`grok/`配下に置く。両方の台帳はversion 8で、version 1〜7を読み、初回書込み前に`consult-jobs.json.v<旧版>-backup`へ元の台帳を保存する。旧版へ戻す場合は保存した台帳の復元が必要。
 - Codex／Cursor親への相談は配送状態も保存する。宛先情報は台帳の非公開項目で、MCP入力やsnapshotへ露出しない。
 
 ## failure codes

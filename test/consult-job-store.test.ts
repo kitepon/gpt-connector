@@ -264,7 +264,7 @@ test("terminal resultをstate transitionと再initialize後にも保持する", 
   });
 });
 
-for (const version of [1, 2, 3, 4, 5, 6]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
+for (const version of [1, 2, 3, 4, 5, 6, 7]) test(`旧台帳v${version}は読取りで変更せず、初回書込みだけ退避して移行する`, async () => {
   await withStateDirectory(async (stateDirectory) => {
     const path = join(stateDirectory, "consult-jobs.json");
     const legacy = JSON.stringify({ version, jobs: [{ fingerprint, snapshot: {
@@ -288,7 +288,7 @@ for (const version of [1, 2, 3, 4, 5, 6]) test(`旧台帳v${version}は読取り
     await writer.transition("new-question", "failed", {
       error: { code: "CHAT_FAILED", message: "回答生成に失敗しました。", retry: "never" },
     });
-    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 7);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, 8);
     assert.equal(await readFile(`${path}.v${version}-backup`, "utf8"), legacy);
     if (process.platform !== "win32") assert.equal((await stat(`${path}.v${version}-backup`)).mode & 0o777, 0o600);
     writer.close();

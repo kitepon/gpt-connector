@@ -1,23 +1,14 @@
+// Cursorの公式hook（afterMCPExecution・postToolUse）の登録。本体はaiterm-steer-delivery。
+// 0.14以前の`gpt-connector cursor-hook`の登録は、同じ位置のまま新しいhook入口へ置き換える。
 import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { z } from "zod";
+import * as steer from "aiterm-steer-delivery";
 
 import { makeFilePrivate } from "./platform/state.js";
-
-const hookEntrySchema = z.object({
-  command: z.string().min(1),
-  timeout: z.number().positive().optional(),
-  matcher: z.string().optional(),
-  failClosed: z.boolean().optional(),
-  type: z.string().optional(),
-}).passthrough();
-
-const hooksDocumentSchema = z.object({
-  version: z.number().optional(),
-  hooks: z.record(z.string(), z.array(hookEntrySchema)).optional(),
-}).passthrough();
+import { GPT_CONNECTOR_PROFILE as PROFILE } from "./steer-profile.js";
 
 export type CursorHooksResult = {
   readonly status: "ready" | "unchanged" | "disabled";
@@ -25,106 +16,74 @@ export type CursorHooksResult = {
   readonly changed: boolean;
 };
 
+const events = ["afterMCPExecution", "postToolUse"] as const;
+
 export function cursorHooksPath(home = homedir(), env = process.env): string {
   return join(env.CURSOR_HOME ?? join(home, ".cursor"), "hooks.json");
 }
 
-export function cursorHookCommand(
-  bin = process.env.GPT_CONNECTOR_BIN ?? "gpt-connector",
-): string {
-  return `${shellSingleQuote(bin)} cursor-hook`;
+export function cursorHookRuntime(node = process.execPath): steer.HookRuntime {
+  return {
+    command: steer.setupNodeExecutable(node),
+    script: fileURLToPath(new URL("./gpt-connector-cursor-parent-hook.js", import.meta.url)),
+  };
 }
 
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
+/** 0.14以前に登録した`'gpt-connector' cursor-hook`。 */
+function ownsLegacyHook(hook: unknown): boolean {
+  if (hook === null || typeof hook !== "object") return false;
+  const command = (hook as { command?: unknown }).command;
+  return typeof command === "string" && command.includes("cursor-hook") &&
+    (command.includes("gpt-connector") || command.includes("GPT_CONNECTOR"));
 }
 
-function ownsHook(hook: z.infer<typeof hookEntrySchema>, command: string, previous?: string): boolean {
-  if (hook.command === command) return true;
-  if (previous !== undefined && hook.command === previous) return true;
-  return typeof hook.command === "string" &&
-    hook.command.includes("cursor-hook") &&
-    (hook.command.includes("gpt-connector") || hook.command.includes("GPT_CONNECTOR"));
-}
-
-/** Cursorのhooks.jsonへ自分の2本だけを登録／解除する。他製品のhookと位置は保持する。 */
-export function mergeCursorParentHooks(
-  file: string,
-  command: string | null,
-  previousCommand?: string,
-): boolean {
+function readHooks(file: string): Record<string, unknown> | null {
   if (!existsSync(file)) {
     try {
-      if (lstatSync(file).isSymbolicLink()) {
-        throw new Error("Cursorのhooks設定symlinkの参照先がありません");
-      }
+      if (lstatSync(file).isSymbolicLink()) throw new steer.SetupError("config_invalid", "Cursorのhooks設定symlinkの参照先がありません");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    return null;
   }
-  const target = existsSync(file) ? realpathSync(file) : file;
-  let input: unknown = { version: 1, hooks: {} };
-  if (existsSync(target)) {
-    try {
-      input = JSON.parse(readFileSync(target, "utf8"));
-    } catch {
-      throw new Error("Cursorのhooks設定JSONを読めません");
-    }
+  let document: unknown;
+  try { document = JSON.parse(readFileSync(realpathSync(file), "utf8")); }
+  catch { throw new steer.SetupError("config_invalid", "Cursorのhook設定JSONを読めません"); }
+  if (document === null || typeof document !== "object" || Array.isArray(document)) {
+    throw new steer.SetupError("config_invalid", "Cursorのhooks設定はobjectである必要があります");
   }
-  const document = hooksDocumentSchema.safeParse(input);
-  if (!document.success) throw new Error("Cursorのhooks設定を読めません");
-  const current = document.data;
-  const hooks: Record<string, z.infer<typeof hookEntrySchema>[]> = {
-    ...(current.hooks ?? {}),
-  };
+  return document as Record<string, unknown>;
+}
 
-  const desired: Record<string, z.infer<typeof hookEntrySchema> | null> = {
-    afterMCPExecution: command === null ? null : {
-      command,
-      timeout: 5,
-      matcher: "consult",
-    },
-    postToolUse: command === null ? null : {
-      command,
-      timeout: 5,
-    },
-  };
+function hasLegacyHooks(document: Record<string, unknown> | null): boolean {
+  const hooks = document?.hooks;
+  if (hooks === null || typeof hooks !== "object") return false;
+  return events.some(event => {
+    const list = (hooks as Record<string, unknown>)[event];
+    return Array.isArray(list) && list.some(ownsLegacyHook);
+  });
+}
 
-  let changed = false;
-  for (const [event, entry] of Object.entries(desired)) {
-    const existing = [...(hooks[event] ?? [])];
-    const withoutOwned = existing.filter(hook => !ownsHook(hook, command ?? "", previousCommand));
-    const owned = existing.filter(hook => ownsHook(hook, command ?? "", previousCommand));
-    if (entry === null) {
-      if (owned.length === 0) continue;
-      if (withoutOwned.length) hooks[event] = withoutOwned;
-      else delete hooks[event];
-      changed = true;
-      continue;
-    }
-    if (owned.length === 1 && isDeepStrictEqual(owned[0], entry) && withoutOwned.length + 1 === existing.length) {
-      // 位置も含め自分の登録が既に正しい。
-      continue;
-    }
-    // 登録済みならその位置を保ち、中身だけ更新。無ければ末尾へ追加。
-    if (owned.length === 1) {
-      const index = existing.findIndex(hook => ownsHook(hook, command ?? "", previousCommand));
-      const next = existing.map((hook, i) => i === index ? entry : hook)
-        .filter((hook, i) => i === index || !ownsHook(hook, command ?? "", previousCommand));
-      hooks[event] = next;
-    } else {
-      hooks[event] = [...withoutOwned, entry];
-    }
-    changed = true;
+/** 旧登録を最初の位置で新しい登録へ置き換え、残りの旧登録を外す。entryがnullなら旧登録を外すだけ。 */
+function replaceLegacyHooks(file: string, entry: Record<string, unknown> | null): boolean {
+  const current = readHooks(file);
+  if (!hasLegacyHooks(current)) return false;
+  const hooks = { ...(current!.hooks as Record<string, unknown>) };
+  for (const event of events) {
+    const list = hooks[event];
+    if (!Array.isArray(list) || !list.some(ownsLegacyHook)) continue;
+    const index = list.findIndex(ownsLegacyHook);
+    const next = list.flatMap((hook, i) => i === index && entry ? [entry] : ownsLegacyHook(hook) ? [] : [hook]);
+    if (next.length) hooks[event] = next;
+    else delete hooks[event];
   }
-
-  const next = { ...current, version: current.version ?? 1, hooks };
-  if (!changed && isDeepStrictEqual(current, next)) return false;
-  if (existsSync(target)) copyFileSync(target, `${target}.gpt-connector-backup`);
+  const next = { ...current!, hooks };
+  const target = realpathSync(file);
+  copyFileSync(target, `${target}${PROFILE.backup_suffix}`);
   writeFileSync(target, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   makeFilePrivate(target);
   if (!isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), next)) {
-    throw new Error("Cursor hookの読戻しが一致しません");
+    throw new steer.SetupError("config_readback_failed", "Cursorのhook登録の読戻しが一致しません");
   }
   return true;
 }
@@ -134,26 +93,23 @@ export function configureCursorHooks(options: {
   readonly disable?: boolean;
   readonly home?: string;
   readonly env?: NodeJS.ProcessEnv;
-  readonly bin?: string;
+  readonly runtime?: steer.HookRuntime;
 } = {}): CursorHooksResult {
   const path = cursorHooksPath(options.home, options.env);
-  const command = cursorHookCommand(options.bin);
   if (options.check) {
-    const raw = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : { hooks: {} };
-    const document = hooksDocumentSchema.safeParse(raw);
-    const hooks = document.success ? document.data.hooks ?? {} : {};
-    const hasAfter = (hooks.afterMCPExecution ?? []).some(hook => ownsHook(hook, command));
-    const hasPost = (hooks.postToolUse ?? []).some(hook => ownsHook(hook, command));
-    return {
-      status: hasAfter && hasPost ? "ready" : "disabled",
-      path,
-      changed: false,
-    };
+    const document = readHooks(path);
+    const ready = steer.cursorParentHooksRegistered(PROFILE, document) && !hasLegacyHooks(document);
+    return { status: ready ? "ready" : "disabled", path, changed: false };
   }
   if (options.disable) {
-    const changed = mergeCursorParentHooks(path, null, command);
-    return { status: "disabled", path, changed };
+    const legacy = replaceLegacyHooks(path, null);
+    const current = steer.removeCursorParentHooks(PROFILE, path) === "removed";
+    return { status: "disabled", path, changed: legacy || current };
   }
-  const changed = mergeCursorParentHooks(path, command);
+  const runtime = options.runtime ?? cursorHookRuntime();
+  // パッケージの登録と同じ形で置き換えるので、続く登録は位置を変えずにunchangedになる。
+  const legacy = replaceLegacyHooks(path, { command: steer.cursorParentHookCommand(runtime), timeout: 15 });
+  const current = steer.mergeCursorParentHooks(PROFILE, path, runtime) === "configured";
+  const changed = legacy || current;
   return { status: changed ? "ready" : "unchanged", path, changed };
 }

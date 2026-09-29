@@ -12,8 +12,8 @@ importers:
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
       aiterm-steer-delivery:
-        specifier: ^0.1.5
-        version: 0.1.5
+        specifier: ^0.1.7
+        version: 0.1.7
       smol-toml:
         specifier: 1.8.0
         version: 1.8.0
@@ -394,8 +394,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  aiterm-steer-delivery@0.1.5:
-    resolution: {integrity: sha512-rkFwtxqEOS6RCIhgkEEzalyStZJ+ay1fFahgg2Ur968TZNzKy5GLKEe5tI9gSCdqd58y7QrTaZ4P9Fno3Z0xpQ==}
+  aiterm-steer-delivery@0.1.7:
+    resolution: {integrity: sha512-jKO/P+1kH+95vPh8Eiwm+0WNK8BHn2NpS8mtrAPgG+JnX7bL6DMx6GQWcM/fs0vc520EWSAVNaSckBlR/OiAlg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1471,7 +1471,7 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  aiterm-steer-delivery@0.1.5:
+  aiterm-steer-delivery@0.1.7:
     dependencies:
       zod: 4.4.3
 

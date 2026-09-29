@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.15.0 - 2026-09-29
+
+- Cursor親への配送を、Aitermと同じ共通パッケージaiterm-steer-delivery（0.1.7）の受け口へ移す。Cursor Desktop（client名`cursor-vscode`）に加え、Cursor CLI（client名`Cursor`）もCursor親として扱う。新しい受付は、tool結果の`parent_delivery.delivery_id`を公式hook（`afterMCPExecution`）が会話へ結び、作業中は次のツール返り（`postToolUse`）の`additional_context`へ、idle中は`receiveCommand`（`parent_delivery.wait_process`）の背景受信へ届ける。ChatGPTとGrokの両方が対象。
+- WindowsのCursorがhookの入力JSONの先頭に付けるBOMを取り除いて読む。以前の旧方式のhookもBOM付きの入力を読めず、Windowsでは作業中の差し込みが起きていなかった。
+- Cursor親の受付には公式hookの登録が必要になる。未登録なら相談先へ送る前に`PARENT_DELIVERY_UNAVAILABLE`で止める。`gpt-connector setup`で登録する。
+- `setup`は`~/.cursor/hooks.json`の旧い`gpt-connector cursor-hook`の登録を、同じ位置のまま新しいhook入口（`gpt-connector-cursor-parent-hook.js`）へ置き換える。他製品のhookと位置は保持する。
+- 0.14以前に受け付けたCursor親の依頼は、旧方式（socketと受信箱）で完了させる。新しいhook入口は旧方式の受信箱も取り出し、`gpt-connector cursor-receive`も残す。旧受付を新方式へ変換・再送はしない。
+- job台帳をversion 8へ更新する（Cursor親の新しい宛先と`parent_delivery`を保存するため）。version 1〜7の台帳は初回書込み前に元形式のbackupを残して移行する。旧版へ戻す時は全MCPを停止し、version 8の台帳を退避して移行前のbackupを復元するか、旧版専用の空state directoryを使う。移行後の回答はversion 8を読める版で回収する。
+- Cursorの配送記録は既定のstate directory（`XDG_STATE_HOME`、無ければ`~/.local/state`の`gpt-connector/cursor-parent-hooks`）に置く。MCP・hook・背景受信は同じ既定の場所を読む。
+
 ## 0.14.1 - 2026-09-29
 
 - 共通パッケージaiterm-steer-deliveryを0.1.5へ上げる。

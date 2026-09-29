@@ -13,6 +13,7 @@ import {
 } from "./contract.js";
 import { verifyCodexParent, deliverCodexAnswer } from "./codex-parent.js";
 import { verifyCursorParent, deliverCursorAnswer } from "./cursor-parent.js";
+import { isCursorHookParent, submitCursorHookAnswer, verifyCursorHookParent } from "./cursor-parent-receiver.js";
 import { ConnectorError, connectorErrorCodes, type ConnectorErrorCode } from "./errors.js";
 import { discoverGrokModules } from "./grok-asset-discovery.js";
 import {
@@ -78,10 +79,12 @@ export class GrokConnector {
     this.#parentDelivery = options.parentDelivery ?? {
       async verify(parent) {
         if ("socketRoot" in parent) return verifyCursorParent(parent);
+        if (isCursorHookParent(parent)) return verifyCursorHookParent(parent);
         return verifyCodexParent(parent);
       },
       async submit(parent, id, text, outcome) {
         if ("socketRoot" in parent) return deliverCursorAnswer(parent, id, text, { outcome });
+        if (isCursorHookParent(parent)) return submitCursorHookAnswer(parent, id, text);
         return deliverCodexAnswer(parent, id, text);
       },
     };

@@ -1,10 +1,13 @@
+import * as steer from "aiterm-steer-delivery";
 import { z } from "zod";
 
 import {
   bindCursorConversation,
   claimCursorInbox,
 } from "./cursor-inbox.js";
+import { cursorHookRoot } from "./cursor-parent-receiver.js";
 import { defaultConsultStateDirectory } from "./platform/state.js";
+import { GPT_CONNECTOR_PROFILE as PROFILE } from "./steer-profile.js";
 
 const commonSchema = z.object({
   hook_event_name: z.string().min(1),
@@ -68,6 +71,29 @@ function isGptConnectorConsult(serverName: string | undefined, toolName: string)
   return serverName === "gpt_connector" || serverName.startsWith("gpt_connector");
 }
 
+/**
+ * Cursorの公式hookの入口。新しい受付はaiterm-steer-deliveryが結び・差し込み、
+ * 0.14以前に受け付けた依頼は旧方式の受信箱から取り出す。どちらの本文も同じadditional_contextへ並べる。
+ */
+export async function handleCursorParentHook(
+  raw: string,
+  options: { hookRoot?: string; legacyStateDirectory?: string } = {},
+): Promise<Record<string, unknown>> {
+  // WindowsのCursorはhookの入力JSONの先頭にBOMを付ける。旧方式の読み取りにも同じ入力を渡す。
+  raw = steer.withoutBom(raw);
+  const current = await steer.handleCursorHook(PROFILE, raw, options.hookRoot ?? cursorHookRoot());
+  let event: unknown;
+  try { event = JSON.parse(raw); } catch { return current; }
+  if (event === null || typeof event !== "object") return current;
+  const record = event as Record<string, unknown>;
+  // 新しい受付の結果は旧方式の受信箱へ結ばない。
+  if (record.hook_event_name === "afterMCPExecution" && JSON.stringify(record.result_json ?? "").includes("parent_delivery")) return current;
+  const legacy = await handleCursorHookInput(raw, options.legacyStateDirectory);
+  const texts = [current.additional_context, legacy.additional_context].filter((text): text is string => typeof text === "string" && text.length > 0);
+  return texts.length > 0 ? { ...current, additional_context: texts.join("\n\n") } : current;
+}
+
+/** 旧方式（0.14以前の受付）の結び付けと受信箱。 */
 export async function handleCursorHookInput(
   raw: string,
   stateDirectory = defaultConsultStateDirectory(),

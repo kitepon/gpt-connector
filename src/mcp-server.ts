@@ -5,7 +5,7 @@ import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
 import { connectGrokWithBrowser } from "./grok-connection.js";
 import { parentFromRequest } from "./codex-parent.js";
-import { cursorParentFromRequest } from "./cursor-parent.js";
+import { cursorHookParentFromRequest } from "./cursor-parent-receiver.js";
 import type { DeliveryParent } from "./consult-job-store.js";
 import { defaultConsultStateDirectory } from "./platform/state.js";
 import { join } from "node:path";
@@ -257,7 +257,7 @@ export const mcpServerInstructions =
   "ChatGPTへ送る場合: second opinionはconsult、画像生成はchatgpt_imageへcaller既知slug・model・workspaceRoot・outputを渡す。" +
   "継続相談はconsultへkeepOpen=true・wait=falseを渡すと、回答完了前の受付時にsessionIdを返す。" +
   "Codex親からのconsultは受付後に戻り、connectorが10秒ごとに完了を監視して親へ自動Steerする。callerは監視ループや同じ相談の再実行を作らない。" +
-  "Cursor親からのconsultは受付後に戻り、receiveCommandを背景シェルで回す。connectorが完了時に受け口へ回答を押し込む。callerは監視ループや同じ相談の再実行を作らない。" +
+  "Cursor親からのconsultは受付後に戻る。作業を続ければ次のツール返りに回答が差し込まれる。ターンを終える前にreceiveCommandを背景シェルで回すと、idle中の完了でも起きられる。callerは監視ループや同じ相談の再実行を作らない。" +
   "他のクライアントではwait=trueで回答を待つか、sessionsで同じslugから取得する。完了後の追加質問は同じsessionId・新しいslug・keepOpen=trueで送る。" +
   "slugは1問い合わせの重複防止ID、sessionIdは複数問い合わせで共有する会話ID。最後はchatgpt_closeで会話を閉じる。" +
   "caller timeout後は再送せずsessionsで同じslugを確認する。最新の段階と互換model一覧はchatgpt_models、" +
@@ -276,7 +276,7 @@ export const mcpToolDescriptions = {
   consult:
     "OpenAI ChatGPT公式Web runtimeの通常Chatへ相談する。levelで最新の段階を選び、省略時は最新の右端。filesはworkspaceRoot相対で正規添付し、slugで冪等化する。" +
     "keepOpen=trueで会話を保持する。Codex親にはwait指定にかかわらず受付時に戻り、10秒ごとのコード監視で完了時に自動Steerするため、callerの監視ループは不要。配送不可ならChatGPTへの送信前にエラーにする。" +
-    "Cursor親にはwait指定にかかわらず受付時に戻り、receiveCommandを返す。callerはそれを背景シェルで回し、完了時にconnectorが受け口へ回答を押し込む。配送不可ならChatGPTへの送信前にエラーにする。" +
+    "Cursor親にはwait指定にかかわらず受付時に戻り、parent_deliveryとreceiveCommandを返す。作業を続ければ次のツール返りに回答が差し込まれ、ターンを終える前にreceiveCommandを背景シェルで回すとidle中の完了でも起きられる。配送不可ならChatGPTへの送信前にエラーにする。" +
     "他のクライアントではwait=falseで受付時のsessionIdを返し、回答はsessions(slug)で取得する。完了後は同じsessionId・新しいslugで追加質問する。継続中はkeepOpen=true、最後はchatgpt_close。" +
     chatgptContextWarning,
   sessions:
@@ -293,15 +293,11 @@ export const mcpToolDescriptions = {
   grok_close: "指定したGrok会話をsoft deleteして継続を終える。",
 } as const;
 
-/** Codexは従来どおり。Cursor clientのときだけsocket配送親を返す。 */
-export function resolveDeliveryParent(
-  clientName: string | undefined,
-  metadata: unknown,
-  stateDirectory: string,
-): DeliveryParent | null {
+/** Codexは従来どおり。Cursor clientはaiterm-steer-deliveryの受け口（hookの登録が必要）を返す。 */
+export function resolveDeliveryParent(clientName: string | undefined, metadata: unknown): DeliveryParent | null {
   const codex = parentFromRequest(clientName, metadata);
   if (codex) return codex;
-  return cursorParentFromRequest(clientName, stateDirectory);
+  return cursorHookParentFromRequest(clientName);
 }
 
 export function createGptConnectorMcpServer(
@@ -309,7 +305,7 @@ export function createGptConnectorMcpServer(
   resolveParent: (
     clientName: string | undefined,
     metadata: unknown,
-  ) => DeliveryParent | null = (name, meta) => resolveDeliveryParent(name, meta, host.stateDirectory),
+  ) => DeliveryParent | null = (name, meta) => resolveDeliveryParent(name, meta),
   grokHost: LazyGrokConnectorHost = new LazyGrokConnectorHost(),
 ): McpServer {
   const server = new McpServer(
@@ -442,9 +438,7 @@ export function createGptConnectorMcpServer(
     inputSchema: grokConsultInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, async (input, extra) => toolResult(async () => {
-    const parent = input.dryRun ? null : resolveDeliveryParent(
-      server.server.getClientVersion()?.name, extra._meta, grokHost.stateDirectory,
-    );
+    const parent = input.dryRun ? null : resolveParent(server.server.getClientVersion()?.name, extra._meta);
     return grokHost.run((connector) => connector.consult(input, parent ?? undefined));
   }));
 

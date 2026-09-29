@@ -70,7 +70,7 @@ interface ConsultInput {
 - 台帳の更新だけを短いtransaction lockで順序付ける。別processからの新規job作成も受け付け、実行中のjobはそれぞれのprocess IDとinstance IDで所有する。異なる会話の相談は同時に進められる。同じslug・異なるinputは`JOB_CONFLICT`、同一会話の同時turnは`SESSION_BUSY`。
 - `sessions`／同slug`consult`／diagnosticsはatomic台帳を再読込し、他processが更新したterminal snapshotを古いmemory cacheで隠さない。
 - process再起動時、terminal jobは回収する。実行元が終了した非terminal jobだけを`JOB_RECOVERY_UNAVAILABLE`でfailedへ固定し、他の生存processのjobは継続する。自動再送はしない。
-- 台帳version 7はversion 1〜6を読める。初回書込み前に元bytesを`consult-jobs.json.v<旧版>-backup`へowner-onlyで退避してから移行する。配送契約は[Codexへの自動Steer](codex-steer.md)を参照。
+- 台帳version 8はversion 1〜7を読める。初回書込み前に元bytesを`consult-jobs.json.v<旧版>-backup`へowner-onlyで退避してから移行する。配送契約は[Codexへの自動Steer](codex-steer.md)を参照。
 
 ## file解決
 
