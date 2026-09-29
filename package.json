@@ -65,6 +65,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
+    "aiterm-steer-delivery": "file:../aiterm-steer-delivery",
     "smol-toml": "1.8.0",
     "toml-eslint-parser": "0.10.0",
     "ws": "8.21.0",

@@ -1,149 +1,58 @@
-// Steerの正規導入。公式hookを登録・承認してから、旧中継の起動差し替えを解除する。
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { isDeepStrictEqual } from "node:util";
+// Steerの正規導入。公式hookを登録・承認してから、旧中継の起動差し替えを解除する。本体はaiterm-steer-delivery。
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
-import { withCodexReceiver } from "./codex-receiver.js";
-import { realCodexHome } from "./codex-receiver.js";
-import { CodexSteerSetupError as SetupError } from "./codex-steer-config.js";
-import { setupNodeExecutable } from "./platform/setup-node.js";
-import { readRelayConfig, type RelayConfig } from "./codex-steer-config.js";
-import { configureLegacyCodexSteer as configureLegacyRelay, findDesktopBinary } from "./setup-codex-steer.js";
-import { findWindowsCodexBinary } from "./platform/windows-codex-setup.js";
-import { readRuntimeProcesses, type RuntimeProcess } from "./platform/codex-processes.js";
-import { quotePowerShell } from "./platform/windows-powershell.js";
+import * as steer from "aiterm-steer-delivery";
+import { CodexSteerSetupError, readRelayConfig, type RelayConfig } from "./codex-steer-config.js";
+import { configureLegacyCodexSteer as configureLegacyRelay } from "./setup-codex-steer.js";
 import { ensurePrivateDirectory } from "./platform/state.js";
 import { macGuiEnvironment } from "./platform/macos-gui-environment.js";
-import { assertCodexHooksReady, codexHookDirectory, ownedCodexHooks, readCodexHookConfig, writeHookJson, type CodexHookConfig } from "./codex-hook-state.js";
+import { readCodexHookConfig, type CodexHookConfig } from "./codex-hook-state.js";
+import { GPT_CONNECTOR_PROFILE as PROFILE } from "./steer-profile.js";
+import { translateSteerError } from "./steer-errors.js";
 import type { CodexSteerAction, CodexSteerResult } from "./setup-codex-steer.js";
 export type { CodexSteerAction, CodexSteerResult } from "./setup-codex-steer.js";
 
 export function codexSteerSelected(): boolean { return readCodexHookConfig()?.enabled === true || readRelayConfig()?.enabled === true; }
-export function codexHookCommand(node: string, hook: string, directory: string, platform = process.platform): string {
-  if (platform === "win32") {
-    const script = `& ${[node, hook, directory].map(quotePowerShell).join(" ")}; exit $LASTEXITCODE`;
-    return `pwsh.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}`;
-  }
-  return [node, hook, directory].map(value => "'" + value.replace(/'/g, "'\"'\"'") + "'").join(" ");
-}
+export const codexHookCommand = steer.codexHookCommand;
 
 export function mergeCodexParentHooks(file: string, command: string | null, previousCommand?: string): boolean {
-  if (!fs.existsSync(file)) {
-    try { if (fs.lstatSync(file).isSymbolicLink()) throw new SetupError("codex_hook_config_invalid", "hook設定symlinkの参照先がありません"); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  try { return steer.mergeCodexParentHooks(PROFILE, file, command, previousCommand); }
+  catch (error) {
+    if (error instanceof steer.SetupError) throw Object.assign(new CodexSteerSetupError(error.code, error.message), { cause: error });
+    throw error;
   }
-  const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
-  let input: unknown = {};
-  if (fs.existsSync(target)) {
-    try { input = JSON.parse(fs.readFileSync(target, "utf8")); }
-    catch { throw new SetupError("codex_hook_config_invalid", "Codexのhook設定JSONを読めません"); }
-  }
-  const document = z.object({ hooks: z.record(z.string(), z.unknown()).optional() }).passthrough().safeParse(input);
-  if (!document.success) throw new SetupError("codex_hook_config_invalid", "Codexのhooks設定を読めません");
-  const current = document.data;
-  const hooks: Record<string, unknown> = { ...current.hooks };
-  for (const event of ["PostToolUse", "Stop"]) {
-    const groups = z.array(z.object({ hooks: z.array(z.record(z.string(), z.unknown())) }).passthrough()).safeParse(hooks[event] ?? []);
-    if (!groups.success) throw new SetupError("codex_hook_config_invalid", `${event}のhook設定を読めません`);
-    const owns = (hook: Record<string, unknown>) => hook.type === "command" &&
-      ((command !== null && hook.command === command) || (!!previousCommand && hook.command === previousCommand));
-    const desired = command === null ? null : { ...(event === "PostToolUse" ? { matcher: ".*" } : {}),
-      hooks: [{ type: "command", command, timeout: 20, ...(event === "PostToolUse" ? { additionalContextLimit: 0 } : {}) }] };
-    const registered = groups.data.filter(group => group.hooks.some(owns));
-    // 登録済みの位置を保ち、他製品の追加を自分の設定変更として扱わない。
-    if (desired && registered.length === 1 && isDeepStrictEqual(registered[0], desired)) continue;
-    const updated = groups.data.map(group => ({ ...group, hooks: group.hooks.filter(hook =>
-      !owns(hook)) })).filter(group => group.hooks.length);
-    if (desired) updated.push(desired);
-    if (updated.length) hooks[event] = updated; else delete hooks[event];
-  }
-  const next = { ...current, hooks };
-  if (isDeepStrictEqual(current, next)) return false;
-  if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.gpt-connector-backup`);
-  writeHookJson(target, next);
-  if (!isDeepStrictEqual(JSON.parse(fs.readFileSync(target, "utf8")), next)) throw new SetupError("codex_hook_readback_failed", "Codex hookの読戻しが一致しません");
-  return true;
 }
-
-type Runtime = {
-  platform: string; directory: string; codex_home: string; node: string; hook: string;
-  findBinary: () => string; processes: () => RuntimeProcess[];
-  legacy: () => RelayConfig | null; disableLegacy: () => Promise<CodexSteerResult>;
-  legacyOverride: () => string | null;
-  verify: (config: CodexHookConfig, approve: boolean) => Promise<void>;
-};
 
 export async function verifyCodexHookRegistration(config: CodexHookConfig, approve: boolean): Promise<void> {
-  fs.accessSync(config.node, fs.constants.X_OK); fs.accessSync(config.hook, fs.constants.R_OK);
-  const file = path.join(config.codex_home, "hooks.json");
-  await withCodexReceiver({ thread_id: "00000000-0000-4000-8000-000000000000", codex_home: config.codex_home }, async request => {
-    const list = () => request("hooks/list", { cwds: [config.codex_home] });
-    const hooks = ownedCodexHooks(await list(), config.command, file);
-    if (approve) {
-      const edits = hooks.filter(hook => !hook.enabled || hook.trustStatus !== "trusted").flatMap(hook => {
-        if (typeof hook.key !== "string" || typeof hook.currentHash !== "string") throw new SetupError("codex_hook_schema_unknown", "公式hookの承認情報を認識できません");
-        const key = `hooks.state.${JSON.stringify(hook.key)}`;
-        return [
-          { keyPath: `${key}.trusted_hash`, value: hook.currentHash, mergeStrategy: "replace" },
-          { keyPath: `${key}.enabled`, value: true, mergeStrategy: "replace" },
-        ];
-      });
-      if (edits.length) await request("config/batchWrite", { edits, filePath: path.join(config.codex_home, "config.toml") });
-    }
-    assertCodexHooksReady(await list(), config.command, file);
-  }, { executable: config.binary });
+  await withSetupErrors(() => steer.verifyCodexHookRegistration(PROFILE, config, approve));
 }
 
+type Runtime = steer.CodexSteerRuntime & { legacyOverride: () => string | null };
+
 export async function configureCodexSteer(action: CodexSteerAction = "status", overrides: Partial<Runtime> = {}): Promise<CodexSteerResult> {
-  const runtime: Runtime = { platform: process.platform, directory: codexHookDirectory(), codex_home: realCodexHome(),
-    node: process.execPath, hook: fileURLToPath(new URL("./codex-parent-hook.js", import.meta.url)),
-    findBinary: process.platform === "win32" ? findWindowsCodexBinary : findDesktopBinary,
-    processes: readRuntimeProcesses, legacy: readRelayConfig,
-    legacyOverride: () => process.platform === "darwin" ? macGuiEnvironment("getenv", "CODEX_CLI_PATH") : null,
-    disableLegacy: () => configureLegacyRelay("disable"), verify: verifyCodexHookRegistration, ...overrides };
-  const previous = readCodexHookConfig(runtime.directory);
-  const legacy = runtime.legacy();
-  const migrationRequired = !!legacy && (legacy.enabled || runtime.legacyOverride() === legacy.launcher);
-  const file = path.join(action === "disable" && previous ? previous.codex_home : runtime.codex_home, "hooks.json");
-  const save = (config: CodexHookConfig) => {
-    // 回答本文のclaimもこの配下に置く。Windowsでは子へ継承する本人専用ACLを設定する。
-    ensurePrivateDirectory(runtime.directory);
-    writeHookJson(path.join(runtime.directory, "config.json"), config);
+  const legacyOverride = overrides.legacyOverride ?? (() => process.platform === "darwin" ? macGuiEnvironment("getenv", "CODEX_CLI_PATH") : null);
+  const readLegacy = overrides.legacy ?? readRelayConfig;
+  // 旧中継は、有効な選択か、GUIの起動設定に旧launcherが残っている間は移行が必要。
+  const legacy = () => {
+    const relay = readLegacy() as (RelayConfig & { launcher?: string }) | { enabled: boolean; binary?: string } | null;
+    if (!relay) return null;
+    const pending = relay.enabled || ("launcher" in relay && relay.launcher !== undefined && legacyOverride() === relay.launcher);
+    return pending ? { enabled: true, ...(relay.binary ? { binary: relay.binary } : {}) } : null;
   };
-  const needsRestart = (config: CodexHookConfig) => runtime.processes().some(row => config.stale_processes.some(stale => stale.pid === row.pid && stale.started_identity === row.started_identity));
-  if (action === "status") {
-    if (!previous?.enabled) return migrationRequired ? { status: "failed", reason_code: "codex_steer_migration_required" } : { status: "disabled" };
-    await runtime.verify(previous, false);
-    if (migrationRequired) return { status: "failed", reason_code: "codex_steer_migration_required" };
-    return needsRestart(previous) ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "ready" };
+  const rest: Partial<Runtime> = { ...overrides };
+  delete rest.legacyOverride;
+  return withSetupErrors(() => steer.configureCodexSteer(PROFILE, action, {
+    hook: fileURLToPath(new URL("./codex-parent-hook.js", import.meta.url)),
+    disableLegacy: () => configureLegacyRelay("disable"), verify: verifyCodexHookRegistration,
+    prepareDirectory: directory => ensurePrivateDirectory(directory),
+    ...rest, legacy,
+  }));
+}
+
+// パッケージのsetup失敗は、gpt-connectorのsetup結果と同じreason_codeの形で返す。
+async function withSetupErrors<T>(action: () => Promise<T>): Promise<T> {
+  try { return await action(); }
+  catch (error) {
+    if (error instanceof steer.SetupError) throw Object.assign(new CodexSteerSetupError(error.code, error.message), { cause: error });
+    throw translateSteerError(error);
   }
-  if (action === "disable") {
-    if (previous?.enabled) { mergeCodexParentHooks(file, null, previous.command); save({ ...previous, enabled: false }); }
-    if (migrationRequired) return runtime.disableLegacy();
-    return previous?.enabled ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "disabled" };
-  }
-  if (!["darwin", "win32"].includes(runtime.platform)) return { status: "unsupported", reason_code: "codex_steer_platform_unsupported" };
-  if (previous?.enabled && fs.realpathSync(previous.codex_home) !== fs.realpathSync(runtime.codex_home)) throw new SetupError("codex_steer_configuration_conflict", "別のCODEX_HOMEでSteerが有効です。先に既存の選択を解除してください");
-  const node = setupNodeExecutable(runtime.node);
-  fs.accessSync(node, fs.constants.X_OK); fs.accessSync(runtime.hook, fs.constants.R_OK);
-  const binary = runtime.findBinary();
-  const command = codexHookCommand(node, runtime.hook, runtime.directory, runtime.platform as NodeJS.Platform);
-  const changed = mergeCodexParentHooks(file, command, previous?.command);
-  const normalize = (value: string) => runtime.platform === "win32" ? value.replaceAll("/", "\\").toLowerCase() : value;
-  const binaries = [binary, legacy?.binary, previous?.binary].filter((value): value is string => !!value).map(normalize);
-  const stale = !previous?.enabled || changed || migrationRequired
-    ? runtime.processes().filter(row => binaries.some(candidate => {
-      const command = normalize(row.command);
-      return command === candidate || command === `"${candidate}"` || command.startsWith(candidate + " ") || command.startsWith(`"${candidate}" `);
-    }))
-      .map(({ pid, started_identity }) => ({ pid, started_identity }))
-    : previous.stale_processes;
-  const config: CodexHookConfig = { schema: "gpt-connector.codex-parent-hooks.v1", enabled: true,
-    codex_home: runtime.codex_home, binary, command, node, hook: runtime.hook, stale_processes: stale };
-  await runtime.verify(config, true);
-  // 解除が中断しても、次のenableで移行を続行できるよう所有情報を先に保存する。
-  save(config);
-  if (migrationRequired) await runtime.disableLegacy();
-  return needsRestart(config) ? { status: "restart_required", reason_code: "codex_restart_required" } : { status: "ready" };
 }

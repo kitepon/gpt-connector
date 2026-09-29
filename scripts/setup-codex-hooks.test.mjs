@@ -13,7 +13,7 @@ function fixture(t) {
   const hook=join(root,'hook.js'); fs.writeFileSync(hook,'');
   const events=[]; let legacy=null; let rows=[];
   const runtime={platform:'darwin',directory:join(root,'state'),codex_home:home,node:process.execPath,hook,
-    findBinary:()=>'/official/codex',processes:()=>rows,legacy:()=>legacy,legacyOverride:()=>null,
+    findBinary:()=>'/official/codex',processes:()=>rows,legacy:()=>legacy,legacyOverride:()=>null,powershell:()=>String.raw`C:\Program Files\PowerShell\7\pwsh.exe`,
     disableLegacy:async()=>{events.push('disable');legacy={...legacy,enabled:false};return {status:'restart_required'};},
     verify:async(config,approve)=>{events.push(approve?'approve':'read'); const value=JSON.parse(fs.readFileSync(join(home,'hooks.json'),'utf8'));assert(value.hooks.Stop.some(group=>group.hooks.some(hook=>hook.command===config.command)));}};
   return {root,home,hook,runtime,events,setLegacy:value=>{legacy=value;},setProcesses:value=>{rows=value;}};
@@ -61,7 +61,7 @@ test('旧起動設定の解除失敗は新設定を残し、再実行で移行�
   const f=fixture(t); f.setLegacy({enabled:true});
   await assert.rejects(configureCodexSteer('enable',{...f.runtime,disableLegacy:async()=>{throw new Error('解除失敗');}}),/解除失敗/);
   assert.equal(readCodexHookConfig(f.runtime.directory).enabled,true);
-  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'failed',reason_code:'codex_steer_migration_required'});
+  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'restart_required',reason_code:'codex_restart_required'});
   assert.equal((await configureCodexSteer('enable',f.runtime)).status,'ready');
 });
 
@@ -69,7 +69,7 @@ test('解除済み記録でもGUIに旧launcherが残っていれば移行を要
   const f=fixture(t); await configureCodexSteer('enable',f.runtime);
   f.setLegacy({enabled:false,launcher:'/old/launcher'});
   f.runtime.legacyOverride=()=>'/old/launcher';
-  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'failed',reason_code:'codex_steer_migration_required'});
+  assert.deepEqual(await configureCodexSteer('status',f.runtime),{status:'restart_required',reason_code:'codex_restart_required'});
   f.events.length=0;
   await configureCodexSteer('enable',f.runtime);
   assert.deepEqual(f.events,['approve','disable']);
@@ -106,8 +106,9 @@ test('Windowsでも同じ導入順序と再起動判定を使い、PowerShell 7�
   f.setLegacy({enabled:true}); f.setProcesses([{pid:20,started_identity:'old',command:'"'+f.runtime.findBinary()+'" app-server'}]);
   assert.equal((await configureCodexSteer('enable',f.runtime)).status,'restart_required');
   assert.deepEqual(f.events,['approve','disable']);
-  const command=codexHookCommand(String.raw`C:\Node path\node.exe`,String.raw`C:\quo's app\hook.js`,String.raw`C:\state path`,'win32');
-  assert(command.startsWith('pwsh.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand '));
+  // Aitermと同じく、PowerShell 7を絶対pathと呼出し演算子で起動する。
+  const command=codexHookCommand(String.raw`C:\Node path\node.exe`,String.raw`C:\quo's app\hook.js`,String.raw`C:\state path`,'win32',()=>String.raw`C:\Program Files\PowerShell\7\pwsh.exe`);
+  assert(command.startsWith(String.raw`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoLogo -NoProfile -NonInteractive -EncodedCommand `));
   assert.equal(Buffer.from(command.split(' ').at(-1),'base64').toString('utf16le'),String.raw`& 'C:\Node path\node.exe' 'C:\quo''s app\hook.js' 'C:\state path'; exit $LASTEXITCODE`);
 });
 
