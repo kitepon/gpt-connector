@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.13.1 - 2026-09-29
+
+- 共通パッケージaiterm-steer-deliveryを0.1.1へ上げる。`setup --codex-steer disable`でgpt-connectorのhookを外した時、後ろに並ぶ他製品のCodex hookが位置のずれで「modified」扱いになり、承認が外れる問題を直す。承認を新たに与えたり外したりはしない。
+- 台帳・MCP toolの形式は0.13.0から変えない。0.13.0へ戻すと、disableで他製品のhookの承認が外れる問題が戻る。
+
 ## 0.13.0 - 2026-09-29
 
 - Codexの親への配送（公式キュー、同期hook、hookの導入・承認）を、Aitermと同じ共通パッケージ[aiterm-steer-delivery](https://github.com/kitepon/aiterm-steer-delivery)で行う。旧中継（socket）は引き続きgpt-connectorが持つ。

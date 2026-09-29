@@ -1,4 +1,4 @@
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
-  - aiterm-steer-delivery@0.1.0
+  - aiterm-steer-delivery@0.1.1
