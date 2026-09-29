@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.14.1 - 2026-09-29
+
+- 共通パッケージaiterm-steer-deliveryを0.1.5へ上げる。
+- Linuxの`setup`が、hookを入れたCODEX_HOMEとは別のCODEX_HOMEで動くCodex（同じ端末の他の利用者やBot）まで再起動待ちに数え、`codexSteer.status`が`restart_required`から抜けなかった問題を直す。macOS・Windowsは他processの環境を読めないため、今までどおり数える。
+- `setup --codex-steer disable`の後、gpt-connectorのhookが居た位置の承認記録（`config.toml`の`hooks.state`）が残っていた問題を直す。
+- 台帳・MCP toolの形式は0.14.0から変えない。
+
 ## 0.14.0 - 2026-09-29
 
 - CodexのSteer（作業中のターンへの差し込みと、公式キューでの配送）を、LinuxとCodex Desktopの無い端末にも広げる。共通パッケージaiterm-steer-deliveryを0.1.3へ上げた。公式Codex Desktopの同梱CLI（macOS・Windows・Linux）を先に探し、無ければ通常のCodex CLI（0.154以上）を使う。以前のLinuxは`setup`がSteerを導入せず、Desktopの無いMac・Windowsは`codex_desktop_not_identified`で止まっていた。

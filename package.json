@@ -1,6 +1,6 @@
 {
   "name": "gpt-connector",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "ログイン済みChatGPTとGrokのWeb runtimeへAIクライアントから相談するローカルconnector",
   "license": "MIT",
   "author": {
@@ -65,7 +65,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "aiterm-steer-delivery": "^0.1.3",
+    "aiterm-steer-delivery": "^0.1.5",
     "smol-toml": "1.8.0",
     "toml-eslint-parser": "0.10.0",
     "ws": "8.21.0",
