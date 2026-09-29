@@ -57,7 +57,7 @@ function setupPorts(platform: NodeJS.Platform) {
   };
 }
 
-test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerは起動しない", async () => {
+test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerも導入する", async () => {
   const deps = setupPorts("linux");
   let browserCalls = 0;
   let steerCalls = 0;
@@ -67,7 +67,7 @@ test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerは起�
   assert.equal(result.overall, "ready");
   assert.equal(result.live.supported, true);
   assert.equal(browserCalls, 1);
-  assert.equal(steerCalls, 0);
+  assert.equal(steerCalls, 1);
   assert.deepEqual(result.registrations.map((item) => item.client), setupClients);
   assert.ok(result.registrations.every((item) => (item.live as { status: string }).status === "ready"));
 });

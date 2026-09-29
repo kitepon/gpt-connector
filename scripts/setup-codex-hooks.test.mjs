@@ -92,10 +92,14 @@ test('不正な既存hook設定は書き換えない',t=>{
   }
 });
 
-test('Nodeが欠けてもdisableは実行でき、未対応OSのenableは設定しない',async t=>{
+test('LinuxでもPOSIXのhookを導入し、Nodeが欠けてもdisableは実行できる',async t=>{
   const f=fixture(t);
-  assert.equal((await configureCodexSteer('enable',{...f.runtime,platform:'linux'})).status,'unsupported');
-  assert.equal(fs.existsSync(join(f.home,'hooks.json')),false);
+  assert.equal((await configureCodexSteer('enable',{...f.runtime,platform:'linux'})).status,'ready');
+  const linux=readCodexHookConfig(f.runtime.directory).command;
+  assert.doesNotMatch(linux,/pwsh/);
+  assert.deepEqual(f.events,['approve']);
+  await configureCodexSteer('disable',{...f.runtime,platform:'linux'});
+  assert.doesNotMatch(fs.readFileSync(join(f.home,'hooks.json'),'utf8'),/hook\.js/);
   await configureCodexSteer('enable',f.runtime);
   await configureCodexSteer('disable',{...f.runtime,node:'/missing/node',hook:'/missing/hook'});
   assert.equal((await configureCodexSteer('status',f.runtime)).status,'disabled');

@@ -5,7 +5,8 @@ import { findWindowsParentSocket, windowsSocketConnection } from "./windows-code
 import { windowsCodexRuntime } from "./windows-codex-setup.js";
 import { ConnectorError } from "../errors.js";
 
-export const supportsCodexSteer = (platform: string = process.platform) => platform === "darwin" || platform === "win32";
+// 公式キューと同期hookはaiterm-steer-deliveryがDesktop同梱CLI、無ければ通常のCodex CLIで扱う。旧中継だけはmacOS・Windows限定。
+export const supportsCodexSteer = (platform: string = process.platform) => platform === "darwin" || platform === "win32" || platform === "linux";
 export const codexSteerPlatform = (platform: string = process.platform, directory?: string) => platform === "win32" ? windowsCodexRuntime(directory) : undefined;
 
 export function parentSocketForPlatform(mac: () => string): string {

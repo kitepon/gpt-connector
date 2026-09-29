@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.13.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.14.0`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -31,7 +31,7 @@ MarkItDownは別区分の第三者CLIです。
 
 - 通常Chatのone-shot送信と自動archive。
 - 受付時に返す会話IDによる複数turn継続。専用Chromeのpageを保持すればMCP再接続後も利用できる。
-- Codex Desktopからの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
+- Codex（DesktopまたはCLI）からの相談を10秒ごとにコードで監視し、完了時に親へ自動Steer。Aitermのインストールは不要。
 - Cursor親からの相談は受付後に戻り、`receiveCommand`を背景シェルで回すと完了時に同じチャットへ回答が届く。実行中は次のツール返りへhookで差し込み、idleなら背景シェル完了で起こす。Codex／Claudeの配送は変更しない。
 - explicit closeとserver archive read-back。
 - Webの「最新」と一致する5段階の選択と、省略時の右端選択。
@@ -55,7 +55,7 @@ MarkItDownは別区分の第三者CLIです。
 - liveブラウザ機能にはmacOS、Windows、またはLinuxの公式Google Chromeと、利用するChatGPT／Grokへログインできるaccount。
 - Linuxの専用ChromeはローカルX11（XWaylandを含む）の`DISPLAY`で表示を確認する。X11が無いWayland専用セッションはlive未対応。
 - Windowsの操作シェルはPowerShell 7。
-- Codexへの自動SteerにはmacOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）。公式キューと同期hookを使い、Codexの起動設定を差し替えない。
+- Codexへの自動SteerにはmacOS・Windows・Linuxの公式Codex Desktopの同梱CLI、無ければ通常のCodex CLI（どちらも0.154以上）。公式キューと同期hookを使い、Codexの起動設定を差し替えない。
 
 sourceからbuildする場合だけpnpm 11以上も必要。
 
@@ -79,7 +79,7 @@ Grok初回利用時は`gpt-connector browser start --provider grok`で同じ専�
 SSH転送されたCDP endpointで既にGrok tabへログイン済みなら、Grok toolは転送先から直接接続する。Grok tabの初回準備と手動ログインはChromeを所有する端末で行う。
 WindowsでSSHから同じ端末の専用Chromeを操作する場合、ログイン中の画面とSSHが別sessionでも、既存Chromeのwindow操作は製品が画面側のsessionで実行する。画面上のGrokログインは本人が行い、`grok-doctor`が`ready`になってから送信する。
 
-Codexを登録するMacとWindowsではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
+Codexを登録するMac、Windows、LinuxではSteer接続も準備する。`codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 起動用の中継、ログイン時の設定、確認・解除まで本製品が所有する。Aitermなど別製品の導入は必要ない。
 詳細は[Codexへの自動Steer](docs/codex-steer.md)を参照。
 
@@ -97,7 +97,7 @@ gpt-connector setup --check
 | `sessions`による既存job読取り・state診断 | 対応 | 対応 | 対応 |
 | 専用Chrome起動・ChatGPTのlive model・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Grok Chatのmode取得・本文相談・会話継続 | 対応 | 対応 | 対応（公式ChromeとX11） |
-| Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
+| Codexへの自動Steer | 対応 | 対応 | 対応 |
 | Cursor親への受け口押し込み | 対応 | 対応 | 対応 |
 
 `setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、liveブラウザを提供しないOSで対応機能の確認が済みなら

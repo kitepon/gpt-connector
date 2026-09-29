@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.13.1"
+gpt_connector_version="0.14.0"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -28,7 +28,7 @@ gpt-connector setup --check
 `--check`はnpm導入・設定書込み・browser start/showを実行しない。Chromeの表示状態も変えず、
 現在の登録・MCP応答・state・live・Codex Steerの状態を診断する。setup確認のためにChat、upload、conversationは作らない。
 
-MacとWindowsでCodexを登録する時は、同梱コードで公式Codex DesktopへのSteer接続も導入する。Aitermは不要。
+Mac、Windows、LinuxでCodexを登録する時は、同梱コードでCodexへのSteer接続も導入する。公式Codex Desktopの同梱CLIを先に使い、無ければ通常のCodex CLI（0.154以上）を使う。Aitermは不要。
 `registrations[].codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
 公式キューと同期hookを使い、自分のhookだけを承認する。旧中継は新hookの読戻し後に解除し、他製品のhook・承認・起動設定を保持する。
 所有ファイル・確認・解除は[Codexへの自動Steer](codex-steer.md)を参照。
@@ -92,7 +92,7 @@ GPT_CONNECTOR_CDP_ENDPOINT = "http://127.0.0.1:9223"
 | `sessions`の既存job読取り | 対応 | 対応 | 対応 |
 | 専用Chrome起動・表示、ChatGPTのmodels・Chat・画像・添付 | 対応 | 対応 | 対応（公式ChromeとX11） |
 | Grok Chatのmode取得・本文相談・会話継続 | 対応 | 対応 | 対応（公式ChromeとX11） |
-| Codex Desktopへの自動Steer | 対応 | 対応 | 未対応 |
+| Codexへの自動Steer | 対応 | 対応 | 対応 |
 
 setupは各登録のcommand・args・envでMCPへ接続し、応答したversionと公開tool集合を確認する。
 `diagnostics`が`not_ready`を返す場合も、MCP通信の成立とlive readinessを別に記録する。
@@ -106,7 +106,7 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 | `partial` | 2 | liveブラウザを提供しないOSで、登録・MCP・stateの確認は完了 |
 
 `partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
-Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む。Codexへの自動SteerはLinuxでは未対応のまま、失敗にはしない。
+Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む。Codexへの自動SteerはMac・Windowsと同じ条件で導入・診断する。
 `registrations`にAI別の保存先、backup、MCP、state、live、失敗段階を返す。秘密値や構文errorの生内容は出力しない。
 `SETUP_PACKAGE_FAILED`はnpm導入・引継ぎ、`SETUP_REGISTRATION_FAILED`は設定読取・構文・保存、
 `SETUP_MCP_FAILED`はcommand解決・版・stdio応答、`SETUP_STATE_FAILED`はstate読取、

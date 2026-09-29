@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-09-29
+
+- CodexのSteer（作業中のターンへの差し込みと、公式キューでの配送）を、LinuxとCodex Desktopの無い端末にも広げる。共通パッケージaiterm-steer-deliveryを0.1.3へ上げた。公式Codex Desktopの同梱CLI（macOS・Windows・Linux）を先に探し、無ければ通常のCodex CLI（0.154以上）を使う。以前のLinuxは`setup`がSteerを導入せず、Desktopの無いMac・Windowsは`codex_desktop_not_identified`で止まっていた。
+- LinuxでCodexを登録する`setup`も、Mac・Windowsと同じくSteerを導入・診断する。Codexが見つからない、または0.154未満の時は、Mac・Windowsと同じく`codexSteer`の失敗として返す。
+- 旧版の中継（socket）の解除はmacOS・Windowsだけのまま。台帳・MCP toolの形式は0.13.1から変えない。0.13.1へ戻すと、Linuxの`setup`はSteerを導入しなくなる。導入済みのhookは`setup --codex-steer disable`で外してから戻す。
+
 ## 0.13.1 - 2026-09-29
 
 - 共通パッケージaiterm-steer-deliveryを0.1.1へ上げる。`setup --codex-steer disable`でgpt-connectorのhookを外した時、後ろに並ぶ他製品のCodex hookが位置のずれで「modified」扱いになり、承認が外れる問題を直す。承認を新たに与えたり外したりはしない。

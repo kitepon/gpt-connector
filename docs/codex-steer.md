@@ -1,11 +1,12 @@
 # Codexへの自動Steer
 
-Codex Desktopから`consult`または`grok_consult`を呼ぶと、受付後もMCPが相談を監視し、完了時に同じ親タスクへ回答を送る。
+Codex（DesktopまたはCLI）から`consult`または`grok_consult`を呼ぶと、受付後もMCPが相談を監視し、完了時に同じ親タスクへ回答を送る。
 実行中は公式の同期hookから同じターンへ取り込み、終了後は公式キューから同じタスクを再開する。利用AIの監視ループは不要。
 
 ## 単独導入
 
-Node.js 22以上、macOSまたはWindowsの公式Codex Desktop（同梱CLI 0.154以上）、通常のChatGPT接続環境を使う。
+Node.js 22以上、Codex 0.154以上、通常のChatGPT接続環境を使う。macOS・Windows・Linuxに対応する。
+公式Codex Desktopの同梱CLIを先に探し、無ければ通常のCodex CLIを使う。旧版の中継の解除だけはmacOS・Windowsに限る。
 WindowsのシェルはPowerShell 7。配送・hook・導入コードは本packageに同梱し、Aitermのインストール・コマンド・設定は使わない。
 
 ```bash
@@ -35,7 +36,7 @@ gpt-connector setup --codex-steer status
 回答を含む記録はPOSIXの0700 directory／0600 file、Windowsの本人専用ACLで保護する。
 Codexの領域へはhook登録と公式APIによる承認だけを置く。旧`codex-steer/`は移行情報として保持する。
 Windowsは公式Desktopが展開した実行用コピーをMSIXの実行fileとSHA-256で照合する。
-Desktop未起動で実体がない場合は、公式Desktopを一度起動してからsetupする。
+Desktop未起動で実体がない場合は通常のCodex CLIを使う。Desktopの同梱CLIを使う場合は、公式Desktopを一度起動してからsetupする。
 
 ```bash
 gpt-connector setup --codex-steer enable
