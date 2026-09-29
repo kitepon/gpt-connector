@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.13.0 - 2026-09-29
+
+- Codexの親への配送（公式キュー、同期hook、hookの導入・承認）を、Aitermと同じ共通パッケージ[aiterm-steer-delivery](https://github.com/kitepon/aiterm-steer-delivery)で行う。旧中継（socket）は引き続きgpt-connectorが持つ。
+- Aitermと同じく、Steer（hook）が無効でも公式キューで配送する。Codexがidleになった時点で同じ会話へ届く。以前は`CODEX_HOOK_UNAVAILABLE`で配送しなかった。
+- WindowsのCodex hookは、PowerShell 7を絶対pathと呼出し演算子で起動する（Aitermと同じ）。既存の登録は`setup --codex-steer enable`の再実行で置き換わる。
+- 旧中継が残っている間の`--codex-steer status`は、Aitermと同じく`restart_required`を返す。
+- Codex環境（CODEX_HOME）が見つからない時の配送状態は、Aitermと同じく台帳の状態をそのまま返す。
+
 ## 0.12.4 - 2026-09-26
 
 - Codex Desktopに同梱される署名済みCLIの配置変更に追従し、`setup`がCodex側の公式hookを導入できない問題を修正する。
