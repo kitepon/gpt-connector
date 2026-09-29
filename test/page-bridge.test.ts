@@ -33,6 +33,8 @@ test("bridgeは画面のDOMやReact内部に触れず現行runtimeを使う", ()
   assert.match(expression, /sessionCount/u);
   assert.match(expression, new RegExp(bridgeBuildId, "u"));
   assert.doesNotThrow(() => new Function(expression));
+  // 内部関数の検出は圧縮後の変数名に依存しない（2026-09末の更新で変数名が入れ替わった）。
+  assert.doesNotMatch(expression, /"watch=s"|"n=\{toString:\(\)=>r\}"|"return n\?n\(\)"/u);
 });
 
 test("archiveのHTTP失敗は回答失敗に分類せず、段階とstatusを保持する", async () => {
@@ -51,6 +53,41 @@ test("archiveのHTTP失敗は回答失敗に分類せず、段階とstatusを保
     });
     await assert.rejects(archive({}), new RegExp(`${status === 500 ? "ARCHIVE_FAILED" : "AUTH_REQUIRED"}:.*HTTP ${status}.*Something went wrong\\.`, "u"));
   }
+});
+
+function terminalTurnWaiter(serverReplies: (read: number) => unknown) {
+  const expression = createBridgeBootstrapExpression("runtime");
+  const code = expression.slice(expression.indexOf("const readTerminalMessage = "), expression.indexOf("const extractResult = "));
+  let reads = 0;
+  const apiClient = { safeGet: async () => serverReplies(++reads) };
+  // 待機を即時に進める。
+  const setTimeout = (resolve: () => void) => { queueMicrotask(resolve); return 0; };
+  const wait = vm.runInNewContext(`${code}; waitForTerminalTurn`, { apiClient, setTimeout }) as
+    (conversation: object, status: () => string | null, failure: () => Error | null, imageMode: boolean) => Promise<void>;
+  return { wait, reads: () => reads };
+}
+
+const finished = (id: string) => ({ mapping: { a: { message: {
+  id, author: { role: "assistant" }, create_time: 10, status: "finished_successfully", end_turn: true,
+} } } });
+
+test("通常Chatは完了通知が来なくても打ち切らず、サーバーの終端メッセージで回答を拾う", async () => {
+  // 旧実装の上限（660回）を超えた15回目の照合で初めて終端メッセージが見える。
+  const { wait, reads } = terminalTurnWaiter(read => read < 15 ? { mapping: {} } : finished("answer"));
+  const conversation = { serverId: "server-1", parentMessageId: "user-1", lastMessage: null } as Record<string, unknown>;
+  await wait(conversation, () => null, () => null, false);
+  assert.equal(reads(), 15);
+  assert.equal((conversation.lastMessage as { id: string }).id, "answer");
+  assert.equal(conversation.parentMessageId, "answer");
+});
+
+test("待機中にサーバーが失敗を記録したら止め、画像は従来どおり打ち切る", async () => {
+  const failedTurn = { mapping: { a: { message: { id: "x", author: { role: "assistant" }, create_time: 10, status: "failed" } } } };
+  const failing = terminalTurnWaiter(() => failedTurn);
+  await assert.rejects(failing.wait({ serverId: "server-1", lastMessage: null }, () => null, () => null, false), /CHAT_FAILED:assistant_message_failed/u);
+  const image = terminalTurnWaiter(() => ({ mapping: {} }));
+  await assert.rejects(image.wait({ serverId: "server-1", lastMessage: null }, () => null, () => null, true), /STREAM_INCOMPLETE:terminal_turn_not_observed/u);
+  assert.equal(image.reads(), 0);
 });
 
 test("添付は公式アップロードの結果を会話へ渡して読戻す", () => {

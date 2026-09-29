@@ -38,20 +38,20 @@ const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuil
   ));
   const scopeWrapper = bySource("scopeWrapper", (source, value) =>
     value.length === 6 && source.includes("getOwnValue") &&
-    source.includes("queryClient") && source.includes("watch=s")
+    source.includes("queryClient") && /watch=[\w$]+/.test(source)
   );
   const atomModule = unique("atomModule", Object.entries(runtime.c).filter(([, module]) =>
     Object.values(module.exports ?? {}).some((value) =>
-      typeof value === "function" && functionSource(value).includes("n={toString:()=>r}")
+      typeof value === "function" && /\{toString:\(\)=>[\w$]+\}/.test(functionSource(value)) && functionSource(value).includes("atom\x24{")
     ) && Object.values(module.exports ?? {}).some((value) =>
-      typeof value === "function" && functionSource(value).includes("return n?n()")
+      typeof value === "function" && /return ([\w$]+)\?\1\(\)/.test(functionSource(value))
     )
   ).map(([key, module]) => [key, module.exports]));
   const atom = unique("atom", Object.entries(atomModule).filter(([, value]) =>
-    typeof value === "function" && functionSource(value).includes("n={toString:()=>r}")
+    typeof value === "function" && /\{toString:\(\)=>[\w$]+\}/.test(functionSource(value)) && functionSource(value).includes("atom\x24{")
   ));
   const createStore = unique("createStore", Object.entries(atomModule).filter(([, value]) =>
-    typeof value === "function" && functionSource(value).includes("return n?n()")
+    typeof value === "function" && /return ([\w$]+)\?\1\(\)/.test(functionSource(value))
   ));
   const Scheduler = unique("scheduler", exports.filter(([, value]) =>
     typeof value === "function" && typeof value.prototype?.schedule === "function" &&
@@ -374,8 +374,37 @@ const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuil
     }
   };
 
+  // サーバーの会話から、今回のturnの終端assistantメッセージを読む。失敗の記録があれば止める。
+  const readTerminalMessage = async (conversation) => {
+    const data = await apiClient.safeGet("/conversation/{conversation_id}", {
+      parameters: { path: { conversation_id: conversation.serverId } }
+    });
+    const messages = Object.values(data?.mapping ?? {})
+      .map((entry) => entry?.message)
+      .filter((message) => message?.author?.role === "assistant" &&
+        typeof message?.create_time === "number" &&
+        message.id !== conversation.parentMessageId &&
+        message.create_time > (conversation.lastMessage?.create_time ?? -Infinity))
+      .sort((left, right) => left.create_time - right.create_time);
+    const message = messages.filter((item) =>
+      item.status === "finished_successfully" && item.end_turn === true).at(-1);
+    if (message) {
+      conversation.lastMessage = message;
+      conversation.lastData = data;
+      conversation.parentMessageId = message.id;
+      return true;
+    }
+    if (messages.some((item) => item.status === "failed")) {
+      throw new Error("CHAT_FAILED:assistant_message_failed");
+    }
+    return false;
+  };
+
+  // 通常Chatの回答待ちに時間制限は設けない（生成の成功・明示的な失敗・通信エラーまで待つ）。
+  // 完了通知を取り逃しても止まらないよう、待機中も30秒ごとにサーバーの終端メッセージを照合する。
+  // 画像はsenderが生成後もpendingのことがあるため、従来どおり約330秒で打ち切る。
   const waitForTerminalTurn = async (conversation, completionStatus, senderFailure, imageMode) => {
-    for (let attempt = 0; attempt < 660; attempt += 1) {
+    for (let attempt = 0; !imageMode || attempt < 660; attempt += 1) {
       if (senderFailure()) throw senderFailure();
       const status = completionStatus();
       if (status != null && status !== "completed") {
@@ -384,32 +413,14 @@ const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuil
       if (conversation.serverId && status === "completed") {
         if (imageMode) await new Promise((resolve) => setTimeout(resolve, 30000));
         for (let read = 0; read < (imageMode ? 10 : 6); read += 1) {
-          const data = await apiClient.safeGet("/conversation/{conversation_id}", {
-            parameters: { path: { conversation_id: conversation.serverId } }
-          });
-          const messages = Object.values(data?.mapping ?? {})
-            .map((entry) => entry?.message)
-            .filter((message) => message?.author?.role === "assistant" &&
-              typeof message?.create_time === "number" &&
-              message.id !== conversation.parentMessageId &&
-              message.create_time > (conversation.lastMessage?.create_time ?? -Infinity))
-            .sort((left, right) => left.create_time - right.create_time);
-          const message = messages.filter((item) =>
-            item.status === "finished_successfully" && item.end_turn === true).at(-1);
-          if (message) {
-            conversation.lastMessage = message;
-            conversation.lastData = data;
-            conversation.parentMessageId = message.id;
-            return;
-          }
-          if (messages.some((item) => item.status === "failed")) {
-            throw new Error("CHAT_FAILED:assistant_message_failed");
-          }
+          if (await readTerminalMessage(conversation)) return;
           if (read === (imageMode ? 9 : 5)) break;
           await new Promise((resolve) => setTimeout(resolve, imageMode ? 30000 : 2000));
         }
         throw new Error("STREAM_INCOMPLETE:terminal_readback");
       }
+      if (!imageMode && conversation.serverId && attempt > 0 && attempt % 60 === 0 &&
+        await readTerminalMessage(conversation)) return;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     throw new Error("STREAM_INCOMPLETE:terminal_turn_not_observed");

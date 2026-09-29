@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.15.1 - 2026-09-30
+
+- ChatGPTの画面資産の更新で`RUNTIME_DRIFT`（`scopeWrapper`・`atomModule`を検出できない）になり、Chat・相談・診断が使えなくなっていた問題を直す。内部関数の検出が圧縮後の変数名（`watch=s`・`n={toString:()=>r}`・`return n?n()`）に依存していたので、変数名に依らない形で照合する。
+- Grokの画面資産の更新で`RUNTIME_DRIFT`（Grok api moduleを一意に検出できない）になっていた問題を直す。一つのfactoryの前に複数のmodule番号が並ぶ新しい形では、並びの先頭の番号をexportの持ち主として検出する。旧い形も受ける。
+- 通常Chatの回答待ちを、送信後約330秒で`STREAM_INCOMPLETE:terminal_turn_not_observed`として打ち切っていた問題を直す。説明どおり時間制限を設けず、生成の成功・明示的な失敗・通信エラーまで待つ。完了通知を取り逃しても止まらないよう、待機中も30秒ごとにサーバーの会話を照合する。Proなど長く考える段階で失敗していた。画像生成の打ち切りは従来どおり。
+- 台帳・MCP toolの形式は0.15.0から変えない。
+
 ## 0.15.0 - 2026-09-29
 
 - Cursor親への配送を、Aitermと同じ共通パッケージaiterm-steer-delivery（0.1.7）の受け口へ移す。Cursor Desktop（client名`cursor-vscode`）に加え、Cursor CLI（client名`Cursor`）もCursor親として扱う。新しい受付は、tool結果の`parent_delivery.delivery_id`を公式hook（`afterMCPExecution`）が会話へ結び、作業中は次のツール返り（`postToolUse`）の`additional_context`へ、idle中は`receiveCommand`（`parent_delivery.wait_process`）の背景受信へ届ける。ChatGPTとGrokの両方が対象。

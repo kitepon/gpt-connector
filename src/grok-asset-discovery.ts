@@ -11,8 +11,10 @@ export interface GrokModules {
 }
 
 const signatures = {
-  api: /"chatApi",0,[\w$]+,[\s\S]{0,1500}?\],(\d+)\)/gu,
-  responseStore: /(\d+),e=>\{"use strict";e\.s\(\[[^\]]*"useResponseStore"/gu,
+  // 2026-09末から、一つのfactoryの前に複数のmodule番号が並ぶ形（「},番号,番号,…,e=>{…e.s([…])」）になった。
+  // exportを持つのは並びの先頭の番号。chatApiは旧い「"chatApi",0,…],番号)」の形も受ける。
+  api: /[}"]\s*,\s*(\d+),(?:\d+,)*e=>\{"use strict";e\.s\(\[[^\]]*"chatApi",\(\)=>[\w$]+|"chatApi",0,[\w$]+,[\s\S]{0,1500}?\],(\d+)\)/gu,
+  responseStore: /[}"]\s*,\s*(\d+),(?:\d+,)*e=>\{"use strict";e\.s\(\[[^\]]*"useResponseStore"/gu,
   conversationStore: /"useConversationStore",\(\)=>[\w$]+\],(\d+)\)/gu,
   modesStore: /"useModesStore",0,[\w$]+\],(\d+)\)/gu,
   chatPageStore: /"useChatPageStore",\(\)=>[\w$]+,[\s\S]{0,200}?\],(\d+)\)/gu,
@@ -20,7 +22,7 @@ const signatures = {
 
 export function identifyGrokModules(sources: readonly string[]): GrokModules {
   const ids = Object.fromEntries(Object.entries(signatures).map(([role, signature]) => {
-    const found = new Set(sources.flatMap((source) => [...source.matchAll(signature)].map((match) => Number(match[1]))));
+    const found = new Set(sources.flatMap((source) => [...source.matchAll(signature)].map((match) => Number(match[1] ?? match[2]))));
     if (found.size !== 1) {
       throw new ConnectorError("RUNTIME_DRIFT", `Grok ${role} moduleを一意に検出できませんでした。`, { count: found.size });
     }

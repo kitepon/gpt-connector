@@ -17,6 +17,12 @@ test("Grokのruntime moduleを役割ごとに一意に検出する", () => {
   });
 });
 
+test("2026-09末の形（一つのfactoryに番号が並ぶ）では、並びの先頭の番号をchatApiとする", () => {
+  const current = '},2569170,820689,6224142,e=>{"use strict";e.s(["appDeployerApi",()=>aP,"chatApi",()=>aU,"modelsApi",()=>aJ])';
+  assert.equal(identifyGrokModules([current, stores]).api, 2569170);
+  assert.throws(() => identifyGrokModules([current, api.replace("2569170", "1234567"), stores]), /一意に検出/u);
+});
+
 test("欠落または曖昧なGrok runtimeは送信前に拒否する", () => {
   assert.throws(() => identifyGrokModules([api]), /一意に検出/u);
   assert.throws(() => identifyGrokModules([api, stores, api.replace("2569170", "1234567")]), /一意に検出/u);
