@@ -113,7 +113,8 @@ test("公式キュー投入後のhook出力失敗を台帳照会でunknownとし
       assert.equal(reader.get(slug).delivery!.state, "unknown");
       assert.equal(await readFile(join(stateDirectory, "consult-jobs.json"), "utf8"), original);
       await rm(codexHome, { recursive: true });
-      assert.equal(reader.get(slug).delivery!.state, "unknown");
+      // Aitermと同じく、Codex環境が見つからない時はhookの追加状態なしとして台帳の状態を返す。回答は回収できる。
+      assert.equal(reader.get(slug).delivery!.state, "submitted");
       assert.deepEqual(reader.get(slug).result, succeededResult);
       reader.close();
     } finally {
