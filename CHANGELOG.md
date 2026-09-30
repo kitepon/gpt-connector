@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Grokのruntime module検出を、exportする名前から新旧どちらの番号の書き方でも行う形へまとめる。今回chatApiだけが移った「一つのfactoryに番号が並ぶ」形へ、他のstoreが移っても止まらない。検出する番号は0.15.1と同じ。
+
 ## 0.15.1 - 2026-09-30
 
 - ChatGPTの画面資産の更新で`RUNTIME_DRIFT`（`scopeWrapper`・`atomModule`を検出できない）になり、Chat・相談・診断が使えなくなっていた問題を直す。内部関数の検出が圧縮後の変数名（`watch=s`・`n={toString:()=>r}`・`return n?n()`）に依存していたので、変数名に依らない形で照合する。

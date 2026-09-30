@@ -10,18 +10,29 @@ export interface GrokModules {
   readonly chatPageStore: number;
 }
 
-const signatures = {
-  // 2026-09末から、一つのfactoryの前に複数のmodule番号が並ぶ形（「},番号,番号,…,e=>{…e.s([…])」）になった。
-  // exportを持つのは並びの先頭の番号。chatApiは旧い「"chatApi",0,…],番号)」の形も受ける。
-  api: /[}"]\s*,\s*(\d+),(?:\d+,)*e=>\{"use strict";e\.s\(\[[^\]]*"chatApi",\(\)=>[\w$]+|"chatApi",0,[\w$]+,[\s\S]{0,1500}?\],(\d+)\)/gu,
-  responseStore: /[}"]\s*,\s*(\d+),(?:\d+,)*e=>\{"use strict";e\.s\(\[[^\]]*"useResponseStore"/gu,
-  conversationStore: /"useConversationStore",\(\)=>[\w$]+\],(\d+)\)/gu,
-  modesStore: /"useModesStore",0,[\w$]+\],(\d+)\)/gu,
-  chatPageStore: /"useChatPageStore",\(\)=>[\w$]+,[\s\S]{0,200}?\],(\d+)\)/gu,
+// 役割ごとに、moduleがexportする名前。
+const exportNames = {
+  api: "chatApi",
+  responseStore: "useResponseStore",
+  conversationStore: "useConversationStore",
+  modesStore: "useModesStore",
+  chatPageStore: "useChatPageStore",
 } as const;
 
+// Turbopackのmodule番号の書き方は2通りある。どちらでも同じ名前から番号を取る。
+// - 旧: 「e.s([…"名前",…],番号)」
+// - 2026-09末から: 一つのfactoryの前に番号が並ぶ「},番号,番号,…,e=>{"use strict";e.s([…"名前",…])」。exportを持つのは並びの先頭の番号。
+function moduleSignature(name: string): RegExp {
+  return new RegExp(
+    `e\\.s\\(\\[[^\\]]*"${name}",[^\\]]*\\],(\\d+)\\)` +
+    `|[}"]\\s*,\\s*(\\d+),(?:\\d+,)*e=>\\{"use strict";e\\.s\\(\\[[^\\]]*"${name}",`,
+    "gu",
+  );
+}
+
 export function identifyGrokModules(sources: readonly string[]): GrokModules {
-  const ids = Object.fromEntries(Object.entries(signatures).map(([role, signature]) => {
+  const ids = Object.fromEntries(Object.entries(exportNames).map(([role, name]) => {
+    const signature = moduleSignature(name);
     const found = new Set(sources.flatMap((source) => [...source.matchAll(signature)].map((match) => Number(match[1] ?? match[2]))));
     if (found.size !== 1) {
       throw new ConnectorError("RUNTIME_DRIFT", `Grok ${role} moduleを一意に検出できませんでした。`, { count: found.size });

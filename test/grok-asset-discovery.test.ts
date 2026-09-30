@@ -23,6 +23,19 @@ test("2026-09末の形（一つのfactoryに番号が並ぶ）では、並びの
   assert.throws(() => identifyGrokModules([current, api.replace("2569170", "1234567"), stores]), /一意に検出/u);
 });
 
+test("storeも新しい形（一つのfactoryに番号が並ぶ）へ移れば検出する", () => {
+  const merged = [
+    '},458272,11,e=>{"use strict";e.s(["useChatPageStore",()=>s,"useDraftText",()=>t])',
+    '},8647679,e=>{"use strict";e.s(["useModesStore",0,s])',
+    '},9900502,e=>{"use strict";e.s(["useResponseStore",()=>s])',
+    '},419746,22,33,e=>{"use strict";e.s(["useConversationStore",()=>s])',
+  ].join(";");
+  assert.deepEqual(identifyGrokModules([api, merged]), {
+    api: 2569170, responseStore: 9900502, conversationStore: 419746,
+    modesStore: 8647679, chatPageStore: 458272,
+  });
+});
+
 test("欠落または曖昧なGrok runtimeは送信前に拒否する", () => {
   assert.throws(() => identifyGrokModules([api]), /一意に検出/u);
   assert.throws(() => identifyGrokModules([api, stores, api.replace("2569170", "1234567")]), /一意に検出/u);
