@@ -11,6 +11,7 @@ import { arch as hostArch, platform as hostPlatform } from "node:os";
 import { dirname, join } from "node:path";
 
 import { assertPrivate, defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, ensurePrivateDirectory, makeFilePrivate, type WindowsAclApplier } from "./platform/state.js";
+import { isRuntimeErrorReportingEnabled } from "./runtime-error-reporting-state.js";
 import { packageVersion } from "./version.js";
 
 export { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath } from "./platform/state.js";
@@ -61,9 +62,14 @@ interface RecordEntry {
   sequence: number;
 }
 interface Store { schema: typeof runtimeErrorStoreSchema; next_sequence: number; acknowledged_through: number; records: RecordEntry[]; }
-export interface RuntimeErrorOptions { readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
+export interface RuntimeErrorOptions { readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly reportingPath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
 
-export function isRuntimeErrorCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath"> = {}): boolean {
+/** 収集は、工場の設定が有効にした時か、製品自身の送信を端末で有効にした時に行う。 */
+export function isRuntimeErrorCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath" | "storePath" | "reportingPath"> = {}): boolean {
+  return factoryCollectionEnabled(options) || isRuntimeErrorReportingEnabled(options);
+}
+
+function factoryCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath">): boolean {
   try {
     const path = options.configPath ?? defaultFactoryReporterConfigPath(options.env);
     const info = lstatSync(path);

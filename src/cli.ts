@@ -17,6 +17,7 @@ import {
   resolveRuntimeError,
   runtimeErrorStoreDiagnostic,
 } from "./runtime-error-store.js";
+import { getRuntimeErrorReportingStatus, reportRuntimeErrors, reportRuntimeErrorsBestEffort, setRuntimeErrorReporting } from "./runtime-error-reporting.js";
 import { packageVersion } from "./version.js";
 import { showBrowser, startBrowser } from "./browser-launcher.js";
 import { setup } from "./setup.js";
@@ -136,7 +137,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv[0] === "runtime-errors") {
-    writeJson(runtimeErrors(argv.slice(1)));
+    writeJson(await runtimeErrors(argv.slice(1)));
     return;
   }
   if (argv[0] === "browser") {
@@ -346,10 +347,10 @@ async function main(): Promise<void> {
   }
 }
 
-function runtimeErrors(argv: readonly string[]): unknown {
+async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
   const [command, ...rest] = argv;
-  if (command === undefined || !["snapshot", "diagnostics", "ack", "resolve", "reopen", "compact"].includes(command)) {
-    throw new Error("usage: gpt-connector runtime-errors <snapshot|diagnostics|ack|resolve|reopen|compact> [arguments] --json");
+  if (command === undefined || !["snapshot", "diagnostics", "ack", "resolve", "reopen", "compact", "reporting", "report"].includes(command)) {
+    throw new Error("usage: gpt-connector runtime-errors <snapshot|diagnostics|ack|resolve|reopen|compact|report|reporting <status|enable|disable>> [arguments] --json");
   }
   let json = false;
   let afterCursor = 0;
@@ -364,22 +365,30 @@ function runtimeErrors(argv: readonly string[]): unknown {
       if (current === "--after-cursor") afterCursor = Number(next); else limit = Number(next);
       continue;
     }
-    if (["ack", "resolve", "reopen"].includes(command) && value === undefined) { value = current; continue; }
+    if (["ack", "resolve", "reopen", "reporting"].includes(command) && value === undefined) { value = current; continue; }
     throw new Error("runtime-errorsの引数が不正です。");
   }
   if (!json) throw new Error("runtime-errorsには--jsonが必要です。");
   if (command === "snapshot") return readRuntimeErrorSnapshot({ afterCursor, limit });
   if (command === "diagnostics") return getRuntimeErrorDiagnostics();
   if (command === "compact") return compactRuntimeErrors();
+  if (command === "report") return reportRuntimeErrors("manual");
   if (value === undefined) throw new Error("runtime-errorsの値が必要です。");
+  if (command === "reporting") {
+    if (!["status", "enable", "disable"].includes(value)) throw new Error("runtime-errors reportingはstatus・enable・disableのいずれかです。");
+    return value === "status" ? getRuntimeErrorReportingStatus() : setRuntimeErrorReporting(value === "enable");
+  }
   if (command === "ack") return acknowledgeRuntimeErrors(Number(value));
-  if (command === "resolve") return resolveRuntimeError(value);
-  return reopenRuntimeError(value);
+  // 解決と取り消しは明示の記録なので、送信が有効な端末では続けてBugHubへ伝える。
+  const result = command === "resolve" ? resolveRuntimeError(value) : reopenRuntimeError(value);
+  await reportRuntimeErrorsBestEffort();
+  return result;
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error.code) : "disabled";
   if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
+  if (telemetry === "recorded") await reportRuntimeErrorsBestEffort();
   if (error instanceof ConnectorError) {
     process.stderr.write(`${JSON.stringify({ code: error.code, message: error.message })}\n`);
   } else {

@@ -259,11 +259,37 @@ host は `unsupported`、検査できない項目は `unverified` です。専�
 同じproviderのtabが複数開いている時は、bridgeが入っているtab（無ければtarget idの順で1枚）を選んで調べます。
 MCPとCLIの操作も同じtabを使います。いずれも upload、conversation、archive、job 作成を行いません。
 
-`runtime-errors` は product-owned local aggregate であり、network I/O は実装しません。canonical
-dotagents factory config（POSIX: `~/.config/dotagents/factory-reporter.json`、Windows native:
-`%LOCALAPPDATA%\\dotagents\\factory-reporter\\config.json`）が厳密な JSON shape で
-`collection.enabled: true` の場合だけ collection を開始します。設定なし・不正設定・
-`reporting.enabled`・token/credentialの存在は collection を有効にしません。既定はOFFです。
+`runtime-errors` は product-owned local aggregate です。既定では収集も通信もしません。
+collection を開始するのは次のどちらかの時だけです。
+
+- canonical dotagents factory config（POSIX: `~/.config/dotagents/factory-reporter.json`、Windows native:
+  `%LOCALAPPDATA%\\dotagents\\factory-reporter\\config.json`）が厳密な JSON shape で `collection.enabled: true` の時。
+- この端末で `gpt-connector runtime-errors reporting enable --json` を実行して、製品自身の送信を有効にした時。
+
+factory config の `reporting.enabled` や、token/credential の存在だけでは collection を有効にしません。
+
+### 実行時エラーをBugHubへ送る（既定は無効）
+
+製品自身が、集めた実行時エラーをBugHubの受け口へ送れます。**既定では通信しません**。送るのは、次の2つがそろった端末だけです。
+
+- この端末で `gpt-connector runtime-errors reporting enable --json` を実行している。
+- BugHubの持ち主が置いた合鍵がある（POSIX: `~/.config/bughub/product-credentials/gpt-connector.json`、
+  Windows native: `%LOCALAPPDATA%\\bughub\\product-credentials\\gpt-connector.json`。中身は `url`・`key_id`・`secret`）。
+  本人所有・本人だけが読める・symlinkでないfileだけを使います。
+
+送る中身は `runtime-errors snapshot` の記録（固定のcode・回数・時刻・版）だけです。prompt、path、生のerror、端末名は送りません。
+秘密値は通信に載せず、本文のHMAC-SHA256署名を付けます。受領済みにするのは、200・`accepted: true`・`report_id`の一致・
+応答の署名の一致がそろった時だけです。そろわない時は受領済みにせず、後からその時点の累計を送り直します。
+
+自動で送るのは、未受領の記録がある時だけで、多くても1時間に1回です（errorを記録した時、MCP serverの起動時、
+`resolve`／`reopen` の後）。認証や形の不正で断られた時は、合鍵か版が変わるまで自動では送り直しません。
+
+```bash
+gpt-connector runtime-errors reporting status --json   # 設定・合鍵の有無・直近の結果（秘密値と宛先は出さない）
+gpt-connector runtime-errors reporting enable --json
+gpt-connector runtime-errors reporting disable --json
+gpt-connector runtime-errors report --json             # 今すぐ送る（1分に1回まで）
+```
 
 公開操作はすべて `--json` 必須です。
 

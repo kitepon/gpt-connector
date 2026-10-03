@@ -4,7 +4,7 @@ import { chmodSync, lstatSync, mkdirSync, statSync } from "node:fs";
 import { chmod } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { homedir, platform as hostPlatform } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export type WindowsAclApplier = (path: string, directory: boolean) => void;
 
@@ -22,6 +22,19 @@ export function defaultRuntimeErrorStorePath(env: NodeJS.ProcessEnv = process.en
   return isWindows(env)
     ? join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "gpt-connector", "runtime-errors.json")
     : join(env.XDG_STATE_HOME ?? join(home, ".local", "state"), "gpt-connector", "runtime-errors.json");
+}
+
+// 送信の設定と状態は、runtime errorのstoreと同じ製品専用directoryに置く。
+export function defaultRuntimeErrorReportingPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(dirname(defaultRuntimeErrorStorePath(env)), "runtime-error-reporting.json");
+}
+
+// BugHubが端末×製品ごとに発行する合鍵。置くのはBugHubの持ち主で、製品は読むだけ。
+export function defaultBugHubCredentialPath(env: NodeJS.ProcessEnv = process.env): string {
+  const home = env.HOME ?? env.USERPROFILE ?? homedir();
+  return isWindows(env)
+    ? join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "bughub", "product-credentials", "gpt-connector.json")
+    : join(home, ".config", "bughub", "product-credentials", "gpt-connector.json");
 }
 
 export function defaultConsultStateDirectory(): string {

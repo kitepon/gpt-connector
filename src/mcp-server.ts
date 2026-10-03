@@ -26,6 +26,7 @@ import {
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
 import { recordRuntimeErrorBestEffort, runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
+import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { packageVersion } from "./version.js";
 
 interface ConnectorPort {
@@ -474,6 +475,8 @@ async function toolResult(action: () => Promise<unknown>) {
   } catch (error) {
     const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error.code) : "disabled";
     if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
+    // 送信はtoolの応答を待たせない。無効な端末では通信しない。
+    if (telemetry === "recorded") void reportRuntimeErrorsBestEffort();
     const body =
       error instanceof ConnectorError
         ? { code: error.code, message: error.message }
