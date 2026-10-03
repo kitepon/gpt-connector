@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-10-03
+
 - 実行時エラーを、製品自身がBugHubの受け口へ送れるようにする。**既定では通信しない**。端末で`runtime-errors reporting enable`を実行し、BugHubの持ち主が合鍵（`~/.config/bughub/product-credentials/gpt-connector.json`）を置いた端末でだけ送る。
 - 送る中身は`runtime-errors snapshot`の記録だけで、本文のHMAC-SHA256署名を付ける。秘密値は通信に載せない。受領済みにするのは、200・`accepted: true`・`report_id`の一致・応答の署名の一致がそろった時だけ。
 - 自動の送信は未受領の記録がある時だけで、多くても1時間に1回（errorの記録時、MCP serverの起動時、`resolve`／`reopen`の後）。`runtime-errors report`で今すぐ送れる（1分に1回まで）。`runtime-errors reporting status`で設定・合鍵の有無・直近の結果を確かめる。
 - 製品自身の送信を有効にした端末では、dotagentsのfactory configが無くてもruntime errorを収集する。`runtime-errors diagnostics`と`snapshot`の出力の形は変えない。
+- 台帳・MCP toolの形式は0.15.5から変えない。
 
 ## 0.15.5 - 2026-10-03
 
