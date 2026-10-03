@@ -3,7 +3,7 @@
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
 import { grokChatModeSchema } from "./contract.js";
-import { connectGrokWithBrowser } from "./grok-connection.js";
+import { connectChatGptWithBrowser, connectGrokWithBrowser } from "./browser-connection.js";
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
 import { factoryDiagnostics } from "./factory-diagnostics.js";
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
     } finally { grok.close(); }
     return;
   }
-  const connector = await GptConnector.connect({ endpoint, stateDirectory });
+  const connector = await connectChatGptWithBrowser({ endpoint, stateDirectory });
 
   try {
     if (command === "models") {

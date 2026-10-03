@@ -28,6 +28,36 @@ test("factory diagnosticsはChrome起動中のCDP異常（HTTP error）をnot_re
   }
 });
 
+test("factory diagnosticsは起動中ChromeでChatGPT tabが閉じられているだけならidleとしてunverifiedにする", async () => {
+  // MCP/CLIの次の利用でtabを準備し直せるため、Chrome未起動と同じく故障扱いしない。
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json([
+    { id: "a", type: "page", url: "http://192.168.1.2:39310/", webSocketDebuggerUrl: "ws://127.0.0.1:9223/devtools/page/a" },
+  ])) as typeof fetch;
+  try {
+    const result = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "darwin" });
+    assert.equal(result.overall, "unverified");
+    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "unverified", reason: "chatgpt_tab_idle" });
+    assert.equal(result.checks.find((check) => check.id === "auth")?.reason, "cdp_not_inspected");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("factory diagnosticsはChatGPT tabの重複をnot_readyのまま返す", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json(["a", "b"].map((id) => (
+    { id, type: "page", url: "https://chatgpt.com/", webSocketDebuggerUrl: `ws://127.0.0.1:9223/devtools/page/${id}` }
+  )))) as typeof fetch;
+  try {
+    const result = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "darwin" });
+    assert.equal(result.overall, "not_ready");
+    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "not_ready", reason: "cdp_unavailable" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("factory diagnosticsはlive browser非対応hostをCDP不備でなくunsupportedにする", async () => {
   for (const platform of ["freebsd"] as const) {
     const result = await factoryDiagnostics({ endpoint: "https://example.com", platform });

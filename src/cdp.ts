@@ -122,6 +122,7 @@ export async function discoverProviderTarget(
     throw new ConnectorError(
       "CDP_UNAVAILABLE",
       `専用Chromeに${provider === "chatgpt" ? "ChatGPT" : "Grok"}公式page targetがありません。`,
+      { targetMissing: true },
     );
   }
 

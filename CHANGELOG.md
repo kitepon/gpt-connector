@@ -2,7 +2,12 @@
 
 ## Unreleased
 
+## 0.15.2 - 2026-10-03
+
+- MCPとCLIのChatGPT操作は、専用Chromeが止まっている時やChatGPT tabが閉じられている時に、Grokと同じく`browser start`相当の準備をしてから接続し直す。これまでは`CDP_UNAVAILABLE`で止まり、利用者が`browser start`を手で実行する必要があった。9223が専用Chromeの物でない（SSH転送など）時は準備せず、ポート衝突ではなく元の接続失敗を返す。Grokも同じ扱いにそろえた。
+- `factory-diagnostics`は、起動中の専用ChromeでChatGPT tabが閉じられているだけの状態を、Chrome未起動（`chrome_idle`）と同じく平常として`cdp: unverified`（reason `chatgpt_tab_idle`）で返す。次の利用で準備し直せる状態を`not_ready`（工場のfail）にしていた。tabの重複や一覧の異常は従来どおり`not_ready`。
 - Grokのruntime module検出を、exportする名前から新旧どちらの番号の書き方でも行う形へまとめる。今回chatApiだけが移った「一つのfactoryに番号が並ぶ」形へ、他のstoreが移っても止まらない。検出する番号は0.15.1と同じ。
+- 台帳・MCP toolの形式は0.15.1から変えない。
 
 ## 0.15.1 - 2026-09-30
 

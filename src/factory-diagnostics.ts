@@ -103,13 +103,14 @@ async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
     if (error instanceof ConnectorError && error.code === "INVALID_INPUT") throw error;
     if (
       error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" &&
-      error.details?.unreachable === true
+      (error.details?.unreachable === true || error.details?.targetMissing === true)
     ) {
-      // 専用Chromeが起動していない＝on-demand設計の平常状態（idle）。故障ではないため
-      // not_readyへ丸めず、live runtime系checkを「未検証（chrome_idle）」として返す。
-      // 起動中の異常（HTTP error・target不正・RUNTIME_DRIFT）は従来どおりnot_ready。
+      // 専用Chromeが起動していない、またはChatGPT tabが閉じられている＝on-demand設計の平常状態（idle）。
+      // MCP/CLIの次の利用で`browser start`相当の準備が走るため、not_readyへ丸めず
+      // live runtime系checkを「未検証（chrome_idle／chatgpt_tab_idle）」として返す。
+      // 起動中の異常（HTTP error・target重複や形式不正・RUNTIME_DRIFT）は従来どおりnot_ready。
       return {
-        cdp: check("cdp", "unverified", "chrome_idle"),
+        cdp: check("cdp", "unverified", error.details?.unreachable === true ? "chrome_idle" : "chatgpt_tab_idle"),
         origin: check("official_origin", "unverified", "cdp_not_inspected"),
         auth: check("auth", "unverified", "cdp_not_inspected"),
         bridge: check("runtime_bridge", "unverified", "cdp_not_inspected"),

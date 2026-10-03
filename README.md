@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.15.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.15.2`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -228,7 +228,7 @@ npx --yes gpt-connector@latest setup
 gpt-connector setup --check
 ```
 
-`doctor`が`cdp_unavailable`なら`browser start`を使います。`auth_required`なら`browser show`で専用Chromeを表示し、そこで手動ログインします。
+`doctor`が`cdp_unavailable`なら`browser start`を使います。専用Chromeが止まっている時とChatGPT tabが閉じられている時は、MCPとCLIのChatGPT操作もこの準備を自動で試みます（9223が別の持ち主、たとえばSSH転送なら準備せず元の失敗を返します）。`auth_required`なら`browser show`で専用Chromeを表示し、そこで手動ログインします。
 `runtime_drift`なら製品更新または製品側修理が正規復旧です。別APIや通常Chromeへfallbackしません。
 caller timeout後のconsult／画像jobは同じslugを再送せず、`sessions --slug <slug>`で既存jobを回収します。
 process再起動前の非terminal jobは`JOB_RECOVERY_UNAVAILABLE`となり、自動再送しません。
@@ -251,7 +251,9 @@ gpt-connector runtime-errors snapshot --after-cursor 0 --limit 256 --json
 `factory-diagnostics` は package version、既存 diagnostics schema、overall、consult job の
 state/job schema と migration、CDP、official origin、auth、runtime bridge、stdio MCP contractを
 固定 check ID で返します。Chrome/CDP/auth が未準備なら `not_ready`、live connector を提供しない
-host は `unsupported`、検査できない項目は `unverified` です。いずれも upload、conversation、archive、
+host は `unsupported`、検査できない項目は `unverified` です。専用Chromeの未起動（`cdp`の reason
+`chrome_idle`）と、起動中ChromeでChatGPT tabが閉じられているだけの状態（`chatgpt_tab_idle`）は、
+次の利用で準備し直せる平常状態なので `unverified` です。いずれも upload、conversation、archive、
 job 作成を行いません。
 
 `runtime-errors` は product-owned local aggregate であり、network I/O は実装しません。canonical

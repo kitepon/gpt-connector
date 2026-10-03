@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
-import { connectGrokWithBrowser } from "./grok-connection.js";
+import { connectChatGptWithBrowser, connectGrokWithBrowser } from "./browser-connection.js";
 import { parentFromRequest } from "./codex-parent.js";
 import { cursorHookParentFromRequest } from "./cursor-parent-receiver.js";
 import type { DeliveryParent } from "./consult-job-store.js";
@@ -59,7 +59,7 @@ export class LazyConnectorHost {
   ) {
     this.#endpoint = endpoint;
     this.#stateDirectory = stateDirectory;
-    this.#connect = connect ?? (() => GptConnector.connect({
+    this.#connect = connect ?? (() => connectChatGptWithBrowser({
       endpoint: this.#endpoint,
       stateDirectory: this.#stateDirectory,
     }));

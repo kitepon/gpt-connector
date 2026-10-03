@@ -85,7 +85,7 @@ export async function showBrowser(options: BrowserOptions = {}): Promise<Browser
   if (!await bounded(endpointReady(), timeout, "CDP endpoint確認がtimeoutしました")) throw new ConnectorError("CDP_UNAVAILABLE", "専用ChromeのCDP endpointを確認できませんでした。");
   const showTimeout = options.appProbeTimeoutMs ?? appProbeTimeoutMs;
   const ownershipTimeout = Math.max(timeout, options.ownershipProbeGraceMs ?? adapter.ownershipProbeTimeoutMs ?? ownershipProbeGraceMs);
-  if (!await bounded(ownershipReady(), ownershipTimeout, "CDP endpoint所有確認がtimeoutしました")) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。");
+  if (!await bounded(ownershipReady(), ownershipTimeout, "CDP endpoint所有確認がtimeoutしました")) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。", { portConflict: true });
   await showOwnedWindow(inspect, options.windowShower ?? (() => showProviderWindow(fetcher, showTimeout, provider)), options.processRevealer ?? revealProcess, options.processActivator ?? activateProcess, options.windowVisibilityVerifier ?? verifyWindowVisibility, showTimeout, "専用Chromeを表示可能状態へ復帰できませんでした。", "CDP_UNAVAILABLE");
   return { ok: true, status: "shown", endpoint };
 }
@@ -150,7 +150,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
     const owned = await bounded(ownershipReady(), Math.max(timeout, ownershipGrace), "既存CDP endpointの所有確認がtimeoutしました")
       .catch((error: unknown) => { throw launcherError("CDP_UNAVAILABLE", "既存CDP endpointの所有者を確認できませんでした。", error); });
     if (!owned) {
-      throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。");
+      throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。", { portConflict: true });
     }
     if (await existingTargetAbsent()) {
       await createAndVerifyTarget(coldTargetCreator, coldWindowVerifier, provider);
@@ -344,7 +344,7 @@ async function ownsEndpoint(inspect: ProcessInspector): Promise<boolean> {
 }
 async function ownedListenerPid(inspect: ProcessInspector): Promise<number> {
   const listeners = await inspect();
-  if (listeners.length !== 1 || !/^\d+$/.test(listeners[0]!.pid)) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。");
+  if (listeners.length !== 1 || !/^\d+$/.test(listeners[0]!.pid)) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。", { portConflict: true });
   return Number(listeners[0]!.pid);
 }
 async function stableOwnedListenerPid(inspect: ProcessInspector, expectedPid: number): Promise<number> { const pid = await ownedListenerPid(inspect); if (pid !== expectedPid) throw new ConnectorError("RUNTIME_DRIFT", "専用Chromeの9223所有PIDが起動中に交代しました。"); return pid; }
