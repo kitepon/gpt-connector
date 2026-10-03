@@ -42,6 +42,18 @@ test("準備失敗・表示失敗・runtime driftを成功にしない", async (
   assert.equal((await prepareBrowser({ doctor: async () => diagnosis("runtime_drift"), startBrowser: async () => { throw new Error("unexpected start"); }, showBrowser: async () => { throw new Error("unexpected show"); } })).status, "failed");
 });
 
+test("この端末でbrowserを準備できないだけの状態は、失敗にせず理由を返す", async () => {
+  const unavailable = (details: Record<string, boolean>) => prepareBrowser({ doctor: async () => diagnosis("cdp_unavailable"),
+    startBrowser: async () => { throw new ConnectorError(details.portConflict ? "RUNTIME_DRIFT" : "CDP_UNAVAILABLE", "fixture", details); },
+    showBrowser: async () => { throw new Error("unexpected show"); } });
+  // 9223が他端末のChromeへのSSH転送で、転送先にChatGPT tabが無い時。
+  const external = await unavailable({ portConflict: true });
+  assert.equal(external.status, "external");
+  assert.equal(external.reason, "cdp_endpoint_not_owned");
+  // ChromeかX11の無いLinux server。
+  assert.deepEqual(await unavailable({ hostUnsupported: true }), { status: "unsupported", reason: "live_browser_host_unsupported" });
+});
+
 function setupPorts(platform: NodeJS.Platform) {
   const server: SetupServer = { command: "gpt-connector-mcp", args: [], env: {} };
   const record = (client: SetupClient, path: string) => ({ client, path, backup: null, status: "registered", server });
@@ -84,6 +96,23 @@ test("live未対応のOSは登録とMCPを実行し、liveを未対応のままp
     assert.deepEqual(item.live, { status: "unsupported", reason: "live_browser_host_unsupported" });
     assert.equal(item.failure, undefined);
   }
+});
+
+test("browserを準備できない端末は、登録とMCPの確認を終えてpartialにする", async () => {
+  for (const live of [{ status: "external", reason: "cdp_endpoint_not_owned" }, { status: "unsupported", reason: "live_browser_host_unsupported" }]) {
+    const deps = { ...setupPorts("linux"), browser: async () => live };
+    const result = await setup({}, deps as unknown as Parameters<typeof setup>[1]);
+    assert.equal(result.overall, "partial");
+    assert.equal(result.live.supported, true);
+    for (const item of result.registrations) {
+      assert.deepEqual(item.live, live);
+      assert.equal(item.failure, undefined);
+    }
+  }
+  // 手動対応が要る時は、partialより先にaction_requiredを返す。
+  const deps = { ...setupPorts("linux"), browser: async () => ({ status: "external", reason: "cdp_endpoint_not_owned" }),
+    steer: (async () => ({ status: "restart_required", reason_code: "codex_restart_required" })) as typeof configureCodexSteer };
+  assert.equal((await setup({}, deps as unknown as Parameters<typeof setup>[1])).overall, "action_required");
 });
 
 test("Windows: 4AIの登録から共通のlive準備へ進み、readyを確認する", async () => {

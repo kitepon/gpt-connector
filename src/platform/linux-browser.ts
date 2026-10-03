@@ -21,8 +21,9 @@ export interface ProcIo {
 
 export function chromeLaunchCommand(profile: string, env: NodeJS.ProcessEnv = process.env, exists: (path: string) => boolean = existsSync) {
   const command = chromeCandidates.find((candidate) => exists(candidate));
-  if (!command) throw new ConnectorError("CDP_UNAVAILABLE", "Google Chromeが見つかりません。公式パッケージで導入してください。");
-  if (!env.DISPLAY) throw new ConnectorError("CDP_UNAVAILABLE", "Linuxの専用ChromeにはローカルX11のDISPLAYが必要です。");
+  // ChromeかローカルX11が無いLinuxは、専用Chromeを持てない端末。setupはこれを失敗でなくlive未対応として返す。
+  if (!command) throw new ConnectorError("CDP_UNAVAILABLE", "Google Chromeが見つかりません。公式パッケージで導入してください。", { hostUnsupported: true });
+  if (!env.DISPLAY) throw new ConnectorError("CDP_UNAVAILABLE", "Linuxの専用ChromeにはローカルX11のDISPLAYが必要です。", { hostUnsupported: true });
   return { command, args: ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`, "--no-startup-window", "--no-first-run", "--no-default-browser-check", "--ozone-platform=x11"] };
 }
 

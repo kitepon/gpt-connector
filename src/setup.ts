@@ -40,8 +40,13 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
   if (diagnosis.reasonCode === "cdp_unavailable") {
     if (endpoint && endpoint !== "http://127.0.0.1:9223") throw new Error("指定CDP endpointへ接続できません。既存browser startが所有するendpointは9223だけです。");
     try { await deps.startBrowser(); } catch (error) {
-      if (!(error instanceof ConnectorError) || error.code !== "AUTH_REQUIRED") throw error;
-      return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+      if (!(error instanceof ConnectorError)) throw error;
+      if (error.code === "AUTH_REQUIRED") return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+      // この端末でbrowserを準備できないだけの状態は、導入の失敗にしない。
+      // 9223が他端末のChromeへのSSH転送などで専用Chromeの物でない時と、専用Chromeを持てない端末（ChromeかX11の無いLinux）。
+      if (error.details?.portConflict === true) return { status: "external", reason: "cdp_endpoint_not_owned", next: "9223はこの端末の専用Chromeではありません。Chromeを所有する端末で`gpt-connector browser start`を実行してください。" };
+      if (error.details?.hostUnsupported === true) return { status: "unsupported", reason: "live_browser_host_unsupported" };
+      throw error;
     }
     diagnosis = await deps.doctor();
   }
@@ -83,6 +88,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
   const browsers = new Map<string, Awaited<ReturnType<typeof prepareBrowser>>>();
   let failed = false;
   let actionRequired = false;
+  let liveUnavailable = false;
   for (const client of options.clients ?? setupClients) {
     const path = client === "codex" && options.codexConfig ? options.codexConfig : registrationPath(client);
     const item: Record<string, unknown> = { client, path };
@@ -124,6 +130,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         const live = browsers.get(key)!;
         item.live = live;
         if (live.status === "action_required") actionRequired = true;
+        else if (live.status === "external" || live.status === "unsupported") liveUnavailable = true;
         else if (live.status !== "ready") failed = true;
       } else item.live = { status: "unsupported", reason: "live_browser_host_unsupported" };
     } catch (error) {
@@ -133,7 +140,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }
-  const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) ? "ready" : "partial";
+  const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
   return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }
 

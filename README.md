@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.15.4`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.15.5`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -100,7 +100,8 @@ gpt-connector setup --check
 | Codexへの自動Steer | 対応 | 対応 | 対応 |
 | Cursor親への差し込みと背景受信 | 対応 | 対応 | 対応 |
 
-`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、liveブラウザを提供しないOSで対応機能の確認が済みなら
+`setup`は`ready`で終了0、ログイン待ち・Codex再起動待ち・失敗で終了1、この端末でliveブラウザを準備できない
+（非対応OS、ChromeかX11の無いLinux、9223が他端末のChromeへの転送）が対応機能の確認は済みなら
 `partial`で終了2を返す。`registrations`のAI別結果を読み、未対応を成功として扱わない。
 各AIは新しいセッションで設定を読み込む。setupのMCP確認と、既存AIセッションへの反映は別の確認項目である。
 

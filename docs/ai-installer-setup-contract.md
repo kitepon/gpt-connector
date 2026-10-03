@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.15.4"
+gpt_connector_version="0.15.5"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -103,9 +103,16 @@ setupは各登録のcommand・args・envでMCPへ接続し、応答したversion
 | `ready` | 0 | 指定した登録、MCP、state、live、Codex登録時のSteerの確認が完了 |
 | `action_required` | 1 | 手動ログイン、Codex再起動、または利用者の無効化設定への対応が必要 |
 | `failed` | 1 | 導入・登録・MCP・state・browserのいずれかが失敗 |
-| `partial` | 2 | liveブラウザを提供しないOSで、登録・MCP・stateの確認は完了 |
+| `partial` | 2 | この端末でliveブラウザを準備できないが、登録・MCP・stateの確認は完了 |
 
 `partial`をpackage導入やMCP登録の未対応へ読み替えず、liveまで成功したとも報告しない。
+`partial`になるのは次の3つ。AI別の`live`に理由を返す。
+
+- liveブラウザを提供しないOS（`live.status: unsupported`、reason `live_browser_host_unsupported`）。
+- 公式Google ChromeかローカルX11の無いLinux（同じく`unsupported`／`live_browser_host_unsupported`）。
+- 9223が他端末のChromeへのSSH転送などで、この端末の専用Chromeの物でなく、接続先にChatGPT tabが無い時（`live.status: external`、reason `cdp_endpoint_not_owned`）。tabの準備はChromeを所有する端末で行う。転送先でChatGPTへ接続できる時は`ready`。
+
+手動対応が要る時は`partial`より先に`action_required`を返す。
 Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む。Codexへの自動SteerはMac・Windowsと同じ条件で導入・診断する。
 `registrations`にAI別の保存先、backup、MCP、state、live、失敗段階を返す。秘密値や構文errorの生内容は出力しない。
 `SETUP_PACKAGE_FAILED`はnpm導入・引継ぎ、`SETUP_REGISTRATION_FAILED`は設定読取・構文・保存、

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.15.5 - 2026-10-03
+
+- `setup`は、この端末でliveブラウザを準備できないだけの状態を`failed`（終了1）でなく`partial`（終了2）で返す。対象は、9223が他端末のChromeへのSSH転送などで専用Chromeの物でない時（AI別の`live`は`external`／`cdp_endpoint_not_owned`）と、公式Google ChromeかローカルX11の無いLinux（`unsupported`／`live_browser_host_unsupported`）。これまでは`RUNTIME_DRIFT`（ポート衝突）や`CDP_UNAVAILABLE`を`stage: browser`の失敗にしていて、画面の無いserverの定期更新が毎回`failed`になっていた。
+- 登録・MCP・stateの失敗、画面資産のずれ（`RUNTIME_DRIFT`）、Chromeの起動失敗は、今までどおり`failed`。手動ログインやCodex再起動が要る時は、`partial`より先に`action_required`を返す。
+- 台帳・MCP toolの形式は0.15.4から変えない。
+
 ## 0.15.4 - 2026-10-03
 
 - 専用Chromeに同じproviderのtab（ChatGPT、Grok）が複数開いていても、1枚に決めて接続する。これまでは2枚以上あると`CDP_UNAVAILABLE`で止まり、MCP・CLIの操作も`browser start`の準備も失敗していた。専用Chromeは利用者が普段使いするので、tabを2枚開くのは平常の使い方として扱う。

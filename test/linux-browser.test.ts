@@ -20,8 +20,8 @@ test("Linux: 公式Chromeの導入先を探索し、空白と日本語を含むp
   assert.ok(result.args.includes("--ozone-platform=x11"));
   assert.ok(result.args.every((value) => !value.includes("headless")));
   assert.ok(!result.args.includes("https://chatgpt.com/"));
-  assert.throws(() => chromeLaunchCommand(profile, { DISPLAY: ":1" }, () => false), { code: "CDP_UNAVAILABLE", message: "Google Chromeが見つかりません。公式パッケージで導入してください。" });
-  assert.throws(() => chromeLaunchCommand(profile, {}, (candidate) => candidate === executable), { code: "CDP_UNAVAILABLE", message: "Linuxの専用ChromeにはローカルX11のDISPLAYが必要です。" });
+  assert.throws(() => chromeLaunchCommand(profile, { DISPLAY: ":1" }, () => false), { code: "CDP_UNAVAILABLE", message: "Google Chromeが見つかりません。公式パッケージで導入してください。", details: { hostUnsupported: true } });
+  assert.throws(() => chromeLaunchCommand(profile, {}, (candidate) => candidate === executable), { code: "CDP_UNAVAILABLE", message: "Linuxの専用ChromeにはローカルX11のDISPLAYが必要です。", details: { hostUnsupported: true } });
 });
 
 test("Linux: 実行fileと引数で専用Chromeの所有を照合する", () => {
