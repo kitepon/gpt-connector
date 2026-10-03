@@ -91,9 +91,10 @@ test("factory diagnosticsはstateを読めた時にmigrationをcurrent、読め�
   assert.equal(readable.checks.find((check) => check.id === "migration")?.status, "ready");
   assert.deepEqual([readable.state.migration, readable.job.migration], ["current", "current"]);
 
-  const blocked = join(mkdtempSync(join(tmpdir(), "gpt-connector-factory-state-")), "not-a-directory");
-  writeFileSync(blocked, "x");
-  const unreadable = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "linux", stateDirectory: blocked });
+  // 壊れた台帳はどのOSでも読めない（pathや権限の違いに頼らない）。
+  const broken = mkdtempSync(join(tmpdir(), "gpt-connector-factory-state-"));
+  writeFileSync(join(broken, "consult-jobs.json"), "{ not json", { mode: 0o600 });
+  const unreadable = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "linux", stateDirectory: broken });
   assert.deepEqual(unreadable.checks.find((check) => check.id === "migration"), { id: "migration", status: "not_ready", reason: "state_unavailable" });
   assert.deepEqual([unreadable.state.migration, unreadable.job.migration], ["unverified", "unverified"]);
 });
