@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { factoryDiagnostics, factoryDiagnosticsSchema } from "../src/factory-diagnostics.js";
@@ -79,4 +82,18 @@ test("factory diagnosticsは不正なuser endpointを通常入力拒否しbugへ
     factoryDiagnostics({ endpoint: "https://example.com", platform: "darwin" }),
     (error) => error instanceof ConnectorError && error.code === "INVALID_INPUT",
   );
+});
+
+test("factory diagnosticsはstateを読めた時にmigrationをcurrent、読めない時にunverifiedで返す", async () => {
+  // 工場reporterはstate.migrationのcurrent／failedだけを写し、他の値はunverifiedにする。
+  // 固定のnoneを返していた間、migration checkがreadyでも工場ではunverifiedに見えていた。
+  const readable = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "linux", stateDirectory: mkdtempSync(join(tmpdir(), "gpt-connector-factory-state-")) });
+  assert.equal(readable.checks.find((check) => check.id === "migration")?.status, "ready");
+  assert.deepEqual([readable.state.migration, readable.job.migration], ["current", "current"]);
+
+  const blocked = join(mkdtempSync(join(tmpdir(), "gpt-connector-factory-state-")), "not-a-directory");
+  writeFileSync(blocked, "x");
+  const unreadable = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "linux", stateDirectory: blocked });
+  assert.deepEqual(unreadable.checks.find((check) => check.id === "migration"), { id: "migration", status: "not_ready", reason: "state_unavailable" });
+  assert.deepEqual([unreadable.state.migration, unreadable.job.migration], ["unverified", "unverified"]);
 });

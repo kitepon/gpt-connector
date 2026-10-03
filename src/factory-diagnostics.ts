@@ -131,13 +131,15 @@ async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
 
 function check(id: string, status: CheckStatus, reason: string): FactoryCheck { return { id, status, reason }; }
 function factoryResult(overall: CheckStatus, checks: readonly FactoryCheck[]) {
+  // stateに移行待ちは無い。読めていればcurrent、読めなければunverified（工場のmigration_statusと同じ語）。
+  const migration = checks.find((item) => item.id === "migration")?.status === "ready" ? "current" : "unverified";
   return {
     schema: factoryDiagnosticsSchema,
     package_version: packageVersion,
     overall,
     diagnostic_schema: "gpt-connector.diagnostics.v1",
-    state: { schema: "gpt-connector.consult-jobs.v1", migration: "none" },
-    job: { schema: "gpt-connector.consult-job.v1", migration: "none" },
+    state: { schema: "gpt-connector.consult-jobs.v1", migration },
+    job: { schema: "gpt-connector.consult-job.v1", migration },
     checks,
   };
 }

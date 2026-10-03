@@ -167,3 +167,18 @@ test("生存writerのlockは古くても奪わず診断をunavailableにする",
   assert.throws(() => observeRuntimeError({ code: "CDP_UNAVAILABLE" }, { env: box.env }), { code: "EEXIST" });
   assert.equal(statSync(lockPath).isFile(), true);
 });
+
+test("収集は工場reporterが認めるhost profileのすべてで有効になり、未知のprofileでは無効のままにする", () => {
+  // profileの一覧は工場reporterの設定schema（factory-reporter-config-v1）と同じ5つ。
+  // linuxが抜けていた間、Linux workstationでは収集が黙って無効になっていた。
+  for (const profile of ["server", "mac", "linux", "wsl", "windows-native"]) {
+    const box = sandbox();
+    mkdirSync(dirname(box.configPath), { recursive: true, mode: 0o700 });
+    writeFileSync(box.configPath, JSON.stringify({ schema_version: "1.0", host: { id: "test-host", profile }, collection: { enabled: true }, reporting: { enabled: true, endpoint: "http://127.0.0.1:1/reports", credential_file: "/nonexistent" } }), { mode: 0o600 });
+    assert.equal(getRuntimeErrorDiagnostics({ env: box.env }).collection, "enabled", profile);
+  }
+  const box = sandbox();
+  mkdirSync(dirname(box.configPath), { recursive: true, mode: 0o700 });
+  writeFileSync(box.configPath, JSON.stringify({ schema_version: "1.0", host: { id: "test-host", profile: "freebsd" }, collection: { enabled: true }, reporting: { enabled: false } }), { mode: 0o600 });
+  assert.equal(getRuntimeErrorDiagnostics({ env: box.env }).collection, "disabled");
+});

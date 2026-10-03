@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.15.3 - 2026-10-03
+
+- runtime errorの収集が、工場reporterの設定で`host.profile`が`linux`の端末（Linux workstation）でも有効になるようにする。受け付けるprofileに`linux`が無く、設定で収集を有効にしていても`runtime-errors diagnostics`が`collection: disabled`／`status: not_applicable`を返し、障害を記録していなかった。profileは工場reporterの設定schemaと同じ`server`・`mac`・`linux`・`wsl`・`windows-native`の5つ。
+- `factory-diagnostics`の`state.migration`と`job.migration`を、固定の`none`から実態に変える。stateを読めた時は`current`、読めない時は`unverified`。工場reporterは`current`と`failed`だけを写すので、`migration` checkがreadyでも工場の`migration_status`は`unverified`になっていた。checkのid・status・reason（`none`／`state_unavailable`）は変えない。
+- 台帳・MCP toolの形式は0.15.2から変えない。
+
 ## 0.15.2 - 2026-10-03
 
 - MCPとCLIのChatGPT操作は、専用Chromeが止まっている時やChatGPT tabが閉じられている時に、Grokと同じく`browser start`相当の準備をしてから接続し直す。これまでは`CDP_UNAVAILABLE`で止まり、利用者が`browser start`を手で実行する必要があった。9223が専用Chromeの物でない（SSH転送など）時は準備せず、ポート衝突ではなく元の接続失敗を返す。Grokも同じ扱いにそろえた。
