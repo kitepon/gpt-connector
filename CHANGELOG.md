@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.15.4 - 2026-10-03
+
+- 専用Chromeに同じproviderのtab（ChatGPT、Grok）が複数開いていても、1枚に決めて接続する。これまでは2枚以上あると`CDP_UNAVAILABLE`で止まり、MCP・CLIの操作も`browser start`の準備も失敗していた。専用Chromeは利用者が普段使いするので、tabを2枚開くのは平常の使い方として扱う。
+- 選ぶtabは、会話と操作の状態を持つbridgeが入っているtab。どのtabにも無い時と複数に入っている時は、target idの順で決める。bridgeの有無は各tabへ2秒以内で問い合わせ、応答しないtabは持たない扱いにする。tabが1枚の時の動きは変えない。
+- `factory-diagnostics`は、tabが複数ある状態を`cdp: not_ready`（`cdp_unavailable`）にせず、選んだtabを調べて返す。
+- `factory-diagnostics`の`runtime_bridge`は、bridgeがまだ入っていないtabを`not_ready`でなく`unverified`（reasonは`bridge_not_initialized`のまま）で返す。bridgeは最初の操作で入るため、利用者がtabを開いただけ・再読込しただけの状態は故障ではない。
+- 台帳・MCP toolの形式は0.15.3から変えない。
+
 ## 0.15.3 - 2026-10-03
 
 - runtime errorの収集が、工場reporterの設定で`host.profile`が`linux`の端末（Linux workstation）でも有効になるようにする。受け付けるprofileに`linux`が無く、設定で収集を有効にしていても`runtime-errors diagnostics`が`collection: disabled`／`status: not_applicable`を返し、障害を記録していなかった。profileは工場reporterの設定schemaと同じ`server`・`mac`・`linux`・`wsl`・`windows-native`の5つ。

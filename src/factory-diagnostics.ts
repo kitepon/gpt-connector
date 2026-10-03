@@ -97,7 +97,8 @@ async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
       cdp: check("cdp", "ready", "connected"),
       origin: check("official_origin", result.officialOrigin ? "ready" : "not_ready", result.officialOrigin ? "official" : "not_official"),
       auth: check("auth", result.authenticated ? "ready" : "not_ready", result.authenticated ? "authenticated" : "auth_required"),
-      bridge: check("runtime_bridge", result.bridgeReady ? "ready" : "not_ready", result.bridgeReady ? "existing_bridge_ready" : "bridge_not_initialized"),
+      // bridgeは最初の操作でpageへ入る。tabを開いただけ・再読込しただけなら無いのが平常で、次の利用で入るため未検証とする。
+      bridge: check("runtime_bridge", result.bridgeReady ? "ready" : "unverified", result.bridgeReady ? "existing_bridge_ready" : "bridge_not_initialized"),
     };
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "INVALID_INPUT") throw error;
@@ -108,7 +109,7 @@ async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
       // 専用Chromeが起動していない、またはChatGPT tabが閉じられている＝on-demand設計の平常状態（idle）。
       // MCP/CLIの次の利用で`browser start`相当の準備が走るため、not_readyへ丸めず
       // live runtime系checkを「未検証（chrome_idle／chatgpt_tab_idle）」として返す。
-      // 起動中の異常（HTTP error・target重複や形式不正・RUNTIME_DRIFT）は従来どおりnot_ready。
+      // 起動中の異常（HTTP error・target一覧の形式不正・RUNTIME_DRIFT）は従来どおりnot_ready。
       return {
         cdp: check("cdp", "unverified", error.details?.unreachable === true ? "chrome_idle" : "chatgpt_tab_idle"),
         origin: check("official_origin", "unverified", "cdp_not_inspected"),

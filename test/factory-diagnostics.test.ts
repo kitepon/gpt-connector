@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
+import { WebSocketServer } from "ws";
 
 import { factoryDiagnostics, factoryDiagnosticsSchema } from "../src/factory-diagnostics.js";
 import { ConnectorError } from "../src/errors.js";
@@ -47,18 +51,66 @@ test("factory diagnosticsは起動中ChromeでChatGPT tabが閉じられてい�
   }
 });
 
-test("factory diagnosticsはChatGPT tabの重複をnot_readyのまま返す", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => Response.json(["a", "b"].map((id) => (
-    { id, type: "page", url: "https://chatgpt.com/", webSocketDebuggerUrl: `ws://127.0.0.1:9223/devtools/page/${id}` }
-  )))) as typeof fetch;
+// ChatGPT tabを持つ専用Chromeの代役。tabごとに、bridgeの有無と診断の応答を返す。
+async function withFakeChrome(
+  tabs: readonly { readonly id: string; readonly bridge: boolean }[],
+  run: (endpoint: string, evaluated: string[]) => Promise<void>,
+): Promise<void> {
+  const evaluated: string[] = [];
+  const server = createServer((_request, response) => {
+    const { port } = server.address() as AddressInfo;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(tabs.map(({ id }) => (
+      { id, type: "page", url: "https://chatgpt.com/plugins", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${id}` }
+    ))));
+  });
+  const sockets = new WebSocketServer({ server });
+  sockets.on("connection", (socket, request) => {
+    const tab = tabs.find(({ id }) => request.url === `/devtools/page/${id}`)!;
+    socket.on("message", (data) => {
+      const call = JSON.parse(String(data)) as { id: number; method: string; params?: { expression?: string } };
+      const expression = call.params?.expression ?? "";
+      let result: unknown = {};
+      if (call.method === "Runtime.evaluate" && expression.includes("/api/auth/session")) {
+        evaluated.push(tab.id);
+        result = { result: { type: "object", value: { officialOrigin: true, authenticated: true, bridgeReady: tab.bridge } } };
+      } else if (call.method === "Runtime.evaluate") {
+        result = { result: { type: "boolean", value: tab.bridge } };
+      }
+      socket.send(JSON.stringify({ id: call.id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
-    const result = await factoryDiagnostics({ endpoint: "http://127.0.0.1:1", platform: "darwin" });
-    assert.equal(result.overall, "not_ready");
-    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "not_ready", reason: "cdp_unavailable" });
+    await run(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, evaluated);
   } finally {
-    globalThis.fetch = originalFetch;
+    for (const socket of sockets.clients) socket.terminate();
+    await new Promise<void>((resolve) => sockets.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+test("factory diagnosticsはChatGPT tabが複数あっても、bridgeを持つtabを調べてreadyを返す", async () => {
+  // 専用Chromeは利用者が普段使いする。tabを2枚開いただけの状態をfailに見せない。
+  await withFakeChrome([{ id: "A1", bridge: false }, { id: "B2", bridge: true }], async (endpoint, evaluated) => {
+    const result = await factoryDiagnostics({ endpoint, platform: "darwin" });
+    assert.equal(result.overall, "ready");
+    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "ready", reason: "connected" });
+    assert.deepEqual(result.checks.find((check) => check.id === "runtime_bridge"), { id: "runtime_bridge", status: "ready", reason: "existing_bridge_ready" });
+    assert.deepEqual(evaluated, ["B2"]);
+  });
+});
+
+test("factory diagnosticsはbridgeがまだ入っていないtabを故障扱いせずunverifiedにする", async () => {
+  // bridgeは最初の操作で入る。利用者がtabを開いただけ・再読込しただけなら無いのが平常。
+  await withFakeChrome([{ id: "B2", bridge: false }, { id: "A1", bridge: false }], async (endpoint, evaluated) => {
+    const result = await factoryDiagnostics({ endpoint, platform: "darwin" });
+    assert.equal(result.overall, "unverified");
+    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "ready", reason: "connected" });
+    assert.deepEqual(result.checks.find((check) => check.id === "auth"), { id: "auth", status: "ready", reason: "authenticated" });
+    assert.deepEqual(result.checks.find((check) => check.id === "runtime_bridge"), { id: "runtime_bridge", status: "unverified", reason: "bridge_not_initialized" });
+    assert.deepEqual(evaluated, ["A1"]);
+  });
 });
 
 test("factory diagnosticsはlive browser非対応hostをCDP不備でなくunsupportedにする", async () => {

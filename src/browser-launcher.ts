@@ -327,7 +327,6 @@ async function providerTargetAbsent(fetcher: typeof globalThis.fetch, provider: 
   const raw: unknown = await response.json();
   if (!Array.isArray(raw)) throw new ConnectorError("RUNTIME_DRIFT", "CDP target一覧の形式が不正です。");
   const count = raw.filter((value) => typeof value === "object" && value !== null && (value as { type?: unknown }).type === "page" && (() => { try { return new URL(String((value as { url?: unknown }).url)).origin === (provider === "chatgpt" ? "https://chatgpt.com" : "https://grok.com"); } catch { return false; } })()).length;
-  if (count > 1) throw new ConnectorError("CDP_UNAVAILABLE", "同じproviderのpage targetが複数あります。専用Chromeでは1providerにつき1tabだけ開いてください。");
   return count === 0;
 }
 function ownedProcessInspector(profile: string, inspect: ProcessInspector, adapter: BrowserPlatform): ProcessInspector {

@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 
 import { ConnectorError } from "./errors.js";
+import { grokBridgeGlobalName } from "./grok-page-bridge.js";
+import { bridgeGlobalName } from "./page-bridge.js";
 
 export interface CdpTarget {
   readonly id: string;
@@ -45,6 +47,10 @@ export interface CdpSocket {
 
 export type CdpEventListener = (event: CdpEvent) => void;
 
+export type BridgeProbe = (target: CdpTarget, provider: "chatgpt" | "grok") => Promise<boolean>;
+
+const bridgeProbeTimeoutMs = 2_000;
+
 const loopbackHosts = new Set(["127.0.0.1", "[::1]"]);
 
 export function validateCdpEndpoint(endpoint: string): URL {
@@ -80,10 +86,39 @@ function isCdpTarget(value: unknown): value is CdpTarget {
   );
 }
 
+async function pageHoldsBridge(target: CdpTarget, provider: "chatgpt" | "grok"): Promise<boolean> {
+  const client = await CdpClient.connect(target.webSocketDebuggerUrl, bridgeProbeTimeoutMs);
+  try {
+    const name = JSON.stringify(provider === "chatgpt" ? bridgeGlobalName : grokBridgeGlobalName);
+    const response = await client.call<{ readonly result?: { readonly value?: unknown } }>("Runtime.evaluate", {
+      expression: `typeof globalThis[${name}] === "object" && globalThis[${name}] !== null`,
+      returnByValue: true,
+    });
+    return response.result?.value === true;
+  } finally {
+    client.close();
+  }
+}
+
+// 専用Chromeは利用者が普段使いするので、同じproviderのtabが複数開かれていても止めない。
+// 会話と操作の状態はpage内のbridgeが持つため、bridgeを持つtabを選び続ける。
+// どのtabも持たない時（と、複数が持つ時）はtarget idの順で1枚に決める。応答しないtabは持たない扱い。
+async function selectProviderTarget(
+  matches: readonly CdpTarget[],
+  provider: "chatgpt" | "grok",
+  bridgeProbe: BridgeProbe,
+): Promise<CdpTarget> {
+  const holds = await Promise.all(matches.map((target) => bridgeProbe(target, provider).catch(() => false)));
+  const holders = matches.filter((_target, index) => holds[index]);
+  const candidates = holders.length > 0 ? holders : matches;
+  return [...candidates].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0]!;
+}
+
 export async function discoverProviderTarget(
   endpoint: string,
   provider: "chatgpt" | "grok",
   fetchImplementation: typeof fetch = fetch,
+  bridgeProbe: BridgeProbe = pageHoldsBridge,
 ): Promise<CdpTarget> {
   const base = validateCdpEndpoint(endpoint);
   const listUrl = new URL("/json/list", base);
@@ -126,13 +161,7 @@ export async function discoverProviderTarget(
     );
   }
 
-  if (matches.length > 1) {
-    throw new ConnectorError(
-      "CDP_UNAVAILABLE",
-      `${provider === "chatgpt" ? "ChatGPT" : "Grok"} page targetが複数あります。専用Chromeではproviderごとに1tabだけ開いてください。`,
-      { count: matches.length },
-    );
-  }
+  if (matches.length > 1) return selectProviderTarget(matches, provider, bridgeProbe);
 
   return matches[0]!;
 }
@@ -140,8 +169,9 @@ export async function discoverProviderTarget(
 export function discoverChatGptTarget(
   endpoint: string,
   fetchImplementation: typeof fetch = fetch,
+  bridgeProbe?: BridgeProbe,
 ): Promise<CdpTarget> {
-  return discoverProviderTarget(endpoint, "chatgpt", fetchImplementation);
+  return discoverProviderTarget(endpoint, "chatgpt", fetchImplementation, bridgeProbe);
 }
 
 export class CdpClient {
