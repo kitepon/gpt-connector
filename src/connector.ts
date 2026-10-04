@@ -55,6 +55,7 @@ import {
   createBridgeBootstrapExpression,
   createBridgeCallExpression,
 } from "./page-bridge.js";
+import { createRuntimeDiscoveryExpression } from "./runtime-discovery.js";
 import { evaluateByValue } from "./runtime-evaluate.js";
 import { SessionRegistry } from "./session-registry.js";
 import { packageVersion } from "./version.js";
@@ -1099,19 +1100,7 @@ export class GptConnector {
       .safeParse(existingBridge);
     if (existingBridgeResult.success) return;
 
-    const runtimeUrl = await evaluateByValue<string>(this.#client, String.raw`(async () => {
-      const imports = globalThis.__reactRouterManifest?.entry?.imports;
-      if (!Array.isArray(imports)) throw new Error("RUNTIME_DRIFT:entry_imports");
-      const matches = [];
-      for (const path of imports) {
-        const url = new URL(path, location.origin);
-        if (url.origin !== location.origin || !url.pathname.startsWith("/cdn/assets/")) continue;
-        const runtime = (await import(url.href)).__webpack_require__;
-        if (typeof runtime === "function" && runtime.m && runtime.c) matches.push(url.href);
-      }
-      if (matches.length !== 1) throw new Error("RUNTIME_DRIFT:rspack_runtime:" + matches.length);
-      return matches[0];
-    })()`);
+    const runtimeUrl = await evaluateByValue<string>(this.#client, createRuntimeDiscoveryExpression());
     const summary = await evaluateByValue<unknown>(
       this.#client,
       createBridgeBootstrapExpression(runtimeUrl),

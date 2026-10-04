@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.16.1 - 2026-10-05
+
+- ChatGPTのログアウト用ページを、公式runtimeの認証判定で検出する。`/api/auth/session`がuserを返してもページ自身がログアウト中なら、存在しないRspack runtimeを探して`RUNTIME_DRIFT`にせず、`AUTH_REQUIRED`で専用Chromeを表示し、setupを`action_required`にする。
+- setupで発生した本当のruntime driftも、端末で収集・報告を有効にしている場合は製品自身の実行時エラーとして記録する。4AIが同じbrowserを確認しても1回と数え、`--check`は記録も送信もしない。
+
 ## 0.16.0 - 2026-10-03
 
 - 実行時エラーを、製品自身がBugHubの受け口へ送れるようにする。**既定では通信しない**。端末で`runtime-errors reporting enable`を実行し、BugHubの持ち主が合鍵（`~/.config/bughub/product-credentials/gpt-connector.json`）を置いた端末でだけ送る。

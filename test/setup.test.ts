@@ -162,3 +162,20 @@ test("利用者の無効化は維持し、MCPを起動して成功扱いしな�
   assert.equal(result.registrations[0]!.clientActivation, "disabled_by_user");
   assert.equal(result.registrations[0]!.failure, undefined);
 });
+
+test("setup records one runtime drift for shared browser failures, while check stays read-only", async () => {
+  let reports = 0;
+  let browsers = 0;
+  const deps = { ...setupPorts("darwin"), reportRuntimeDrift: async () => { reports++; },
+    browser: async () => {
+      if (++browsers === 1) throw new ConnectorError("RUNTIME_DRIFT", "private fixture");
+      return { status: "failed", reason: "runtime_drift" as const };
+    } };
+  const result = await setup({}, deps);
+  assert.equal(result.overall, "failed");
+  assert.equal(reports, 1);
+  assert.doesNotMatch(JSON.stringify(result), /private fixture/u);
+  browsers = 0;
+  await setup({ check: true }, deps);
+  assert.equal(reports, 1);
+});

@@ -12,6 +12,8 @@ import { configureCursorHooks } from "./setup-cursor-hooks.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
 import { supportsLiveBrowser } from "./platform/browser.js";
 import { supportsCodexSteer } from "./platform/codex.js";
+import { recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
+import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 
 export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
@@ -81,14 +83,18 @@ const setupDependencies = {
   browser: (env: Record<string, string>, check: boolean) => prepareBrowser(browserDependencies({ ...process.env, ...env }), env.GPT_CONNECTOR_CDP_ENDPOINT ?? process.env.GPT_CONNECTOR_CDP_ENDPOINT, check),
   steer: configureCodexSteer,
   cursorHooks: configureCursorHooks,
+  reportRuntimeDrift: async () => {
+    if (recordRuntimeErrorBestEffort("RUNTIME_DRIFT") === "recorded") await reportRuntimeErrorsBestEffort();
+  },
 };
 
-export async function setup(options: SetupOptions = {}, deps = setupDependencies) {
+export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & { reportRuntimeDrift?: () => Promise<void> } = setupDependencies) {
   const registrations: Record<string, unknown>[] = [];
   const browsers = new Map<string, Awaited<ReturnType<typeof prepareBrowser>>>();
   let failed = false;
   let actionRequired = false;
   let liveUnavailable = false;
+  let runtimeDrift = false;
   for (const client of options.clients ?? setupClients) {
     const path = client === "codex" && options.codexConfig ? options.codexConfig : registrationPath(client);
     const item: Record<string, unknown> = { client, path };
@@ -128,6 +134,7 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
         const key = JSON.stringify([server.env.GPT_CONNECTOR_CDP_ENDPOINT, server.env.GPT_CONNECTOR_STATE_DIR]);
         if (!browsers.has(key)) browsers.set(key, await deps.browser(server.env, options.check ?? false));
         const live = browsers.get(key)!;
+        if (live.reason === "runtime_drift") runtimeDrift = true;
         item.live = live;
         if (live.status === "action_required") actionRequired = true;
         else if (live.status === "external" || live.status === "unsupported") liveUnavailable = true;
@@ -135,11 +142,16 @@ export async function setup(options: SetupOptions = {}, deps = setupDependencies
       } else item.live = { status: "unsupported", reason: "live_browser_host_unsupported" };
     } catch (error) {
       failed = true;
+      if (stage === "browser" && error instanceof ConnectorError && error.code === "RUNTIME_DRIFT" &&
+          error.details?.portConflict !== true) runtimeDrift = true;
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
       item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }
+  // One setup run is one occurrence even when four clients inspect the same browser.
+  // --check remains read-only; the diagnostic/reporting schemas do not change.
+  if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.();
   const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
   return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }
