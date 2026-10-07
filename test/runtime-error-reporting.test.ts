@@ -70,11 +70,11 @@ test("既定では通信しない。有効にしても合鍵が無い端末で�
   const hub = fakeBugHub();
   assert.deepEqual(await reportRuntimeErrors("manual", with_(options, { fetch: hub.fetcher })), { status: "disabled" });
   // 送信が無効で工場の設定も無い端末では、収集もしない。
-  assert.equal(observeRuntimeError({ code: "CHAT_FAILED" }, options).status, "disabled");
+  assert.equal(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options).status, "disabled");
 
   assert.equal(setRuntimeErrorReporting(true, options).reporting, "enabled");
   assert.equal(getRuntimeErrorReportingStatus(options).credential, "missing");
-  assert.equal(observeRuntimeError({ code: "CHAT_FAILED" }, options).status, "recorded");
+  assert.equal(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options).status, "recorded");
   assert.deepEqual(await reportRuntimeErrors("manual", with_(options, { fetch: hub.fetcher })), { status: "no_credential" });
   assert.equal(await reportRuntimeErrorsBestEffort(with_(options, { fetch: hub.fetcher })), "no_credential");
   assert.equal(hub.sent.length, 0);
@@ -89,8 +89,8 @@ test("受領の4条件がそろった時だけ受領済みにし、契約の本�
   const { options } = sandbox();
   setRuntimeErrorReporting(true, options);
   placeCredential(options.credentialPath);
-  observeRuntimeError({ code: "CHAT_FAILED", now: "2026-10-03T07:00:00.000Z" }, options);
-  const resolved = observeRuntimeError({ code: "CDP_UNAVAILABLE", now: "2026-10-03T07:10:00.000Z" }, options);
+  observeRuntimeError({ severity: "warn", code: "CHAT_FAILED", now: "2026-10-03T07:00:00.000Z" }, options);
+  const resolved = observeRuntimeError({ severity: "high", code: "CDP_UNAVAILABLE", now: "2026-10-03T07:10:00.000Z" }, options);
   assert.equal(resolved.status, "recorded");
   if (resolved.status === "recorded") resolveRuntimeError(resolved.fingerprint, with_(options, { now: "2026-10-03T07:20:00.000Z" }));
   assert.equal(getRuntimeErrorDiagnostics(options).pending_count, 2);
@@ -108,7 +108,7 @@ test("受領の4条件がそろった時だけ受領済みにし、契約の本�
   assert.deepEqual({ ...report, runtime_errors: undefined, resolutions: undefined }, { schema_version: "1.0", report_id: reportId, product_id: "gpt-connector",
     installed_version: packageVersion, observed_at: "2026-10-03T08:00:00.000Z", runtime_errors: undefined, resolutions: undefined });
   assert.deepEqual(report.runtime_errors.map((item) => Object.keys(item).sort()), [["component", "error_code", "fingerprint", "first_seen", "last_seen", "message_template", "occurrence_count", "product_version", "severity", "state_schema_version", "status"]]);
-  assert.deepEqual(report.runtime_errors.map((item) => [item.error_code, item.status, item.occurrence_count]), [["CHAT_FAILED", "open", 1]]);
+  assert.deepEqual(report.runtime_errors.map((item) => [item.error_code, item.status, item.occurrence_count, item.severity]), [["CHAT_FAILED", "open", 1, "warn"]]);
   assert.deepEqual(report.resolutions.map((item) => Object.keys(item).sort()), [["fingerprint", "reason_code", "resolved_at"]]);
   assert.equal(getRuntimeErrorDiagnostics(options).pending_count, 0);
   assert.equal(getRuntimeErrorReportingStatus(options).last_result, "accepted");
@@ -128,7 +128,7 @@ test("そろわない200は受領済みにせず、後から送り直せる", as
     const { options } = sandbox();
     setRuntimeErrorReporting(true, options);
     placeCredential(options.credentialPath);
-    observeRuntimeError({ code: "CHAT_FAILED" }, options);
+    observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
     const reportId = "11111111-1111-4111-8111-111111111111";
     const receivedAt = "2026-10-03T08:00:01.000Z";
     const hub = fakeBugHub(() => Response.json(tamper({ accepted: true, report_id: reportId, duplicate: false, received_at: receivedAt, sig: signRuntimeErrorReceipt(secret, reportId, receivedAt) })));
@@ -146,10 +146,10 @@ test("自動の送信は1時間に1回まで、手動は1分に1回まで", asyn
   const { options } = sandbox();
   setRuntimeErrorReporting(true, options);
   placeCredential(options.credentialPath);
-  observeRuntimeError({ code: "CHAT_FAILED" }, options);
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
   const hub = fakeBugHub();
   assert.equal((await reportRuntimeErrors("automatic", with_(options, { fetch: hub.fetcher }))).status, "accepted");
-  observeRuntimeError({ code: "CHAT_FAILED" }, options);
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
   assert.equal((await reportRuntimeErrors("automatic", with_(options, { fetch: hub.fetcher, now: "2026-10-03T08:59:59.000Z" }))).status, "throttled");
   assert.equal((await reportRuntimeErrors("manual", with_(options, { fetch: hub.fetcher, now: "2026-10-03T08:00:59.000Z" }))).status, "throttled");
   assert.equal(hub.sent.length, 1);
@@ -161,7 +161,7 @@ test("再送しても通らない拒否は自動では送り直さず、一時�
   const { options } = sandbox();
   setRuntimeErrorReporting(true, options);
   placeCredential(options.credentialPath);
-  observeRuntimeError({ code: "CHAT_FAILED" }, options);
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
   const denied = fakeBugHub(() => Response.json({ error: "credential_inactive" }, { status: 403 }));
   assert.deepEqual(await reportRuntimeErrors("automatic", with_(options, { fetch: denied.fetcher })), { status: "rejected", reason: "credential_inactive" });
   assert.equal(getRuntimeErrorReportingStatus(options).blocked, "credential_inactive");
@@ -190,7 +190,7 @@ test("置かれた時の形でない合鍵は使わず、秘密値を状態へ�
   for (const place of cases) {
     const { options } = sandbox();
     setRuntimeErrorReporting(true, options);
-    observeRuntimeError({ code: "CHAT_FAILED" }, options);
+    observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
     place(options.credentialPath);
     assert.equal(getRuntimeErrorReportingStatus(options).credential, "invalid");
     assert.deepEqual(await reportRuntimeErrors("manual", with_(options, { fetch: hub.fetcher })), { status: "invalid_credential" });
@@ -200,7 +200,7 @@ test("置かれた時の形でない合鍵は使わず、秘密値を状態へ�
   const { options } = sandbox();
   setRuntimeErrorReporting(true, options);
   placeCredential(options.credentialPath);
-  observeRuntimeError({ code: "CHAT_FAILED" }, options);
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, options);
   await reportRuntimeErrors("manual", with_(options, { fetch: hub.fetcher }));
   const status = getRuntimeErrorReportingStatus(options);
   assert.deepEqual(Object.keys(status), ["schema", "reporting", "credential", "last_attempt_at", "last_result", "blocked"]);

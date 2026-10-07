@@ -32,9 +32,9 @@ function disable(box: ReturnType<typeof sandbox>) {
 
 test("発生版は直近の発生で更新し、snapshotの実行版から推測しない", () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-09-01T00:00:00.000Z" }, { env: box.env, version: "1.0.0" });
+  observeRuntimeError({ severity: "high", code: "RUNTIME_DRIFT", now: "2026-09-01T00:00:00.000Z" }, { env: box.env, version: "1.0.0" });
   assert.equal(readRuntimeErrorSnapshot({ env: box.env, version: "2.0.0" }).runtime_errors[0]!.product_version, "1.0.0");
-  observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-09-02T00:00:00.000Z" }, { env: box.env, version: "2.0.0" });
+  observeRuntimeError({ severity: "high", code: "RUNTIME_DRIFT", now: "2026-09-02T00:00:00.000Z" }, { env: box.env, version: "2.0.0" });
   const entry = readRuntimeErrorSnapshot({ env: box.env, version: "3.0.0" }).runtime_errors[0]!;
   assert.equal(entry.product_version, "2.0.0");
   assert.equal(entry.occurrence_count, 2);
@@ -45,35 +45,35 @@ test("認証待ちは利用者へのtyped errorだけとし、BugHub向け障害
   const box = sandbox(); enable(box);
   assert.equal(recordRuntimeErrorBestEffort("AUTH_REQUIRED", { env: box.env }), "disabled");
   assert.equal(readRuntimeErrorSnapshot({ env: box.env }).diagnostics.total_count, 0);
-  assert.equal(recordRuntimeErrorBestEffort("CDP_UNAVAILABLE", { env: box.env }), "recorded");
-  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors[0]?.error_code, "CDP_UNAVAILABLE");
+  assert.equal(recordRuntimeErrorBestEffort("CDP_UNAVAILABLE", { env: box.env }), "disabled");
+  assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors.length, 0);
 });
 
 test("runtime error storeはcanonical collection.enabled=true以外でstateを作らない", () => {
   const box = sandbox();
-  assert.deepEqual(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }), { status: "disabled" });
+  assert.deepEqual(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env }), { status: "disabled" });
   assert.throws(() => statSync(box.storePath), { code: "ENOENT" });
   mkdirSync(dirname(box.configPath), { recursive: true });
   writeFileSync(box.configPath, JSON.stringify({ collection: { enabled: true } }));
-  assert.deepEqual(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }), { status: "disabled" });
+  assert.deepEqual(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env }), { status: "disabled" });
 });
 
 test("runtime error storeは固定templateをSHA-256で集約し、raw private inputを拒否する", () => {
   const box = sandbox(); enable(box);
-  const first = observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-07-13T00:00:00.000Z" }, { env: box.env });
-  const second = observeRuntimeError({ code: "RUNTIME_DRIFT", now: "2026-07-13T00:01:00.000Z" }, { env: box.env });
+  const first = observeRuntimeError({ severity: "high", code: "RUNTIME_DRIFT", now: "2026-07-13T00:00:00.000Z" }, { env: box.env });
+  const second = observeRuntimeError({ severity: "high", code: "RUNTIME_DRIFT", now: "2026-07-13T00:01:00.000Z" }, { env: box.env });
   assert.equal(first.status, "recorded"); assert.equal(second.status, "recorded");
   if (first.status !== "recorded" || second.status !== "recorded") throw new Error("fixture failure");
   assert.match(first.fingerprint, /^[a-f0-9]{64}$/u); assert.equal(first.fingerprint, second.fingerprint);
   const entry = readRuntimeErrorSnapshot({ env: box.env }).runtime_errors[0]!;
   assert.equal(entry.occurrence_count, 2);
-  assert.throws(() => observeRuntimeError({ code: "CHAT_FAILED", prompt: "secret" } as never, { env: box.env }), /固定 code/);
+  assert.throws(() => observeRuntimeError({ severity: "high", code: "CHAT_FAILED", prompt: "secret" } as never, { env: box.env }), /固定 code/);
   assert.doesNotMatch(readFileSync(box.storePath, "utf8"), /secret|prompt|stack|stderr/i);
 });
 
 test("runtime error storeはackを単調にし、resolvedかつack済みだけをretention compactする", () => {
   const box = sandbox(); enable(box);
-  const result = observeRuntimeError({ code: "CHAT_FAILED", now: "2026-06-01T00:00:00.000Z" }, { env: box.env });
+  const result = observeRuntimeError({ severity: "high", code: "CHAT_FAILED", now: "2026-06-01T00:00:00.000Z" }, { env: box.env });
   if (result.status !== "recorded") throw new Error("fixture failure");
   resolveRuntimeError(result.fingerprint, { env: box.env, now: "2026-06-02T00:00:00.000Z" });
   assert.equal(acknowledgeRuntimeErrors(2, { env: box.env }).acknowledgedThrough, 2);
@@ -83,11 +83,11 @@ test("runtime error storeはackを単調にし、resolvedかつack済みだけ�
 
 test("collection OFF後も既存storeだけはack、resolve、reopen、compactでき、新規観測とsnapshot収集は止まる", () => {
   const box = sandbox(); enable(box);
-  const recorded = observeRuntimeError({ code: "CHAT_FAILED", now: "2026-06-01T00:00:00.000Z" }, { env: box.env });
+  const recorded = observeRuntimeError({ severity: "high", code: "CHAT_FAILED", now: "2026-06-01T00:00:00.000Z" }, { env: box.env });
   if (recorded.status !== "recorded") throw new Error("fixture failure");
   readRuntimeErrorSnapshot({ env: box.env });
   disable(box);
-  assert.equal(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }).status, "disabled");
+  assert.equal(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env }).status, "disabled");
   assert.equal(resolveRuntimeError(recorded.fingerprint, { env: box.env, now: "2026-06-02T00:00:00.000Z" }).status, "resolved");
   assert.equal(reopenRuntimeError(recorded.fingerprint, { env: box.env }).status, "open");
   assert.equal(resolveRuntimeError(recorded.fingerprint, { env: box.env, now: "2026-06-02T00:00:00.000Z" }).status, "resolved");
@@ -100,22 +100,22 @@ test("Windows ACLは注入した正規ACL境界の失敗をstore_unavailableへ�
   const box = sandbox(); enable(box);
   const windowsEnv = { ...box.env, OS: "Windows_NT" };
   let calls = 0;
-  assert.throws(() => observeRuntimeError({ code: "CHAT_FAILED" }, { env: windowsEnv, configPath: box.configPath, storePath: box.storePath, windowsAcl: () => { calls++; throw new Error("acl denied"); } }));
+  assert.throws(() => observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: windowsEnv, configPath: box.configPath, storePath: box.storePath, windowsAcl: () => { calls++; throw new Error("acl denied"); } }));
   assert.ok(calls > 0);
-  observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env });
   assert.equal(getRuntimeErrorDiagnostics({ env: windowsEnv, configPath: box.configPath, storePath: box.storePath, windowsAcl: () => { throw new Error("acl denied"); } }).status, "unavailable");
 });
 
 test("Windows実ACLはaccount名の大文字小文字差を許容してsnapshotとackを完了する", { skip: process.platform !== "win32" }, () => {
   const box = sandbox(); enable(box);
-  assert.equal(observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env }).status, "recorded");
+  assert.equal(observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env }).status, "recorded");
   assert.equal(readRuntimeErrorSnapshot({ env: box.env }).runtime_errors.length, 1);
   assert.equal(acknowledgeRuntimeErrors(1, { env: box.env }).status, "acknowledged");
 });
 
 test("runtime error storeはprivate mode、tamper、symlinkを拒否し、診断へpathを出さない", { skip: process.platform === "win32" }, () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "CDP_UNAVAILABLE" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CDP_UNAVAILABLE" }, { env: box.env });
   assert.equal(statSync(dirname(box.storePath)).mode & 0o777, 0o700);
   assert.equal(statSync(box.storePath).mode & 0o777, 0o600);
   chmodSync(box.storePath, 0o644);
@@ -124,7 +124,7 @@ test("runtime error storeはprivate mode、tamper、symlinkを拒否し、診断
 
 test("tampered store内のraw値はsnapshotへ出さずfail-closedする", () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env });
   const store = JSON.parse(readFileSync(box.storePath, "utf8")) as { records: Array<Record<string, unknown>> };
   store.records[0]!.message_template = "prompt=/Users/private/token=secret raw stack";
   writeFileSync(box.storePath, JSON.stringify(store), { mode: 0o600 });
@@ -134,7 +134,7 @@ test("tampered store内のraw値はsnapshotへ出さずfail-closedする", () =>
 
 test("runtime error storeはstate symlinkを拒否する", { skip: process.platform === "win32" }, () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env });
   const target = `${box.storePath}.target`;
   renameSync(box.storePath, target);
   symlinkSync(target, box.storePath);
@@ -144,27 +144,27 @@ test("runtime error storeはstate symlinkを拒否する", { skip: process.platf
 
 test("stale lockは診断を偽greenにせず、死んだwriterだけを次のmutationで回収する", { skip: process.platform === "win32" }, () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env });
   const lockPath = `${box.storePath}.lock`;
   writeFileSync(lockPath, JSON.stringify({ pid: 2_147_483_647, created_at: "2026-07-13T00:00:00.000Z" }), { mode: 0o600 });
   const old = new Date(Date.now() - 10 * 60_000);
   utimesSync(lockPath, old, old);
 
   assert.equal(getRuntimeErrorDiagnostics({ env: box.env }).status, "unavailable");
-  assert.equal(observeRuntimeError({ code: "CDP_UNAVAILABLE" }, { env: box.env }).status, "recorded");
+  assert.equal(observeRuntimeError({ severity: "high", code: "CDP_UNAVAILABLE" }, { env: box.env }).status, "recorded");
   assert.equal(getRuntimeErrorDiagnostics({ env: box.env }).status, "ready");
 });
 
 test("生存writerのlockは古くても奪わず診断をunavailableにする", { skip: process.platform === "win32" }, () => {
   const box = sandbox(); enable(box);
-  observeRuntimeError({ code: "CHAT_FAILED" }, { env: box.env });
+  observeRuntimeError({ severity: "high", code: "CHAT_FAILED" }, { env: box.env });
   const lockPath = `${box.storePath}.lock`;
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, created_at: "2026-07-13T00:00:00.000Z" }), { mode: 0o600 });
   const old = new Date(Date.now() - 10 * 60_000);
   utimesSync(lockPath, old, old);
 
   assert.equal(getRuntimeErrorDiagnostics({ env: box.env }).status, "unavailable");
-  assert.throws(() => observeRuntimeError({ code: "CDP_UNAVAILABLE" }, { env: box.env }), { code: "EEXIST" });
+  assert.throws(() => observeRuntimeError({ severity: "high", code: "CDP_UNAVAILABLE" }, { env: box.env }), { code: "EEXIST" });
   assert.equal(statSync(lockPath).isFile(), true);
 });
 

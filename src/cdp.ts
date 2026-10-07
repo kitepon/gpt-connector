@@ -219,7 +219,7 @@ export class CdpClient {
       const candidate = new WebSocket(url, { handshakeTimeout: defaultTimeoutMs });
       candidate.once("open", () => resolve(candidate));
       candidate.once("error", () => {
-        reject(new ConnectorError("CDP_UNAVAILABLE", "CDP WebSocketへ接続できません。"));
+        reject(new ConnectorError("CDP_UNAVAILABLE", "CDP WebSocketへ接続できません。", { beforeSubmission: true }));
       });
     });
 

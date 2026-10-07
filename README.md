@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.1`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.2`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -265,6 +265,13 @@ collection を開始するのは次のどちらかの時だけです。
 - canonical dotagents factory config（POSIX: `~/.config/dotagents/factory-reporter.json`、Windows native:
   `%LOCALAPPDATA%\\dotagents\\factory-reporter\\config.json`）が厳密な JSON shape で `collection.enabled: true` の時。
 - この端末で `gpt-connector runtime-errors reporting enable --json` を実行して、製品自身の送信を有効にした時。
+
+自動登録は操作への影響・対処・復帰の観測で決めます。未送信の接続失敗、認証待ち、確認済みの取消は診断に残し、修理対象に登録しません。
+結果不明の操作失敗は原因未確定・復帰未確認としてhighを維持します。安全な復帰が確認された失敗はwarn、データ喪失・重複実行はhigh、サービス停止はfatalです。回数だけでは重大度を上げません。
+`gpt-connector runtime-errors events --json`は直近128件のcode、時刻、原因の区分、影響、対処、復帰、登録判断を読み取ります。
+診断は端末内のprivateな`runtime-errors.json.events`に保存し、BugHubへ追加フィールドを送信しません。影響未確認は重大度nullです。
+原本、累計、時刻、fingerprintはこの分類変更で訂正しません。過去分の訂正は観測根拠を確認して正規のresolve/reopen入口から行います。
+通信環境の修理担当とアプリの修理担当は、診断を根拠に別途決めます。エラーコードだけでは責任を決めません。
 
 factory config の `reporting.enabled` や、token/credential の存在だけでは collection を有効にしません。
 

@@ -76,13 +76,12 @@ test("MCP diagnosticsはCDP未接続を正常なread-only結果にし、runtime 
   assert.throws(() => statSync(result.store), { code: "ENOENT" });
 });
 
-test("実操作のCDP接続失敗は従来どおりruntime errorを記録する", () => {
+test("未送信で安全に終了したCDP接続失敗は診断へ残し、修理対象に登録しない", () => {
   const result = runTool("chatgpt_models");
   assert.equal(result.response.isError, true);
-  const store = JSON.parse(readFileSync(result.store, "utf8")) as {
-    records: Array<{ error_code: string; status: string; severity: string }>;
-  };
-  assert.deepEqual(store.records.map(({ error_code, status, severity }) => ({ error_code, status, severity })), [
-    { error_code: "CDP_UNAVAILABLE", status: "open", severity: "high" },
-  ]);
+  assert.throws(() => statSync(result.store), { code: "ENOENT" });
+  const events = JSON.parse(readFileSync(`${result.store}.events`, "utf8"));
+  assert.equal(events[0].assessment.cause, "unknown");
+  assert.equal(events[0].assessment.handling, "handled");
+  assert.equal(events[0].decision.register, false);
 });

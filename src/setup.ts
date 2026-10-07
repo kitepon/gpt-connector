@@ -84,7 +84,7 @@ const setupDependencies = {
   steer: configureCodexSteer,
   cursorHooks: configureCursorHooks,
   reportRuntimeDrift: async () => {
-    if (recordRuntimeErrorBestEffort("RUNTIME_DRIFT") === "recorded") await reportRuntimeErrorsBestEffort();
+    if (recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { assessment: { cause: "application", impact: "operation_failed", handling: "defective", recovery: "unavailable", cancelled: false } }) === "recorded") await reportRuntimeErrorsBestEffort();
   },
 };
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readRuntimeErrorEvents } from "./runtime-error-events.js";
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
@@ -349,8 +350,8 @@ async function main(): Promise<void> {
 
 async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
   const [command, ...rest] = argv;
-  if (command === undefined || !["snapshot", "diagnostics", "ack", "resolve", "reopen", "compact", "reporting", "report"].includes(command)) {
-    throw new Error("usage: gpt-connector runtime-errors <snapshot|diagnostics|ack|resolve|reopen|compact|report|reporting <status|enable|disable>> [arguments] --json");
+  if (command === undefined || !["snapshot", "diagnostics", "events", "ack", "resolve", "reopen", "compact", "reporting", "report"].includes(command)) {
+    throw new Error("usage: gpt-connector runtime-errors <snapshot|diagnostics|events|ack|resolve|reopen|compact|report|reporting <status|enable|disable>> [arguments] --json");
   }
   let json = false;
   let afterCursor = 0;
@@ -371,6 +372,7 @@ async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
   if (!json) throw new Error("runtime-errorsには--jsonが必要です。");
   if (command === "snapshot") return readRuntimeErrorSnapshot({ afterCursor, limit });
   if (command === "diagnostics") return getRuntimeErrorDiagnostics();
+  if (command === "events") return readRuntimeErrorEvents();
   if (command === "compact") return compactRuntimeErrors();
   if (command === "report") return reportRuntimeErrors("manual");
   if (value === undefined) throw new Error("runtime-errorsの値が必要です。");
@@ -386,7 +388,7 @@ async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
 }
 
 main().catch(async (error: unknown) => {
-  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error.code) : "disabled";
+  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error) : "disabled";
   if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
   if (telemetry === "recorded") await reportRuntimeErrorsBestEffort();
   if (error instanceof ConnectorError) {

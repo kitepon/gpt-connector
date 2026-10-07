@@ -473,7 +473,7 @@ async function toolResult(action: () => Promise<unknown>) {
         typeof result === "object" && result !== null ? { ...result } : { value: result },
     };
   } catch (error) {
-    const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error.code) : "disabled";
+    const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error) : "disabled";
     if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
     // 送信はtoolの応答を待たせない。無効な端末では通信しない。
     if (telemetry === "recorded") void reportRuntimeErrorsBestEffort();

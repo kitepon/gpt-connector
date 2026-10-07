@@ -13,6 +13,9 @@ import { dirname, join } from "node:path";
 import { assertPrivate, defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, ensurePrivateDirectory, makeFilePrivate, type WindowsAclApplier } from "./platform/state.js";
 import { isRuntimeErrorReportingEnabled } from "./runtime-error-reporting-state.js";
 import { packageVersion } from "./version.js";
+import { ConnectorError } from "./errors.js";
+import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment, type RuntimeErrorSeverity } from "./runtime-error-assessment.js";
+import { recordRuntimeErrorEvent } from "./runtime-error-events.js";
 
 export { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath } from "./platform/state.js";
 
@@ -22,22 +25,22 @@ export const runtimeErrorStoreDiagnostic = "[gpt-connector:runtime-errors] store
 const snapshotLimit = 256;
 
 const definitions = {
-  CDP_UNAVAILABLE: { component: "cdp", severity: "high", template: "GPT Connector CDP connection failed" },
-  AUTH_REQUIRED: { component: "auth", severity: "high", template: "GPT Connector ChatGPT authentication is required" },
-  RUNTIME_DRIFT: { component: "runtime_bridge", severity: "high", template: "GPT Connector runtime bridge contract drifted" },
-  MODEL_RESOLUTION_MISMATCH: { component: "model_selection", severity: "high", template: "GPT Connector resolved a different model or effort" },
-  UPLOAD_FAILED: { component: "attachment", severity: "high", template: "GPT Connector attachment upload failed" },
-  UPLOAD_TIMEOUT: { component: "attachment", severity: "high", template: "GPT Connector attachment upload timed out" },
-  ATTACHMENT_READBACK_FAILED: { component: "attachment", severity: "high", template: "GPT Connector attachment read-back failed" },
-  IMAGE_NOT_GENERATED: { component: "image_generation", severity: "high", template: "GPT Connector ChatGPT image was not generated" },
-  IMAGE_READBACK_FAILED: { component: "image_generation", severity: "high", template: "GPT Connector generated image read-back failed" },
-  IMAGE_DOWNLOAD_FAILED: { component: "image_download", severity: "high", template: "GPT Connector generated image download failed" },
-  IMAGE_OUTPUT_FAILED: { component: "image_output", severity: "high", template: "GPT Connector generated image output failed" },
-  IMAGE_CLEANUP_FAILED: { component: "image_cleanup", severity: "high", template: "GPT Connector generated image cleanup failed" },
-  CHAT_FAILED: { component: "chat", severity: "high", template: "GPT Connector ChatGPT chat operation failed" },
-  STREAM_INCOMPLETE: { component: "stream", severity: "high", template: "GPT Connector ChatGPT stream was incomplete" },
-  ARCHIVE_FAILED: { component: "archive", severity: "high", template: "GPT Connector conversation archive failed" },
-  JOB_RECOVERY_UNAVAILABLE: { component: "consult_job_store", severity: "high", template: "GPT Connector consult job state persistence failed" },
+  CDP_UNAVAILABLE: { component: "cdp", template: "GPT Connector CDP connection failed" },
+  AUTH_REQUIRED: { component: "auth", template: "GPT Connector ChatGPT authentication is required" },
+  RUNTIME_DRIFT: { component: "runtime_bridge", template: "GPT Connector runtime bridge contract drifted" },
+  MODEL_RESOLUTION_MISMATCH: { component: "model_selection", template: "GPT Connector resolved a different model or effort" },
+  UPLOAD_FAILED: { component: "attachment", template: "GPT Connector attachment upload failed" },
+  UPLOAD_TIMEOUT: { component: "attachment", template: "GPT Connector attachment upload timed out" },
+  ATTACHMENT_READBACK_FAILED: { component: "attachment", template: "GPT Connector attachment read-back failed" },
+  IMAGE_NOT_GENERATED: { component: "image_generation", template: "GPT Connector ChatGPT image was not generated" },
+  IMAGE_READBACK_FAILED: { component: "image_generation", template: "GPT Connector generated image read-back failed" },
+  IMAGE_DOWNLOAD_FAILED: { component: "image_download", template: "GPT Connector generated image download failed" },
+  IMAGE_OUTPUT_FAILED: { component: "image_output", template: "GPT Connector generated image output failed" },
+  IMAGE_CLEANUP_FAILED: { component: "image_cleanup", template: "GPT Connector generated image cleanup failed" },
+  CHAT_FAILED: { component: "chat", template: "GPT Connector ChatGPT chat operation failed" },
+  STREAM_INCOMPLETE: { component: "stream", template: "GPT Connector ChatGPT stream was incomplete" },
+  ARCHIVE_FAILED: { component: "archive", template: "GPT Connector conversation archive failed" },
+  JOB_RECOVERY_UNAVAILABLE: { component: "consult_job_store", template: "GPT Connector consult job state persistence failed" },
 } as const;
 
 export type RuntimeErrorCode = keyof typeof definitions;
@@ -48,7 +51,7 @@ interface RecordEntry {
   component: string;
   error_code: RuntimeErrorCode;
   message_template: string;
-  severity: "high";
+  severity: RuntimeErrorSeverity;
   fingerprint: string;
   count: number;
   first_seen: string;
@@ -62,7 +65,7 @@ interface RecordEntry {
   sequence: number;
 }
 interface Store { schema: typeof runtimeErrorStoreSchema; next_sequence: number; acknowledged_through: number; records: RecordEntry[]; }
-export interface RuntimeErrorOptions { readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly reportingPath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
+export interface RuntimeErrorOptions { readonly assessment?: FailureAssessment; readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly reportingPath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
 
 /** 収集は、工場の設定が有効にした時か、製品自身の送信を端末で有効にした時に行う。 */
 export function isRuntimeErrorCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath" | "storePath" | "reportingPath"> = {}): boolean {
@@ -78,9 +81,11 @@ function factoryCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "co
   } catch { return false; }
 }
 
-export function observeRuntimeError(input: { readonly code: RuntimeErrorCode; readonly now?: string }, options: RuntimeErrorOptions = {}) {
-  assertExactKeys(input, ["code", "now"], "固定 code と時刻だけ");
+export function observeRuntimeError(input: { readonly code: RuntimeErrorCode; readonly now?: string; readonly severity: RuntimeErrorSeverity }, options: RuntimeErrorOptions = {}) {
+  assertExactKeys(input, ["code", "now", "severity"], "固定 code と時刻・重大度だけ");
   if (!(input.code in definitions)) throw new TypeError("未登録の runtime error code です");
+  const severity = input.severity;
+  if (!["fatal", "high", "warn", "info"].includes(severity)) throw new TypeError("重大度が不正です");
   if (!isRuntimeErrorCollectionEnabled(options)) return { status: "disabled" as const };
   return mutate(options, (store) => {
     const definition = definitions[input.code];
@@ -89,11 +94,15 @@ export function observeRuntimeError(input: { readonly code: RuntimeErrorCode; re
     const sequence = store.next_sequence++;
     const existing = store.records.find((record) => record.fingerprint === fingerprint);
     if (existing) {
+      const severityRank = { info: 0, warn: 1, high: 2, fatal: 3 };
+      const retainedSeverity = existing.status === "open" && severityRank[existing.severity] > severityRank[severity]
+        ? existing.severity : severity;
       existing.product_version = safeVersion(options.version);
       existing.count += 1; existing.last_seen = now; existing.status = "open";
+      existing.severity = retainedSeverity;
       existing.resolved_at = null; existing.reason_code = null; existing.sequence = sequence;
     } else store.records.push({ product: "gpt-connector", product_version: safeVersion(options.version), component: definition.component,
-      error_code: input.code, message_template: definition.template, severity: definition.severity, fingerprint, count: 1,
+      error_code: input.code, message_template: definition.template, severity, fingerprint, count: 1,
       first_seen: now, last_seen: now, state_schema_version: runtimeErrorStateSchemaVersion,
       os: safePlatform(options.platform), arch: safeArch(options.arch), status: "open", resolved_at: null, reason_code: null, sequence });
     return { status: "recorded" as const, fingerprint, sequence };
@@ -133,9 +142,17 @@ export function getRuntimeErrorDiagnostics(options: RuntimeErrorOptions = {}) {
 }
 
 /** Adapter-only telemetry hook. It accepts only registered public failure codes and never throws. */
-export function recordRuntimeErrorBestEffort(code: string, options: RuntimeErrorOptions = {}): "recorded" | "disabled" | "store_unavailable" {
-  if (code === "AUTH_REQUIRED" || !(code in definitions)) return "disabled";
-  try { return observeRuntimeError({ code: code as RuntimeErrorCode }, options).status; } catch { return "store_unavailable"; }
+export function recordRuntimeErrorBestEffort(error: string | ConnectorError, options: RuntimeErrorOptions = {}): "recorded" | "disabled" | "store_unavailable" {
+  const code = typeof error === "string" ? error : error.code;
+  if (!(code in definitions) || !isRuntimeErrorCollectionEnabled(options)) return "disabled";
+  const assessment = options.assessment ?? (error instanceof ConnectorError ? assessRuntimeFailure(error) : {
+    cause: "unknown", impact: "unknown", handling: "unknown", recovery: "unknown", cancelled: false,
+  } satisfies FailureAssessment);
+  const decision = runtimeFailureDecision(assessment);
+  let diagnosticsFailed = false;
+  try { recordRuntimeErrorEvent(code, assessment, decision, options); } catch { diagnosticsFailed = true; }
+  if (!decision.register || decision.severity === null) return diagnosticsFailed ? "store_unavailable" : "disabled";
+  try { return observeRuntimeError({ code: code as RuntimeErrorCode, severity: decision.severity, now: options.now }, options).status; } catch { return "store_unavailable"; }
 }
 
 function updateStatus(store: Store, fingerprint: string, status: Status, options: RuntimeErrorOptions & { readonly reasonCode?: "manual" | "recovered" }) {
@@ -189,7 +206,7 @@ function validateStore(value: unknown): asserts value is Store {
     if (!plain(value) || !exactKeys(value, ["product", "product_version", "component", "error_code", "message_template", "severity", "fingerprint", "count", "first_seen", "last_seen", "state_schema_version", "os", "arch", "status", "resolved_at", "reason_code", "sequence"])) throw new Error("store record");
     const entry = value as RecordEntry; const definition = definitions[entry.error_code];
     const first = canonicalTimestamp(entry.first_seen); const last = canonicalTimestamp(entry.last_seen);
-    if (entry.product !== "gpt-connector" || definition === undefined || entry.product_version !== safeVersion(entry.product_version) || entry.component !== definition.component || entry.message_template !== definition.template || entry.severity !== definition.severity || entry.fingerprint !== fingerprintFor(entry.error_code) || !Number.isSafeInteger(entry.count) || entry.count < 1 || entry.state_schema_version !== runtimeErrorStateSchemaVersion || entry.os !== safePlatform(entry.os) || !/^[a-z0-9_]+$/u.test(entry.arch) || !Number.isSafeInteger(entry.sequence) || entry.sequence < 1 || entry.sequence >= checked.next_sequence || first > last || fingerprints.has(entry.fingerprint) || sequences.has(entry.sequence)) throw new Error("store record");
+    if (entry.product !== "gpt-connector" || definition === undefined || entry.product_version !== safeVersion(entry.product_version) || entry.component !== definition.component || entry.message_template !== definition.template || !["fatal", "high", "warn", "info"].includes(entry.severity) || entry.fingerprint !== fingerprintFor(entry.error_code) || !Number.isSafeInteger(entry.count) || entry.count < 1 || entry.state_schema_version !== runtimeErrorStateSchemaVersion || entry.os !== safePlatform(entry.os) || !/^[a-z0-9_]+$/u.test(entry.arch) || !Number.isSafeInteger(entry.sequence) || entry.sequence < 1 || entry.sequence >= checked.next_sequence || first > last || fingerprints.has(entry.fingerprint) || sequences.has(entry.sequence)) throw new Error("store record");
     if ((entry.status === "open" && (entry.resolved_at !== null || entry.reason_code !== null)) || (entry.status === "resolved" && (entry.resolved_at === null || !["manual", "recovered"].includes(entry.reason_code ?? "") || canonicalTimestamp(entry.resolved_at) < last)) || (entry.status !== "open" && entry.status !== "resolved")) throw new Error("store record");
     fingerprints.add(entry.fingerprint); sequences.add(entry.sequence);
   }
