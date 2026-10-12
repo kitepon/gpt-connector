@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareBrowser, setup } from "../src/setup.js";
+import { prepareBrowser, setup, setupRuntimeDriftOptions } from "../src/setup.js";
 import { ConnectorError } from "../src/errors.js";
 import type { ConnectorDiagnostics } from "../src/contract.js";
 import { setupClients, type SetupClient, type SetupServer } from "../src/setup-registration.js";
 import type { configureCodexSteer } from "../src/setup-codex-steer.js";
 import type { configureCursorHooks } from "../src/setup-cursor-hooks.js";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { GptConnector } from "../src/connector.js";
+import { mergeRegistration, readRegistration, registerClient, registrationPath } from "../src/setup-registration.js";
+import { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, readRuntimeErrorSnapshot, recordRuntimeErrorBestEffort } from "../src/runtime-error-store.js";
+import { readRuntimeErrorEvents } from "../src/runtime-error-events.js";
+import { evaluateByValue } from "../src/runtime-evaluate.js";
+import type { CdpClient } from "../src/cdp.js";
 
 function diagnosis(reasonCode: ConnectorDiagnostics["reasonCode"]): ConnectorDiagnostics {
   return { overall: reasonCode === "ready" ? "ready" : "not_ready", reasonCode } as ConnectorDiagnostics;
@@ -179,3 +188,108 @@ test("setup records one runtime drift for shared browser failures, while check s
   await setup({ check: true }, deps);
   assert.equal(reports, 1);
 });
+
+test("thrown first probe and cached later drift retain both stages in one occurrence without changing setup JSON", async () => {
+  let calls = 0;
+  const reports: Parameters<typeof setupRuntimeDriftOptions>[0][] = [];
+  const result = await setup({}, { ...setupPorts("win32"),
+    browser: async () => {
+      if (++calls === 1) throw new ConnectorError("RUNTIME_DRIFT", "private-token", { runtimeStage: "bridge_bootstrap", runtimeTag: "sender" });
+      return { status: "failed", reason: "runtime_drift", runtimeFailure: { stage: "runtime_discovery", tag: "rspack_runtime" } };
+    },
+    reportRuntimeDrift: async failures => { reports.push(failures); },
+  });
+  assert.equal(result.overall, "failed");
+  assert.equal(calls, 2);
+  assert.deepEqual(result.registrations[0]!.failure, { stage: "browser", code: "RUNTIME_DRIFT" });
+  assert.deepEqual(result.registrations[1]!.live, { status: "failed", reason: "runtime_drift" });
+  assert.deepEqual(reports, [[{ stage: "bridge_bootstrap", tag: "sender" }, { stage: "runtime_discovery", tag: "rspack_runtime" }]]);
+  assert.doesNotMatch(JSON.stringify(result), /private-token|runtimeFailure|rspack_runtime|sender/u);
+});
+
+test("doctor keeps its public schema and failure result even if the diagnostic observer throws", async () => {
+  const connect = GptConnector.connect;
+  try {
+    GptConnector.connect = async () => { throw new ConnectorError("RUNTIME_DRIFT", "private-token", { runtimeStage: "bridge_bootstrap", runtimeTag: "sender" }); };
+    const result = await GptConnector.doctor({}, failure => {
+      assert.deepEqual(failure, { stage: "bridge_bootstrap", tag: "sender" });
+      throw new Error("observer private-token");
+    });
+    assert.equal(result.overall, "not_ready");
+    assert.equal(result.reasonCode, "runtime_drift");
+    assert.doesNotMatch(JSON.stringify(result), /private-token|runtimeFailure|sender|context/u);
+  } finally { GptConnector.connect = connect; }
+});
+
+for (const platform of ["darwin", "linux", "win32"] as const) {
+  for (const client of setupClients) {
+    test(`diagnostic fixture ${platform}/${client}: actual config merge, doctor, events, check and disabled preservation`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "gpt-connector-setup-drift-"));
+      const env = { HOME: root, USERPROFILE: root, LOCALAPPDATA: root, XDG_CONFIG_HOME: join(root, "config"), XDG_STATE_HOME: join(root, "state") };
+      const configPath = defaultFactoryReporterConfigPath(env);
+      mkdirSync(dirname(configPath), { recursive: true, mode: 0o700 });
+      writeFileSync(configPath, JSON.stringify({ schema_version: "1.0", host: { id: "fixture", profile: "linux" }, collection: { enabled: true }, reporting: { enabled: false } }), { mode: 0o600 });
+      const path = registrationPath(client, root, {});
+      const connect = GptConnector.connect;
+      let reports = 0;
+      try {
+        // No Chrome/CDP connection: only this in-memory error response crosses the real evaluation path.
+        GptConnector.connect = async () => {
+          await evaluateByValue({ call: async () => ({ exceptionDetails: { exception: { description: "Error: RUNTIME_DRIFT:rspack_runtime:0\nprivate-token" } } }) } as unknown as CdpClient, "fixture", true, "runtime_discovery");
+          throw new Error("unreachable");
+        };
+        const deps = {
+          ...setupPorts(platform),
+          register: (c: SetupClient) => registerClient(c, "fixture-mcp", [], path, join(root, "backups")),
+          read: (c: SetupClient) => readRegistration(c, path),
+          browser: (_env: Record<string, string>, check: boolean) => prepareBrowser(undefined, undefined, check),
+          reportRuntimeDrift: async (failures: Parameters<typeof setupRuntimeDriftOptions>[0]) => {
+            reports++;
+            assert.equal(recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...setupRuntimeDriftOptions(failures), env }), "recorded");
+          },
+        };
+        const result = await setup({ clients: [client] }, deps);
+        assert.equal(result.overall, "failed");
+        assert.equal(reports, 1);
+        assert.deepEqual(result.registrations[0]!.live, { status: "failed", reason: "runtime_drift" });
+        const events = readRuntimeErrorEvents({ env });
+        assert.deepEqual(events[0]!.assessment, { cause: "unknown", impact: "operation_failed", handling: "unknown", recovery: "unknown", cancelled: false });
+        assert.deepEqual(events[0]!.context, { source: "setup_live_check", failures: [{ stage: "runtime_discovery", tag: "rspack_runtime" }] });
+        assert.deepEqual(events[0]!.decision, { register: true, severity: "high" });
+        const storePath = defaultRuntimeErrorStorePath(env);
+        const store = readFileSync(storePath, "utf8");
+        const eventBytes = readFileSync(`${storePath}.events`, "utf8");
+        assert.doesNotMatch(eventBytes, /private-token/u);
+        assert.equal(readRuntimeErrorSnapshot({ env }).runtime_errors[0]!.occurrence_count, 1);
+        assert.doesNotMatch(store, /setup_live_check|rspack_runtime|context/u);
+        const config = readFileSync(path, "utf8");
+        await setup({ clients: [client], check: true }, deps);
+        assert.equal(reports, 1);
+        assert.equal(readFileSync(path, "utf8"), config);
+        assert.equal(readFileSync(storePath, "utf8"), store);
+        assert.equal(readFileSync(`${storePath}.events`, "utf8"), eventBytes);
+        // A complete existing disabled registration must not be re-enabled or probed.
+        const source = client === "codex" || client === "grok"
+          ? '[mcp_servers.gpt_connector]\ncommand="fixture-mcp"\nenabled=false\n'
+          : JSON.stringify({ mcpServers: { gpt_connector: { command: "fixture-mcp", disabled: true } } });
+        writeFileSync(path, mergeRegistration(source, client, "fixture-mcp", []).text, { mode: 0o600 });
+        const disabledConfig = readFileSync(path, "utf8");
+        const disabled = await setup({ clients: [client] }, { ...deps,
+          verify: async () => { throw new Error("disabled MCP was started"); },
+          browser: async () => { throw new Error("disabled browser was probed"); },
+        });
+        assert.equal(disabled.overall, "action_required");
+        assert.equal(disabled.registrations[0]!.clientActivation, "disabled_by_user");
+        assert.equal(disabled.registrations[0]!.mcp, "not_checked");
+        assert.equal(disabled.registrations[0]!.live, undefined);
+        assert.equal(disabled.registrations[0]!.failure, undefined);
+        assert.equal(readFileSync(path, "utf8"), disabledConfig);
+        assert.equal(readFileSync(storePath, "utf8"), store);
+        assert.equal(reports, 1);
+      } finally {
+        GptConnector.connect = connect;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+}

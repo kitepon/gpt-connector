@@ -6,6 +6,14 @@ import { z } from "zod";
 import { assertPrivate, defaultRuntimeErrorStorePath, ensurePrivateDirectory, makeFilePrivate } from "./platform/state.js";
 import type { FailureAssessment, RuntimeErrorSeverity } from "./runtime-error-assessment.js";
 import type { RuntimeErrorOptions } from "./runtime-error-store.js";
+import { runtimeFailureSchema } from "./runtime-failure.js";
+
+export const runtimeErrorContextSchema = z.object({
+  source: z.enum(["setup_live_check", "public_operation"]),
+  // At most one distinct failure per setup client; keep 128 events within the read limit.
+  failures: z.array(runtimeFailureSchema).max(4),
+}).strict();
+export type RuntimeErrorContext = z.output<typeof runtimeErrorContextSchema>;
 
 const eventSchema = z.object({
   code: z.string().regex(/^[A-Z][A-Z0-9_]*$/u), observed_at: z.iso.datetime(),
@@ -16,6 +24,7 @@ const eventSchema = z.object({
     recovery: z.enum(["safe", "status_first", "unavailable", "unknown"]), cancelled: z.boolean(),
   }).strict(),
   decision: z.object({ register: z.boolean(), severity: z.enum(["fatal", "high", "warn", "info"]).nullable() }).strict(),
+  context: runtimeErrorContextSchema.optional(),
 }).strict();
 const eventsSchema = z.array(eventSchema).max(128);
 
@@ -42,7 +51,9 @@ export function recordRuntimeErrorEvent(code: string, assessment: FailureAssessm
   let fd: number | undefined;
   try {
     fd = openSync(lock, "wx", 0o600);
-    const event = eventSchema.parse({ code, observed_at: options.now ?? new Date().toISOString(), assessment, decision });
+    const context = runtimeErrorContextSchema.safeParse(options.context);
+    const event = eventSchema.parse({ code, observed_at: options.now ?? new Date().toISOString(), assessment, decision,
+      ...(context.success ? { context: context.data } : {}) });
     const events = [...readRuntimeErrorEvents(options).slice(-127), event];
     writeFileSync(temporary, `${JSON.stringify(events)}\n`, { mode: 0o600, flag: "wx" });
     makeFilePrivate(temporary, options.env, options.windowsAcl);

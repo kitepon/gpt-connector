@@ -57,6 +57,7 @@ import {
 } from "./page-bridge.js";
 import { createRuntimeDiscoveryExpression } from "./runtime-discovery.js";
 import { evaluateByValue } from "./runtime-evaluate.js";
+import { runtimeFailureDetails, runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
 import { SessionRegistry } from "./session-registry.js";
 import { packageVersion } from "./version.js";
 
@@ -269,13 +270,17 @@ export class GptConnector {
     }
   }
 
-  static async doctor(options: ConnectorOptions = {}): Promise<ConnectorDiagnostics> {
+  static async doctor(options: ConnectorOptions = {}, onRuntimeFailure?: (failure: RuntimeFailure) => void): Promise<ConnectorDiagnostics> {
     let connector: GptConnector | null = null;
     try {
       connector = await GptConnector.connect(options);
       return await connector.diagnostics();
     } catch (error) {
       const code = error instanceof ConnectorError ? error.code : null;
+      if (code === "RUNTIME_DRIFT") {
+        // An internal observer carries only fixed diagnostics; it cannot change the public result.
+        try { onRuntimeFailure?.(runtimeFailureFromError(error)); } catch { /* diagnostics remain best effort */ }
+      }
       return {
         schema: "gpt-connector.diagnostics.v1",
         packageVersion,
@@ -1069,10 +1074,11 @@ export class GptConnector {
           officialOrigin: location.origin === "https://chatgpt.com"
         };
       })()`,
+      true, "authentication",
     );
 
     if (!auth.officialOrigin) {
-      throw new ConnectorError("RUNTIME_DRIFT", "page targetがChatGPT公式originではありません。");
+      throw new ConnectorError("RUNTIME_DRIFT", "page targetがChatGPT公式originではありません。", runtimeFailureDetails({ stage: "authentication", tag: "official_origin" }));
     }
     if (!auth.authenticated) {
       throw new ConnectorError("AUTH_REQUIRED", "専用ChromeでChatGPTへログインしてください。", {
@@ -1090,6 +1096,7 @@ export class GptConnector {
           ? bridge.summary()
           : null;
       })()`,
+      true, "existing_bridge",
     );
     const existingBridgeResult = z
       .object({
@@ -1100,10 +1107,11 @@ export class GptConnector {
       .safeParse(existingBridge);
     if (existingBridgeResult.success) return;
 
-    const runtimeUrl = await evaluateByValue<string>(this.#client, createRuntimeDiscoveryExpression());
+    const runtimeUrl = await evaluateByValue<string>(this.#client, createRuntimeDiscoveryExpression(), true, "runtime_discovery");
     const summary = await evaluateByValue<unknown>(
       this.#client,
       createBridgeBootstrapExpression(runtimeUrl),
+      true, "bridge_bootstrap",
     );
     const parsed = z
       .object({
@@ -1113,7 +1121,7 @@ export class GptConnector {
       })
       .safeParse(summary);
     if (!parsed.success) {
-      throw new ConnectorError("RUNTIME_DRIFT", "page bridgeを初期化できませんでした。");
+      throw new ConnectorError("RUNTIME_DRIFT", "page bridgeを初期化できませんでした。", runtimeFailureDetails({ stage: "bridge_bootstrap", tag: "bridge_summary" }));
     }
   }
 

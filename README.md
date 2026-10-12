@@ -270,6 +270,8 @@ collection を開始するのは次のどちらかの時だけです。
 結果不明の操作失敗は原因未確定・復帰未確認としてhighを維持します。安全な復帰が確認された失敗はwarn、データ喪失・重複実行はhigh、サービス停止はfatalです。回数だけでは重大度を上げません。
 `gpt-connector runtime-errors events --json`は直近128件のcode、時刻、原因の区分、影響、対処、復帰、登録判断を読み取ります。
 診断は端末内のprivateな`runtime-errors.json.events`に保存し、BugHubへ追加フィールドを送信しません。影響未確認は重大度nullです。
+新しい診断には`context.source`（`setup_live_check`または`public_operation`）と、最大4個の固定の失敗段階・契約タグを付けます。未知のタグは`unknown`にし、任意の例外本文・stack・URL・秘密値は残しません。setupのlive検査失敗は`operation_failed`ですが、相談失敗を観測した意味ではありません。原因・対処・復帰が未確定なら`unknown`とし、確認失敗と復帰未確認を根拠にhighを維持します。
+旧eventsは引き続き読めます。context付きeventsは0.16.2以前のstrict readerでは読めないため、巻き戻す前に診断ファイルを保全してください。集約store、snapshot、doctor/setupの公開JSON、BugHub送信形式は変更しません。
 原本、累計、時刻、fingerprintはこの分類変更で訂正しません。過去分の訂正は観測根拠を確認して正規のresolve/reopen入口から行います。
 通信環境の修理担当とアプリの修理担当は、診断を根拠に別途決めます。エラーコードだけでは責任を決めません。
 

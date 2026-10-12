@@ -8,6 +8,7 @@ import { ConnectorError } from "../src/errors.js";
 import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment } from "../src/runtime-error-assessment.js";
 import { readRuntimeErrorEvents } from "../src/runtime-error-events.js";
 import { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, observeRuntimeError, readRuntimeErrorSnapshot, recordRuntimeErrorBestEffort, resolveRuntimeError } from "../src/runtime-error-store.js";
+import { setupRuntimeDriftOptions } from "../src/setup.js";
 
 const failed: FailureAssessment = { cause: "unknown", impact: "operation_failed", handling: "unknown", recovery: "unknown", cancelled: false };
 function sandbox() {
@@ -64,4 +65,62 @@ test("同じfingerprintの真の新規発生だけが累計を増やし、重大
   assert.equal(after.occurrence_count, 3);
   assert.equal(after.first_seen, before.first_seen);
   assert.equal(after.severity, "warn");
+});
+
+test("旧eventsを読み、過去の累計を変えずに新しいsetup診断を追記できる。public操作は区別する", () => {
+  const options = sandbox();
+  const first = "2026-10-10T00:00:00.000Z";
+  observeRuntimeError({ code: "RUNTIME_DRIFT", severity: "high", now: first }, options);
+  const store = defaultRuntimeErrorStorePath(options.env);
+  const old = { code: "RUNTIME_DRIFT", observed_at: first, assessment: { ...failed, cause: "application", handling: "defective", recovery: "unavailable" }, decision: { register: true, severity: "high" } };
+  writeFileSync(`${store}.events`, JSON.stringify([old]), { mode: 0o600 });
+  const before = readFileSync(store, "utf8");
+  assert.deepEqual(readRuntimeErrorEvents(options), [old]);
+  assert.equal(readFileSync(store, "utf8"), before);
+  recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...options, ...setupRuntimeDriftOptions([{ stage: "runtime_discovery", tag: "rspack_runtime" }]), now: "2026-10-12T00:00:00.000Z" });
+  const events = readRuntimeErrorEvents(options);
+  assert.deepEqual(events[0], old);
+  assert.equal(events[1]!.context!.source, "setup_live_check");
+  assert.deepEqual(events[1]!.assessment, failed);
+  assert.equal(events[1]!.decision.severity, "high");
+  const record = readRuntimeErrorSnapshot(options).runtime_errors[0]!;
+  assert.equal(record.first_seen, first);
+  assert.equal(record.occurrence_count, 2);
+  assert.equal(record.last_seen, "2026-10-12T00:00:00.000Z");
+  assert.equal(record.severity, "high");
+  const prior = JSON.parse(before).records[0];
+  assert.equal(record.fingerprint, prior.fingerprint);
+  assert.equal(record.error_code, prior.error_code);
+  recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret prompt", { runtimeStage: "bridge_bootstrap", runtimeTag: "sender", secret: "private-token" }), options);
+  assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context, { source: "public_operation", failures: [{ stage: "bridge_bootstrap", tag: "sender" }] });
+  assert.doesNotMatch(readFileSync(`${store}.events`, "utf8"), /private-token|secret prompt/u);
+});
+
+test("不正な診断contextは保存せず、実害の登録を隠さない", () => {
+  const options = sandbox();
+  const context = { source: "setup_live_check", failures: [{ stage: "private-token", tag: "secret" }], extra: "private-prompt" };
+  assert.equal(recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...options, assessment: { ...failed, cause: "environment", impact: "data_loss" }, context: context as never }), "recorded");
+  assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]!.severity, "high");
+  assert.equal(readRuntimeErrorEvents(options)[0]!.context, undefined);
+  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events`, "utf8"), /private-token|secret|private-prompt/u);
+  recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret", { runtimeStage: "runtime_discovery", runtimeTag: "private-token" }), options);
+  assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context?.failures, [{ stage: "unknown", tag: "unknown" }]);
+});
+
+test("4組の診断付きeventsを128件保持しても読取上限内で、古い1件だけを落とす", () => {
+  const options = sandbox();
+  const context = setupRuntimeDriftOptions([
+    { stage: "browser_preparation", tag: "unknown" },
+    { stage: "runtime_discovery", tag: "rspack_runtime" },
+    { stage: "bridge_bootstrap", tag: "scopeWrapper" },
+    { stage: "authentication", tag: "official_origin" },
+  ]);
+  for (let second = 0; second < 129; second++) {
+    assert.equal(recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...options, ...context, now: new Date(Date.UTC(2026, 9, 12, 0, 0, second)).toISOString() }), "recorded");
+  }
+  const events = readRuntimeErrorEvents(options);
+  assert.equal(events.length, 128);
+  assert.equal(events[0]!.observed_at, "2026-10-12T00:00:01.000Z");
+  assert.equal(events.at(-1)!.observed_at, "2026-10-12T00:02:08.000Z");
+  assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events`).length < 128 * 1024);
 });

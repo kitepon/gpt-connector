@@ -14,6 +14,14 @@ import { supportsLiveBrowser } from "./platform/browser.js";
 import { supportsCodexSteer } from "./platform/codex.js";
 import { recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
+import { runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
+
+export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
+  return {
+    assessment: { cause: "unknown", impact: "operation_failed", handling: "unknown", recovery: "unknown", cancelled: false } as const,
+    context: { source: "setup_live_check", failures } as const,
+  };
+}
 
 export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
@@ -33,10 +41,21 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
 }
 
 function browserDependencies(env: Record<string, string | undefined>) {
-  return { doctor: () => GptConnector.doctor({ endpoint: env.GPT_CONNECTOR_CDP_ENDPOINT, stateDirectory: env.GPT_CONNECTOR_STATE_DIR, readOnlyJobs: true }), startBrowser, showBrowser };
+  return { doctor: async () => {
+    let runtimeFailure: RuntimeFailure | undefined;
+    const diagnosis = await GptConnector.doctor({ endpoint: env.GPT_CONNECTOR_CDP_ENDPOINT, stateDirectory: env.GPT_CONNECTOR_STATE_DIR, readOnlyJobs: true }, failure => { runtimeFailure = failure; });
+    return { ...diagnosis, ...(runtimeFailure ? { runtimeFailure } : {}) };
+  }, startBrowser, showBrowser };
 }
 
-export async function prepareBrowser(deps = browserDependencies(process.env), endpoint = process.env.GPT_CONNECTOR_CDP_ENDPOINT, check = false) {
+interface PreparedBrowser {
+  status: string;
+  reason: string;
+  next?: string;
+  runtimeFailure?: RuntimeFailure;
+}
+
+export async function prepareBrowser(deps = browserDependencies(process.env), endpoint = process.env.GPT_CONNECTOR_CDP_ENDPOINT, check = false): Promise<PreparedBrowser> {
   let diagnosis = await deps.doctor();
   if (check) return { status: diagnosis.overall === "ready" ? "ready" : "not_ready", reason: diagnosis.reasonCode };
   if (diagnosis.reasonCode === "cdp_unavailable") {
@@ -57,7 +76,8 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
     await deps.showBrowser();
     return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
   }
-  return { status: diagnosis.overall === "ready" ? "ready" : "failed", reason: diagnosis.reasonCode };
+  return { status: diagnosis.overall === "ready" ? "ready" : "failed", reason: diagnosis.reasonCode,
+    ...(diagnosis.reasonCode === "runtime_drift" ? { runtimeFailure: diagnosis.runtimeFailure ?? { stage: "unknown", tag: "unknown" } as RuntimeFailure } : {}) };
 }
 
 interface SetupOptions {
@@ -83,18 +103,20 @@ const setupDependencies = {
   browser: (env: Record<string, string>, check: boolean) => prepareBrowser(browserDependencies({ ...process.env, ...env }), env.GPT_CONNECTOR_CDP_ENDPOINT ?? process.env.GPT_CONNECTOR_CDP_ENDPOINT, check),
   steer: configureCodexSteer,
   cursorHooks: configureCursorHooks,
-  reportRuntimeDrift: async () => {
-    if (recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { assessment: { cause: "application", impact: "operation_failed", handling: "defective", recovery: "unavailable", cancelled: false } }) === "recorded") await reportRuntimeErrorsBestEffort();
+  reportRuntimeDrift: async (failures: RuntimeFailure[]) => {
+    if (recordRuntimeErrorBestEffort("RUNTIME_DRIFT", setupRuntimeDriftOptions(failures)) === "recorded") await reportRuntimeErrorsBestEffort();
   },
 };
 
-export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & { reportRuntimeDrift?: () => Promise<void> } = setupDependencies) {
+export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & { reportRuntimeDrift?: (failures: RuntimeFailure[]) => Promise<void> } = setupDependencies) {
   const registrations: Record<string, unknown>[] = [];
   const browsers = new Map<string, Awaited<ReturnType<typeof prepareBrowser>>>();
   let failed = false;
   let actionRequired = false;
   let liveUnavailable = false;
   let runtimeDrift = false;
+  const runtimeFailures = new Map<string, RuntimeFailure>();
+  const retainFailure = (failure: RuntimeFailure) => { runtimeFailures.set(JSON.stringify(failure), failure); };
   for (const client of options.clients ?? setupClients) {
     const path = client === "codex" && options.codexConfig ? options.codexConfig : registrationPath(client);
     const item: Record<string, unknown> = { client, path };
@@ -133,8 +155,11 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
       if (supportsLiveBrowser(deps.platform)) {
         const key = JSON.stringify([server.env.GPT_CONNECTOR_CDP_ENDPOINT, server.env.GPT_CONNECTOR_STATE_DIR]);
         if (!browsers.has(key)) browsers.set(key, await deps.browser(server.env, options.check ?? false));
-        const live = browsers.get(key)!;
-        if (live.reason === "runtime_drift") runtimeDrift = true;
+        const { runtimeFailure, ...live } = browsers.get(key)!;
+        if (live.reason === "runtime_drift") {
+          runtimeDrift = true;
+          retainFailure(runtimeFailure ?? { stage: "unknown", tag: "unknown" });
+        }
         item.live = live;
         if (live.status === "action_required") actionRequired = true;
         else if (live.status === "external" || live.status === "unsupported") liveUnavailable = true;
@@ -143,7 +168,10 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
     } catch (error) {
       failed = true;
       if (stage === "browser" && error instanceof ConnectorError && error.code === "RUNTIME_DRIFT" &&
-          error.details?.portConflict !== true) runtimeDrift = true;
+          error.details?.portConflict !== true) {
+        runtimeDrift = true;
+        retainFailure(runtimeFailureFromError(error, "browser_preparation"));
+      }
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
       item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
@@ -151,7 +179,7 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
   }
   // One setup run is one occurrence even when four clients inspect the same browser.
   // --check remains read-only; the diagnostic/reporting schemas do not change.
-  if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.();
+  if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.([...runtimeFailures.values()]);
   const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
   return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }

@@ -1,5 +1,6 @@
 import { ConnectorError } from "./errors.js";
 import type { CdpClient } from "./cdp.js";
+import { runtimeFailureDetails, runtimeFailureFromException, type RuntimeFailureStage } from "./runtime-failure.js";
 
 interface RuntimeRemoteObject {
   readonly value?: unknown;
@@ -25,6 +26,7 @@ export async function evaluateByValue<T>(
   client: CdpClient,
   expression: string,
   awaitPromise = true,
+  stage: RuntimeFailureStage = "evaluation",
 ): Promise<T> {
   const response = await client.call<RuntimeEvaluateResponse>("Runtime.evaluate", {
     expression,
@@ -40,6 +42,9 @@ export async function evaluateByValue<T>(
     throw new ConnectorError(
       "RUNTIME_DRIFT",
       "ChatGPT page main worldで式を評価できませんでした。",
+      runtimeFailureDetails(runtimeFailureFromException(response.exceptionDetails &&
+        typeof response.exceptionDetails === "object"
+        ? (response.exceptionDetails as { exception?: RuntimeRemoteObject }).exception?.description : undefined, stage)),
     );
   }
 
