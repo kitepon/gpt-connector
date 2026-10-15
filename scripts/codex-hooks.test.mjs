@@ -17,7 +17,9 @@ function setup(t) {
   const directory=join(root,'state'); const home=join(root,'home'); fs.mkdirSync(home);
   writeHookJson(join(directory,'config.json'),{schema:'gpt-connector.codex-parent-hooks.v1',enabled:true,codex_home:home,binary:process.execPath,node:process.execPath,hook:fixture,command:'fixture',stale_processes:[]});
   const queue=join(root,'queue.json'); writeHookJson(queue,[]);
-  const options={directory,codex_home:home,runtime:{executable:process.execPath,args:[fixture,queue],timeout_ms:1000}};
+  // Native Windows process startup can exceed one second under runner CPU limits.
+  // These tests verify ownership and single delivery, not the fixture startup latency.
+  const options={directory,codex_home:home,runtime:{executable:process.execPath,args:[fixture,queue],timeout_ms:10000}};
   const event={session_id:thread,turn_id:'turn-1',hook_event_name:'PostToolUse'};
   const enqueue=(id,text,owned=true)=>{
     if(owned) registerCodexHookInput(home,thread,id,text,directory);
