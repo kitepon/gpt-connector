@@ -33,9 +33,12 @@ const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuil
     source.includes("process_upload_stream") && source.includes("libraryPersistenceMode") &&
     source.includes("uploadPurpose") && source.includes("storeInLibrary")
   );
-  const scopeToken = unique("appScope", exports.filter(([, value]) =>
-    value?.__scopeBrand === "AppScope" && value.parent == null
-  ));
+  const scopeToken = unique("appScope", exports.filter(([, value]) => {
+    // Unrelated exports can be cross-origin WindowProxy objects. Reading their
+    // private properties throws SecurityError; they cannot identify AppScope.
+    try { return value?.__scopeBrand === "AppScope" && value.parent == null; }
+    catch { return false; }
+  }));
   const scopeWrapper = bySource("scopeWrapper", (source, value) =>
     value.length === 6 && source.includes("getOwnValue") &&
     source.includes("queryClient") && /watch=[\w$]+/.test(source)

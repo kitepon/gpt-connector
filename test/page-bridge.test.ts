@@ -37,6 +37,18 @@ test("bridgeは画面のDOMやReact内部に触れず現行runtimeを使う", ()
   assert.doesNotMatch(expression, /"watch=s"|"n=\{toString:\(\)=>r\}"|"return n\?n\(\)"/u);
 });
 
+test("AppScope discovery skips inaccessible WindowProxy exports and still requires a unique readable token", () => {
+  const expression = createBridgeBootstrapExpression("runtime");
+  const unique = expression.slice(expression.indexOf("const unique = "), expression.indexOf("const bySource = "));
+  const scope = expression.slice(expression.indexOf("const scopeToken = "), expression.indexOf("const scopeWrapper = "));
+  const token = { __scopeBrand: "AppScope", parent: null };
+  const inaccessibleWindow = new Proxy({}, { get() { throw new DOMException("private fixture", "SecurityError"); } });
+  const discover = (values: unknown[]) => vm.runInNewContext(`${unique}; ${scope}; scopeToken`, { exports: values.map(value => ["fixture", value]) });
+  assert.equal(discover([inaccessibleWindow, null, token, token]), token);
+  assert.throws(() => discover([inaccessibleWindow, null]), /RUNTIME_DRIFT:appScope:0/u);
+  assert.throws(() => discover([inaccessibleWindow, token, { ...token }]), /RUNTIME_DRIFT:appScope:2/u);
+});
+
 test("archiveのHTTP失敗は回答失敗に分類せず、段階とstatusを保持する", async () => {
   const expression = createBridgeBootstrapExpression("runtime");
   const start = expression.indexOf("const archive = ");
