@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { mkdir, open, realpath, unlink } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, realpath, unlink, type FileHandle } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { canonical, collectedEvidenceSchema, currentProductSchema, ownerSchema, productAfterSnapshot, productSchema, sha256, snapshotSchema } from "./update-ledger-contract.js";
@@ -38,31 +38,95 @@ function checkTransition(previous: JournalState | null, next: JournalState) {
   if (previous.post_receipt && canonical(previous.post_receipt) !== canonical(next.post_receipt)) throw new Error("ledger_journal_receipt_changed");
 }
 
-/** A failed/truncated write or an orphan lock stops work. There is no automatic repair/reset/retry. */
-export function fileLedgerJournal(directory: string): LedgerJournal {
+export interface JournalLease {
+  mode: "EX";
+  resources: readonly string[];
+  signal: AbortSignal;
+  assertCurrent(): Promise<void>;
+}
+export interface FileJournalOptions {
+  /** Same one-owner native helper as deployment; its fixed OS lock is never replaced/deleted here. */
+  withExclusiveLease?<T>(resource: string, work: (lease: JournalLease) => Promise<T>): Promise<T>;
+}
+function privateStat(info: Stats, directory: boolean) {
+  if (directory ? !info.isDirectory() : !info.isFile() || info.nlink !== 1) throw new Error("ledger_journal_file_type");
+  if (process.platform !== "win32" && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid!())) throw new Error("ledger_journal_permissions");
+}
+function sameFile(left: Stats, right: Stats) { return left.dev === right.dev && left.ino === right.ino; }
+async function removeOwnedLock(path: string, owned: Stats, directoryHandle: FileHandle) {
+  if (!sameFile(owned, await lstat(path))) throw new Error("ledger_journal_file_changed");
+  await unlink(path); await directoryHandle.sync();
+}
+async function assertDirectory(directory: string, handle: FileHandle) {
+  const actual = await lstat(directory); privateStat(actual, true);
+  if (actual.isSymbolicLink() || await realpath(directory) !== resolve(directory) || !sameFile(actual, await handle.stat())) throw new Error("ledger_journal_symlink");
+}
+async function guard(directory: string, handle: FileHandle, lease?: JournalLease) {
+  await assertDirectory(directory, handle);
+  if (lease) {
+    if (lease.mode !== "EX" || canonical(lease.resources) !== canonical([resolve(directory)]) || lease.signal.aborted) throw new Error("ledger_journal_lease_invalid");
+    await lease.assertCurrent();
+    if (lease.signal.aborted) throw new Error("ledger_journal_lease_invalid");
+  }
+}
+async function storage<T>(directory: string, directoryHandle: FileHandle, work: (session: JournalSession) => Promise<T>, lease?: JournalLease): Promise<T> {
+  await guard(directory, directoryHandle, lease);
+  const path = join(directory, "journal.jsonl");
+  const file = await open(path, constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+  try {
+    const actual = await file.stat(); privateStat(actual, false);
+    if (!sameFile(actual, await lstat(path))) throw new Error("ledger_journal_file_changed");
+    await file.sync(); await directoryHandle.sync();
+    if (actual.size > 2 * 1024 * 1024) throw new Error("ledger_journal_capacity");
+    const content = await file.readFile("utf8");
+    if (content && !content.endsWith("\n")) throw new Error("ledger_journal_truncated");
+    let current: JournalState | null = null;
+    for (const line of content.split("\n").filter(Boolean)) { const state = checkState(JSON.parse(line)); checkTransition(current, state); current = state; }
+    const result = await work({ current: () => {
+      if (lease?.signal.aborted) throw new Error("ledger_journal_lease_invalid");
+      return current === null ? null : structuredClone(current);
+    }, async append(input) {
+      await guard(directory, directoryHandle, lease);
+      if (!sameFile(await file.stat(), await lstat(path))) throw new Error("ledger_journal_file_changed");
+      privateStat(await file.stat(), false);
+      const state = checkState(input); checkTransition(current, state);
+      await file.writeFile(`${JSON.stringify(state)}\n`); await file.sync(); await directoryHandle.sync();
+      await guard(directory, directoryHandle, lease);
+      current = structuredClone(state);
+    } });
+    await guard(directory, directoryHandle, lease);
+    return result;
+  } finally { await file.close(); }
+}
+
+/** Native mode borrows the common helper. Legacy wx orphans/truncated writes remain explicit stops; never guessed away. */
+export function fileLedgerJournal(directory: string, options: FileJournalOptions = {}): LedgerJournal {
   return { async exclusive<T>(work: (session: JournalSession) => Promise<T>): Promise<T> {
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    if (await realpath(directory) !== resolve(directory)) throw new Error("ledger_journal_symlink");
-    const directoryHandle = await open(directory, "r");
+    const before = await lstat(directory); privateStat(before, true);
+    if (before.isSymbolicLink() || await realpath(directory) !== resolve(directory)) throw new Error("ledger_journal_symlink");
+    const directoryHandle = await open(directory, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
     const lockPath = join(directory, "operation.lock");
-    let lock;
-    try { lock = await open(lockPath, "wx", 0o600); } catch { await directoryHandle.close(); throw new Error("ledger_journal_locked"); }
     try {
-      await lock.sync(); await directoryHandle.sync();
-      const file = await open(join(directory, "journal.jsonl"), constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+      await guard(directory, directoryHandle);
+      if (!sameFile(before, await directoryHandle.stat())) throw new Error("ledger_journal_file_changed");
+      if (options.withExclusiveLease) return await options.withExclusiveLease(resolve(directory), async lease => {
+        await guard(directory, directoryHandle, lease);
+        // An old wx lock requires explicit migration/recovery; OS ownership does not justify deleting it.
+        try { await lstat(lockPath); throw new Error("ledger_journal_locked"); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        return storage(directory, directoryHandle, work, lease);
+      });
+      let lock;
+      try { lock = await open(lockPath, "wx", 0o600); } catch { throw new Error("ledger_journal_locked"); }
+      const owned = await lock.stat();
       try {
-        await file.sync(); await directoryHandle.sync();
-        if ((await file.stat()).size > 2 * 1024 * 1024) throw new Error("ledger_journal_capacity");
-        const content = await file.readFile("utf8");
-        if (content && !content.endsWith("\n")) throw new Error("ledger_journal_truncated");
-        let current: JournalState | null = null;
-        for (const line of content.split("\n").filter(Boolean)) { const state = checkState(JSON.parse(line)); checkTransition(current, state); current = state; }
-        return await work({ current: () => current === null ? null : structuredClone(current), async append(input) {
-          const state = checkState(input); checkTransition(current, state);
-          await file.writeFile(`${JSON.stringify(state)}\n`); await file.sync(); await directoryHandle.sync();
-          current = structuredClone(state);
-        } });
-      } finally { await file.close(); }
-    } finally { await lock.close(); await unlink(lockPath); await directoryHandle.sync(); await directoryHandle.close(); }
+        privateStat(owned, false); await lock.sync(); await directoryHandle.sync();
+        return await storage(directory, directoryHandle, work);
+      } finally {
+        await lock.close();
+        await removeOwnedLock(lockPath, owned, directoryHandle);
+      }
+    } finally { await directoryHandle.close(); }
   } };
 }
