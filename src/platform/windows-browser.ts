@@ -1,14 +1,12 @@
 // WindowsのChrome探索、ポート所有確認、Win32 window制御を所有する。
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
-import { randomUUID } from "node:crypto";
+import { win32 } from "node:path";
 import { z } from "zod";
 import { ConnectorError } from "../errors.js";
 import type { ListenerProcess } from "./browser.js";
 import { quotePowerShell, windowsPowerShell } from "./windows-powershell.js";
 import { ensurePrivateDirectory } from "./state.js";
+import { runInInteractiveSession } from "./windows-interactive.js";
 
 export const prepareProfile = ensurePrivateDirectory;
 // CIMとTCP情報の取得は実機で約1.4秒。Windowsのprocess検査だけに余裕を持たせる。
@@ -21,15 +19,24 @@ export function chromeLaunchCommand(profile: string, env = process.env, exists =
   return { command, args: ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`, "--no-startup-window", "--no-first-run", "--no-default-browser-check"] };
 }
 
-export async function spawnDetached(command: string, args: readonly string[]): Promise<void> {
+/** WMI owns argument quoting, same-session placement and lifetime; the caller owns interactive UI eligibility. */
+export function detachedLaunchSource(command: string, args: readonly string[]): string {
   const commandLine = [command, ...args].map(value => '"' +
     value.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/u, '$1$1') + '"').join(" ");
-  // detachedだけではCodex等の終了jobを継承する。標準WMIのprocess作成でbrowserの寿命を独立させる。
-  await windowsPowerShell(`
+  // Same-SIDの対話sessionでWMIを呼び、表示sessionとbrowserの独立した寿命を両立する。
+  return `
 $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0; CreateFlags = [uint32]0x01000008 }
 $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${quotePowerShell(commandLine)}; ProcessStartupInformation = $startup }
-if ($created.ReturnValue -ne 0 -or $created.ProcessId -le 0) { throw ('専用Chromeのprocess作成に失敗しました: ' + $created.ReturnValue) }
-`);
+if ($created.ReturnValue -ne 0 -or $created.ProcessId -le 0) { throw 'interactive_browser_create_failed' }
+$child = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $created.ProcessId)
+if (!$child -or $child.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId) { throw 'interactive_browser_session_mismatch' }
+$owner = Invoke-CimMethod -InputObject $child -MethodName GetOwnerSid
+if ($owner.Sid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'interactive_browser_owner_mismatch' }
+`;
+}
+
+export async function spawnDetached(command: string, args: readonly string[]): Promise<void> {
+  await runInInteractiveSession(detachedLaunchSource(command, args), 10_000);
 }
 
 export function isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean {
@@ -110,7 +117,12 @@ public static class GptWindows {
 async function windowAction(pid: number, action: "hide" | "show" | "activate" | "visible" | "hidden", timeoutMs: number): Promise<void> {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("PIDが不正です");
   const visible = action === "show" || action === "activate" || action === "visible";
-  const script = `${windowType}
+  const script = `
+$target = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'
+if (!$target -or $target.SessionId -le 0 -or $target.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId) { throw 'interactive_window_session_mismatch' }
+$owner = Invoke-CimMethod -InputObject $target -MethodName GetOwnerSid
+if ($owner.Sid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'interactive_window_owner_mismatch' }
+${windowType}
 $windows = @([GptWindows]::ForProcess(${pid}))
 if ($windows.Count -eq 0) { throw '専用Chromeのwindowがありません' }
 foreach ($window in $windows) {
@@ -125,55 +137,7 @@ do {
   Start-Sleep -Milliseconds 50
 } while ([DateTime]::UtcNow -lt $deadline)
 throw '専用Chromeの表示状態が収束しません'`;
-  const sessions = z.object({ current: z.number().int(), target: z.number().int() }).parse(JSON.parse(await windowsPowerShell(`
-$target = Get-Process -Id ${pid} -ErrorAction Stop
-@{ current = (Get-Process -Id $PID).SessionId; target = $target.SessionId } | ConvertTo-Json -Compress`)));
-  if (sessions.current === sessions.target) {
-    await windowsPowerShell(script, timeoutMs);
-    return;
-  }
-  await windowActionInInteractiveSession(script, timeoutMs);
-}
-
-async function windowActionInInteractiveSession(script: string, timeoutMs: number): Promise<void> {
-  const directory = await mkdtemp(join(tmpdir(), "gpt-connector-window-"));
-  const receipt = join(directory, "receipt.json");
-  const pendingReceipt = join(directory, "pending.json");
-  const taskName = `gpt-connector-window-${randomUUID()}`;
-  try {
-    ensurePrivateDirectory(directory);
-    const taskScript = `$ErrorActionPreference = 'Stop'
-try {
-  & ([scriptblock]::Create(${quotePowerShell(script)}))
-  $result = @{ ok = $true }
-} catch {
-  $result = @{ ok = $false; message = $_.Exception.Message }
-}
-[IO.File]::WriteAllText(${quotePowerShell(pendingReceipt)}, ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
-[IO.File]::Move(${quotePowerShell(pendingReceipt)}, ${quotePowerShell(receipt)})`;
-    const encoded = Buffer.from(taskScript, "utf16le").toString("base64");
-    await windowsPowerShell(`$name = ${quotePowerShell(taskName)}
-$action = New-ScheduledTaskAction -Execute (Get-Command pwsh.exe).Source -Argument ${quotePowerShell(`-NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`)}
-$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-$registered = $false
-try {
-  Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -ErrorAction Stop | Out-Null
-  $registered = $true
-  Start-ScheduledTask -TaskName $name
-  $deadline = [DateTime]::UtcNow.AddMilliseconds(${Math.max(1, timeoutMs) + 10_000})
-  while (!(Test-Path -LiteralPath ${quotePowerShell(receipt)})) {
-    if ([DateTime]::UtcNow -ge $deadline) { throw '対話sessionのwindow操作が完了しませんでした' }
-    Start-Sleep -Milliseconds 50
-  }
-} finally {
-  if ($registered) { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop }
-}`, timeoutMs + 15_000);
-    const result = z.discriminatedUnion("ok", [z.object({ ok: z.literal(true) }), z.object({ ok: z.literal(false), message: z.string() })])
-      .parse(JSON.parse(await readFile(receipt, "utf8")));
-    if (!result.ok) throw new Error(result.message);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  await runInInteractiveSession(script, timeoutMs);
 }
 
 export const hideProcess = (pid: number, timeout: number) => windowAction(pid, "hide", timeout);
