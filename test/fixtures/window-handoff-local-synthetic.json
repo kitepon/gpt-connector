@@ -1,0 +1,183 @@
+{
+  "formatVersion": 1,
+  "synthetic": true,
+  "localOnly": true,
+  "requests": [
+    {
+      "version": 1,
+      "callId": 1,
+      "kind": "begin_watch",
+      "hint": "40",
+      "deadline": 121000,
+      "hostRegistrationId": "abcdef0123456789abcdef0123456789"
+    },
+    {
+      "version": 1,
+      "callId": 3,
+      "kind": "assert_current",
+      "deadline": 121000,
+      "watch": {
+        "watchId": "watch_fixture",
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+        "expiresAt": 120000,
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 4,
+      "kind": "bind_target",
+      "deadline": 121000,
+      "watch": {
+        "watchId": "watch_fixture",
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+        "expiresAt": 120000,
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        }
+      },
+      "binding": {
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        },
+        "observedAt": 1500,
+        "targetId": "synthetic_target",
+        "browserWindowId": 1
+      }
+    },
+    {
+      "version": 1,
+      "callId": 5,
+      "kind": "cancel_watch",
+      "reference": {
+        "mode": "watch",
+        "watch": {
+          "watchId": "watch_fixture",
+          "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+          "expiresAt": 120000,
+          "identity": {
+            "pid": 30,
+            "createdAt": "1970-01-01T00:00:00.001Z",
+            "ownerSid": "S-1-5-21-11-22-33-1001",
+            "sessionId": 1,
+            "hwnd": "40"
+          }
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 2,
+      "kind": "cancel_watch",
+      "reference": {
+        "mode": "begin",
+        "beginCallId": 1,
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789"
+      }
+    }
+  ],
+  "replies": [
+    {
+      "version": 1,
+      "callId": 1,
+      "outcome": "armed",
+      "watch": {
+        "watchId": "watch_fixture",
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+        "expiresAt": 120000,
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 3,
+      "outcome": "current",
+      "watch": {
+        "watchId": "watch_fixture",
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+        "expiresAt": 120000,
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 4,
+      "outcome": "bound",
+      "watch": {
+        "watchId": "watch_fixture",
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+        "expiresAt": 120000,
+        "identity": {
+          "pid": 30,
+          "createdAt": "1970-01-01T00:00:00.001Z",
+          "ownerSid": "S-1-5-21-11-22-33-1001",
+          "sessionId": 1,
+          "hwnd": "40"
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 5,
+      "outcome": "cancelled",
+      "reference": {
+        "mode": "watch",
+        "watch": {
+          "watchId": "watch_fixture",
+          "hostRegistrationId": "abcdef0123456789abcdef0123456789",
+          "expiresAt": 120000,
+          "identity": {
+            "pid": 30,
+            "createdAt": "1970-01-01T00:00:00.001Z",
+            "ownerSid": "S-1-5-21-11-22-33-1001",
+            "sessionId": 1,
+            "hwnd": "40"
+          }
+        }
+      }
+    },
+    {
+      "version": 1,
+      "callId": 2,
+      "outcome": "cancelled",
+      "reference": {
+        "mode": "begin",
+        "beginCallId": 1,
+        "hostRegistrationId": "abcdef0123456789abcdef0123456789"
+      }
+    },
+    {
+      "version": 1,
+      "callId": 1,
+      "outcome": "error",
+      "code": "HANDOFF_UNSUPPORTED",
+      "effect": "unknown"
+    }
+  ]
+}
