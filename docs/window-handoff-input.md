@@ -7,7 +7,9 @@ the 0.16.4 release and has no CLI import or default activation.
 
 `prepareOwnedWindowHandoff` sequences the local boundary:
 
-1. Fix the caller's original admission deadline (at most 120 seconds).
+1. Copy hint/profile/deadline/signal once at function entry into a frozen local tuple.
+   Retain the original AbortSignal reference, so abort still reaches the request even
+   if the caller reuses its mutable input object. The original deadline is at most 120 seconds.
 2. Pass an HWND location hint to the Host's `beginWatch`. The Host must authenticate
    the actual local principal and establish its real lifetime anchor before returning.
 3. Retain the original watch object; verify it and then request a new CDP/OS capture.
@@ -42,3 +44,17 @@ mutation and unconfirmed cancellation. They do not prove Windows hook/property, 
 principal authentication, real CDP-HWND capture, actual HTTP, notifications, claim/peer
 reservation, media/input, FOX deployment or Owner authentication. All those integrations
 remain disabled and outside this candidate.
+
+## Request-alias repair
+
+Independent review of 4727cf1 found that only deadline had been snapshotted. Re-reading
+profile/hint/signal from a mutable caller alias after await could change profile/window
+admission or hide an abort of the original signal. Readonly parameter typing would not
+fix an alias held by the caller.
+
+Every admission check, profile comparison and local port now consumes the same entry
+tuple. The caller object is not frozen and the original AbortSignal is not copied into
+a disconnected controller. Four new tests alone show before 3 fail/1 pass to after
+4 pass: replacing profile, replacing signal while aborting the original, and replacing
+the hint each yield bind0/cancel1; unchanged tuple yields bind1/cancel0 and every port
+receives the original signal/deadline. The previous seven groups were not re-run.

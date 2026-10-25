@@ -59,22 +59,24 @@ export async function prepareOwnedWindowHandoff(input: {
 }, ports: WindowHandoffInputPorts, now = Date.now): Promise<{
   watch: ArmedWindowWatch; binding: LocalWindowBinding; deadline: number;
 }> {
+  // Copy values, not the caller's mutable alias. Keep the original AbortSignal object.
+  const request = Object.freeze({ hint: input.hint, profile: input.profile, deadline: input.deadline, signal: input.signal });
   const started = now();
-  if (!epoch.safeParse(input.deadline).success || !Number.isSafeInteger(started)
-    || input.deadline > started + 120_000 || !/^[1-9]\d{0,19}$/u.test(input.hint)) fail("HANDOFF_INVALID");
-  const deadline = input.deadline; // Never refresh after a poll, await, capture, or bind.
+  if (!epoch.safeParse(request.deadline).success || !Number.isSafeInteger(started)
+    || request.deadline > started + 120_000 || !/^[1-9]\d{0,19}$/u.test(request.hint)) fail("HANDOFF_INVALID");
+  const deadline = request.deadline; // Never refresh after a poll, await, capture, or bind.
   const admission = () => {
     if (now() >= deadline) fail("HANDOFF_EXPIRED");
-    if (input.signal?.aborted) fail("HANDOFF_UNSUPPORTED");
+    if (request.signal?.aborted) fail("HANDOFF_UNSUPPORTED");
   };
   let watch: ArmedWindowWatch | undefined;
   try {
     admission();
-    watch = await ports.beginWatch(input.hint, deadline, input.signal);
+    watch = await ports.beginWatch(request.hint, deadline, request.signal);
     const armedAt = now(); admission();
     const identity = identitySchema.safeParse(watch.identity);
     if (!identity.success) throw new WindowHandoffInputError("HANDOFF_UNSUPPORTED");
-    if (watch.identity.hwnd !== input.hint || !(watch.signal instanceof AbortSignal)
+    if (watch.identity.hwnd !== request.hint || !(watch.signal instanceof AbortSignal)
       || watch.signal.aborted || typeof watch.watchId !== "string" || !watch.watchId || watch.watchId.length > 128
       || !/^[a-f0-9]{32}$/u.test(watch.hostRegistrationId) || !epoch.safeParse(watch.expiresAt).success
       || watch.expiresAt > deadline || now() >= watch.expiresAt) fail("HANDOFF_UNSUPPORTED");
@@ -88,15 +90,15 @@ export async function prepareOwnedWindowHandoff(input: {
     };
     const guard = async () => {
       check();
-      await ports.assertCurrent(watch!, deadline, input.signal);
+      await ports.assertCurrent(watch!, deadline, request.signal);
       check();
     };
     await guard();
-    const capture = await ports.capture(watch, deadline, input.signal);
+    const capture = await ports.capture(watch, deadline, request.signal);
     check();
     const actual = identitySchema.safeParse(capture.identity);
     if (!actual.success || !sameIdentity(actual.data, fixed.identity) || capture.listener.pid !== String(fixed.identity.pid)
-      || !isOwnedChromeProcess(capture.listener, input.profile) || capture.candidateWindowCount !== 1 || capture.providerPageCount !== 1
+      || !isOwnedChromeProcess(capture.listener, request.profile) || capture.candidateWindowCount !== 1 || capture.providerPageCount !== 1
       || capture.windowClass !== "Chrome_WidgetWin_1" || capture.visible !== true || capture.minimized !== false
       || !epoch.safeParse(capture.observedAt).success || capture.observedAt < armedAt || capture.observedAt > now()
       || Date.parse(actual.data.createdAt) > capture.observedAt
@@ -105,7 +107,7 @@ export async function prepareOwnedWindowHandoff(input: {
     const binding = Object.freeze({ identity: fixed.identity, observedAt: capture.observedAt,
       targetId: capture.targetId, browserWindowId: capture.browserWindowId });
     await guard();
-    await ports.bindTarget(watch, binding, deadline, input.signal);
+    await ports.bindTarget(watch, binding, deadline, request.signal);
     await guard(); // A late bind receipt or lost anchor never becomes a successful result.
     return { watch, binding, deadline };
   } catch (error) {
