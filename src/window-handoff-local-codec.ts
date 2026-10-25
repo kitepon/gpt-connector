@@ -50,6 +50,8 @@ export type LocalWatchTuple = z.infer<typeof watch>;
 export type LocalCancelReference = z.infer<typeof reference>;
 export type LocalRequest = z.infer<typeof requestSchema>;
 export type LocalReply = z.infer<typeof replySchema>;
+// Shared value validation for the frame/control codec; no synthetic reserialization.
+export const localWatchTupleSchema = watch;
 
 // JSON.parse loses duplicate keys and number spelling. Parse this object/string/integer
 // subset first, rejecting those wire ambiguities before schema validation.
@@ -111,6 +113,7 @@ function parseWire(input: string | Uint8Array): unknown {
     return parsed;
   } catch { return invalid(); }
 }
+export const decodeLocalJsonValue = (input: string | Uint8Array): unknown => parseWire(input);
 function decode<T>(schema: z.ZodType<T>, input: string | Uint8Array): T {
   const parsed = schema.safeParse(parseWire(input));
   return parsed.success ? parsed.data : invalid();
