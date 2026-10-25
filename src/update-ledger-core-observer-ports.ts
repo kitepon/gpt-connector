@@ -34,6 +34,7 @@ export interface ProductCoreRun {
   readonly launcher_identity: string;
   readonly public_setup_before: ObserverOriginalRef;
   readonly core_started_original: ObserverOriginalRef;
+  readonly evidence_kind: "fixture_core" | "observed_core";
 }
 export interface CoreCompletionOriginal {
   readonly completed_at_utc_ms: number;
@@ -43,6 +44,15 @@ export interface CoreCompletionOriginal {
   readonly serialized_result_sha256: string;
   readonly serialized_result_bytes: number;
   readonly stdout_write: "callback_completed" | "failed" | "not_written";
+  readonly frame_admission: CoreFrameAdmission;
+}
+export interface CoreFrameAdmission {
+  readonly schema: "gpt-connector.core-frame-admission.v1";
+  readonly policy: "setup_v1_private_metadata_v1";
+  readonly decision: "full_frame" | "metadata_only";
+  readonly frame_sha256: string;
+  readonly frame_bytes: number;
+  readonly reason: "accepted" | "frame_too_large" | "invalid_frame" | "unsupported_fields";
 }
 /** Proposed bounds, not an enabled policy or an implemented validation/store port. */
 export interface CoreFrameStorageScope {
@@ -57,7 +67,7 @@ export interface CoreFrameStorageScope {
   readonly truncated_or_redacted_frame_is_original: false;
 }
 export type CoreObservationOutcome =
-  | { readonly status: "recorded_raw"; readonly original: ObserverOriginalRef;
+  | { readonly status: "recorded_raw"; readonly kind: "fixture_core" | "observed_core"; readonly original: ObserverOriginalRef;
     readonly normal_job_binding: "unknown_until_dispatcher_source_correlation";
     readonly reporting_allowed: false; readonly resource_read_authorized: false }
   | { readonly status: "unknown"; readonly reason: "observer_disabled" | "original_missing" | "run_mismatch"

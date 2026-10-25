@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { serializePublicJson } from "./public-json.js";
 import { readRuntimeErrorEvents } from "./runtime-error-events.js";
 
 import { GptConnector } from "./connector.js";
@@ -89,7 +90,7 @@ function flagArg(
 }
 
 function writeJson(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  process.stdout.write(serializePublicJson(value));
 }
 
 async function main(): Promise<void> {

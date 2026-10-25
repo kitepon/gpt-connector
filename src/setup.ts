@@ -1,3 +1,4 @@
+import { setupNext, loginNext, externalBrowserNext } from "./setup-public-text.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { GptConnector } from "./connector.js";
@@ -63,10 +64,10 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
     if (endpoint && endpoint !== "http://127.0.0.1:9223") throw new Error("指定CDP endpointへ接続できません。既存browser startが所有するendpointは9223だけです。");
     try { await deps.startBrowser(); } catch (error) {
       if (!(error instanceof ConnectorError)) throw error;
-      if (error.code === "AUTH_REQUIRED") return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+      if (error.code === "AUTH_REQUIRED") return { status: "action_required", reason: "auth_required", next: loginNext };
       // この端末でbrowserを準備できないだけの状態は、導入の失敗にしない。
       // 9223が他端末のChromeへのSSH転送などで専用Chromeの物でない時と、専用Chromeを持てない端末（ChromeかX11の無いLinux）。
-      if (error.details?.portConflict === true) return { status: "external", reason: "cdp_endpoint_not_owned", next: "9223はこの端末の専用Chromeではありません。Chromeを所有する端末で`gpt-connector browser start`を実行してください。" };
+      if (error.details?.portConflict === true) return { status: "external", reason: "cdp_endpoint_not_owned", next: externalBrowserNext };
       if (error.details?.hostUnsupported === true) return { status: "unsupported", reason: "live_browser_host_unsupported" };
       throw error;
     }
@@ -75,7 +76,7 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
   if (diagnosis.reasonCode === "auth_required") {
     if (endpoint && endpoint !== "http://127.0.0.1:9223") throw new Error("指定CDP endpointでログインが必要です。既存browser showが所有するendpointは9223だけです。");
     await deps.showBrowser();
-    return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+    return { status: "action_required", reason: "auth_required", next: loginNext };
   }
   return { status: diagnosis.overall === "ready" ? "ready" : "failed", reason: diagnosis.reasonCode,
     ...(diagnosis.reasonCode === "runtime_drift" ? { runtimeFailure: diagnosis.runtimeFailure ?? { stage: "unknown", tag: "unknown" } as RuntimeFailure } : {}) };
@@ -187,7 +188,7 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
   // --check remains read-only; the diagnostic/reporting schemas do not change.
   if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.([...runtimeFailures.values()]);
   const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
-  const result = { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
+  const result = { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: setupNext };
   if (options.updateLedger && ledgerStart) {
     let updateLedger: unknown;
     try { updateLedger = await options.updateLedger.complete(ledgerStart, mode, structuredClone(result)); }
