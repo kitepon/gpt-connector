@@ -15,6 +15,7 @@ import { supportsCodexSteer } from "./platform/codex.js";
 import { recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
+import type { SetupCompletionHook } from "./update-ledger-contract.js";
 
 export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
   return {
@@ -80,10 +81,11 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
     ...(diagnosis.reasonCode === "runtime_drift" ? { runtimeFailure: diagnosis.runtimeFailure ?? { stage: "unknown", tag: "unknown" } as RuntimeFailure } : {}) };
 }
 
-interface SetupOptions {
+export interface SetupOptions {
   clients?: readonly SetupClient[];
   codexConfig?: string;
   check?: boolean;
+  updateLedger?: SetupCompletionHook;
 }
 
 async function inspectState(env: Record<string, string>) {
@@ -108,7 +110,11 @@ const setupDependencies = {
   },
 };
 
-export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & { reportRuntimeDrift?: (failures: RuntimeFailure[]) => Promise<void> } = setupDependencies) {
+export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & {
+  reportRuntimeDrift?: (failures: RuntimeFailure[]) => Promise<void>;
+} = setupDependencies) {
+  const mode = options.check ? "check" : "setup";
+  const ledgerStart = options.updateLedger?.begin(mode);
   const registrations: Record<string, unknown>[] = [];
   const browsers = new Map<string, Awaited<ReturnType<typeof prepareBrowser>>>();
   let failed = false;
@@ -181,7 +187,14 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
   // --check remains read-only; the diagnostic/reporting schemas do not change.
   if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.([...runtimeFailures.values()]);
   const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
-  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
+  const result = { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
+  if (options.updateLedger && ledgerStart) {
+    let updateLedger: unknown;
+    try { updateLedger = await options.updateLedger.complete(ledgerStart, mode, structuredClone(result)); }
+    catch { updateLedger = { status: "blocked", reason: "ledger_completion_failed", run_id: ledgerStart.run_id }; }
+    return { ...result, updateLedger };
+  }
+  return result;
 }
 
 function availableTools(server: SetupServer) {
