@@ -22,14 +22,21 @@ class LedgerHttpError extends Error {
 }
 function fail(code: HttpFailure): never { throw new LedgerHttpError(code); }
 
-async function readJson(response: Response, signal: AbortSignal): Promise<unknown> {
-  const length = response.headers.get("content-length");
-  if (length !== null && (!/^\d+$/u.test(length) || Number(length) > responseLimit)) fail("ledger_http_response");
-  if (!/^application\/json(?:\s*;|$)/iu.test(response.headers.get("content-type") ?? "") || !response.body) fail("ledger_http_response");
-  const reader = response.body.getReader(), chunks: Uint8Array[] = []; let total = 0;
-  const cancelOnAbort = () => { void reader.cancel().catch(() => {}); };
+async function consumeResponse(response: Response, expectedUrl: string, signal: AbortSignal): Promise<unknown> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const chunks: Uint8Array[] = []; let total = 0;
+  const cancelBody = () => reader ? reader.cancel() : response.body?.cancel();
+  const cancelOnAbort = () => { void cancelBody()?.catch(() => {}); };
   signal.addEventListener("abort", cancelOnAbort, { once: true });
   try {
+    // Own disposal before any status/header rejection, including unfinished 200 bodies.
+    reader = response.body?.getReader();
+    signal.throwIfAborted();
+    if (response.redirected || (response.status >= 300 && response.status < 400) || response.url !== expectedUrl) fail("ledger_http_redirect");
+    if (!response.ok) fail("ledger_http_status");
+    const length = response.headers.get("content-length");
+    if (length !== null && (!/^\d+$/u.test(length) || Number(length) > responseLimit)) fail("ledger_http_response");
+    if (!/^application\/json(?:\s*;|$)/iu.test(response.headers.get("content-type") ?? "") || !reader) fail("ledger_http_response");
     for (;;) {
       signal.throwIfAborted();
       const { value, done } = await reader.read();
@@ -40,7 +47,7 @@ async function readJson(response: Response, signal: AbortSignal): Promise<unknow
     }
     signal.throwIfAborted();
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
-  } finally { signal.removeEventListener("abort", cancelOnAbort); await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally { signal.removeEventListener("abort", cancelOnAbort); await cancelBody()?.catch(() => {}); reader?.releaseLock(); }
 }
 
 /** Pure construction. There is no credential reference loader, environment lookup, retry or journal access. */
@@ -80,18 +87,15 @@ export function createLedgerHttpTransport(identityInput: unknown, options: Ledge
       const response = await (fetchImpl ?? globalThis.fetch)(url, { method, body, signal: controller.signal,
         redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
         headers: { accept: "application/json", authorization: `Bearer ${credential.bearer}`, ...(method === "POST" ? { "content-type": "application/json" } : {}) } });
-      controller.signal.throwIfAborted();
-      if (response.redirected || (response.status >= 300 && response.status < 400) || response.url !== url) {
-        await response.body?.cancel().catch(() => {}); fail("ledger_http_redirect");
-      }
-      if (!response.ok) { await response.body?.cancel().catch(() => {}); fail("ledger_http_status"); }
-      return readJson(response, controller.signal);
+      return consumeResponse(response, url, controller.signal);
     };
     try { return await Promise.race([execute(), interrupted]); }
     catch (error) {
       if (error instanceof LedgerHttpError) throw error;
       fail(timedOut ? "ledger_http_timeout" : controller.signal.aborted ? "ledger_http_aborted" : "ledger_http_transport");
     } finally {
+      // Abort any response/fetch still owned by this request before retiring its deadline.
+      controller.abort();
       clearTimeout(timer); parent.removeEventListener("abort", onParentAbort);
       controller.signal.removeEventListener("abort", onAbort);
     }
