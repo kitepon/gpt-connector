@@ -9,7 +9,7 @@ export function productPaths(productId: string) {
   productSchema.parse(productId);
   return { get: `/api/updates/v1/products/${productId}`, post: `/api/updates/v1/products/${productId}/snapshots` };
 }
-/** No HTTP/credential implementation is supplied by this source-only candidate. */
+/** Product-scoped boundary. Optional HTTP composition does not enable the default CLI. */
 export interface ProductTransport {
   identity: LedgerPlan["identity"];
   get(path: string, signal: AbortSignal): Promise<unknown>;

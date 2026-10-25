@@ -1,5 +1,7 @@
 # 更新台帳source候補（Frレビュー用、未公開・未接続）
 
+6354a2fのsource/wire/保守的health写像はFrがsource限定で採用済み。次の差分としてsrc/update-ledger-http.tsに明示注入型のHTTP adapterを追加した。CLIは既定無効、実credential/API/host/配備は未実施。adapterの引数と、通常配備receipt/同run受入providerの発行・信頼・配備排他の具体設計は[update-ledger-provider-design.md](update-ledger-provider-design.md)を参照する。以下の「HTTP adapter未実装」「Fr設計合意前」は6354a2f時点の履歴であり、実target/health/provider/実行条件は引き続き未成立。
+
 固定契約はFrのServerManager-work-units-release-01e7241/bughub/UPDATE_TARGETS.mdと同src/update-{contract,store,router}.js。実装はcollector、contract/同run検査、durable journal、sender、通常完了hookに分けた。既存runtime-error reportingは流用せず、元runtime issueの解決とは別工程とする。
 
 ## 入口と引数
