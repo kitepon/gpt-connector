@@ -1,5 +1,7 @@
 # HTTP source候補と通常配備・受入provider設計
 
+Frのwriter/reader/provider境界合意後のsource組込みは[update-ledger-provider-source.md](update-ledger-provider-source.md)を参照する。共通resourceとexpectedGeneration、既存trust窓口から検証済み原本を投影するproviderを明示portsへ接続し、実provider/CLI有効化は別の未受入条件として保持する。
+
 Fr追補: Ed25519は信頼合意で署名を選ぶ場合の候補方式であり、BugHub wireの必須字段/必須鍵基盤ではない。以下の署名案を現在のwriter/receipt発行者・信頼起点の合意より先に完成させる条件へ変換しない。FrがDorothyへec5bcf0aで照会済みの既存writer/receipt/信頼起点の結果を先に受け、必要な方式と責務を確定する。同じ依存先への重複照会はしない。
 
 6354a2fのcollector/sender/hook、wireと保守的health写像はFrにsource限定採用された。本書は次のsource-only差分。HTTP adapterは実装済み、以下のprovider発行/信頼/排他は具体設計であり、実providerの実装/採用・実target/health・配備先受入を完了としない。実ref/鍵は記入・発行しない。

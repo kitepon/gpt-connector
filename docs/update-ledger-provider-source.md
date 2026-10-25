@@ -1,0 +1,45 @@
+# 共通portsから通常setup/check・collectorへ渡すprovider候補
+
+Fr docs/bughub-gpt-provider-boundary-0600-20261025.mdのsource限定責務合意に従う。writerはDorothy、reader/公開setup-check/同run受入providerは紅蓮、API/ref/既存trustと発行者合意はFr。新たなNode/host/他writer/鍵基盤の権限は取得しない。
+
+## 明示合成と未知の境界
+
+`runSetupWithVerifiedLedger(plan, scope, ports, options)`がreader候補の入口。既存CLIからは呼ばず、通常setupへ新しい台帳要件を既定必須にしない。import/構築だけでportは呼ばれない。read lease、read-only receipt、既存provenance verifier、実体検査、同run受入原本、公開setupをすべて明示portsにし、OS/信頼の未実装を成功する既定mockで埋めない。
+
+scopeは`{ execution_package_root, mutation_resources, expectedGeneration, coverage_ref, deadline }`。mutation_resources/expectedGeneration/coverage_refはnullを保持でき、不明ならleaseや公開setupを始めない。source合成用の非null値を実resource/全writer参加の合意と数えない。resourcesは正規化済み絶対pathの重複無し・共通昇順の集合で、実行package rootを包含するresourceが必要。npm global prefixの変更範囲と実行package rootは別字段に保つ。実pathのalias/symlink・依存実体・共有Nodeと参加writerの範囲は本番受入前に確定する。
+
+## 共通portsと非秘密の原本view
+
+正確なTypeScript型とstrict schemaはsrc/update-ledger-provider-ports.ts。writer/readerで合意したports名は`withWriteLease(resources, deadline, fn)`と`withReadLease(resources, expectedGeneration, deadline, fn)`。本候補はreaderだけを実装し、writerやEX操作を持たない。writerはEXを解放してからこの入口へ渡す。公開setupの中から再び本wrapperを呼ぶ構造や、親EXのまま子SHを待つ構造は組まない。
+
+readerのwithReadLeaseはmode=SH、同resource集合/expectedGeneration、AbortSignalとassertCurrentをcallbackへ渡す。取得後・公開setup前に世代と実体を再照合する。deadlineは絶対UTCms。期限/中断で新しい採取・報告を止めるが、通常runが未完のままlockだけを先に解放するPromise.raceは実装しない。OS adapterは期限をsignalへ伝え、callbackがsettleするまで共有leaseを保持する必要がある。実OS adapter/クラッシュ耐久性は今回未実装・未受入。
+
+publicSetup portは、検証した実行package rootの導入済みcore `setup()`へ結び付ける。既存CLIのinstallSetupPackageは、npx等からの実行時にnpm global install/re-execを行い得るため、このSH内からその外側installerを起動しない。必要なinstall/re-execはwriter区間で終え、writer解放後に導入済みcoreのreaderへ渡す。既定CLI経路は今回は変更せず、active ledger経路の有効化時に製品所有の入口でこの順序を受け入れる。
+
+readDeploymentReceiptは`{ payload, provenance }`という非秘密原本viewを返す。payloadはidentity、execution_package_root、mutation_resources、generation、mutating/committed/incomplete、deployment_revision、manifest/tree digest、artifact↔source原本hash、target採用原本hash、target projection hash、node_runtime|null、issuer/evidence_ref/coverage_refを持つ。既存原本からこのviewへ写すwriter-side adapterの合意はsource受渡しで確認する。
+
+target_adoption_sha256は既に採用した原本のhashで、planから捏造しない。target_projection_sha256はその原本を既collectorのtargets/component/series/adoption_refへ写したcanonical配列のhashであり、二つを混同しない。verifyDeploymentは既存の信頼原本から両者の対応、artifact/source対応、発行者/権限/対象resourceの範囲を検証する責務を持つ。contextには明示targetsを渡す。verdictはverified/unknown/rejected、検証したpayloadのsubject_sha256、issuer、trust_refを明示する。verifiedの文字だけでなくpayload hash/issuerを照合してから投影する。
+
+inspectInstalledはread lease内の実manifest/tree、artifact-source対応、target原本/projection、Nodeの実体情報を返す。receiptと全字段を比較する。manifestが同じでもentryや依存treeの違いがあれば停止する。Node targetを報告する場合、node_runtimeの実path/版/digest/担当根拠が必要で、nullなら停止。共有Node本体の更新権限を取得したとはしない。
+
+readAcceptanceは同runの既存通常受入原本だけを読む。payloadには完全identity、generation/revision、run_id/mode/元UTCms、通常setup結果hash、required_clients、raw_health boolean|null、normal_path、passed boolean|nullとissuer/evidence_refを含める。verifyAcceptanceも既存trustでsubject/issuerを検証する。元結果copyとhashを照合し、readyやwrapper終了0を受入passedへ変換しない。raw null/原本無し/未実施はunknownのまま既collectorへ渡し、正常snapshotを作らない。
+
+normal結果hashの対象は完了hookのupdateLedger字段を足す前のcore結果copy。provider/台帳の報告結果を元結果hashへ再帰的に含めず、返却する元overallを変更しない。
+
+Ed25519は一つの候補方式に留める。新署名鍵基盤を実装/完成しなくても、合意済み既存release/信頼窓口で必要な原本対応を検証できる設計である。自己申告のkey/issuer・架空ref・希望版・Git HEADだけの検証成功を実trustにしない。Frが発行者/方式を確定するまでlive verifierを有効化しない。
+
+## 通常入口と報告の順序
+
+1. 明示scopeを検査し、writer解放後に共通resourceのSHを取得する。
+2. expectedGeneration、committed receipt、trust/採用原本対応、実体を検証する。割込writerが新世代を確定していれば公開setup前に停止する。
+3. 公開setup/checkを任意hook付きで一度呼ぶ。callback内と採取/受入/送信の全区間で同じSHを保持する。
+4. 同run受入と元結果hashを検証し、receiptの同一性と実treeを再照合してから既readInstalledMeasurementへ4字段receipt/healthを投影する。採取後にも実体/世代を確認する。
+5. 既collectSnapshotが同run/版/時刻窓/health写像を検査する。scope/receipt/trust/result hashはprovider proofとして別に保持し、BugHub wireへ未知字段を足さない。
+6. setupだけで明示senderを注入できる。transportをleaseのassertCurrentと合成signalで囲み、senderのdurable/CAS/一回POST/GET-onlyをそのまま使う。checkはsender factoryすら呼ばず、秘密/network/journal書込を開始しない。
+7. 元公開結果とprovider結果を分けて返す。setup後の検証失敗で元ready/failedを塗り替えない。verified-sourceはこの原本投影のsource検証結果であり、POST確認や実live受入を意味しない。pending/observed/previous_operationは既hookのまま残す。
+
+## 今回のoffline範囲と残条件
+
+新規test/update-ledger-provider.test.tsだけを実行する。resource集合/未知/世代割込、trust原本とpayload hash、incomplete/採用projection不一致/Node不足、同manifestの実tree変更、同run受入/hash/clients不一致とunknown、check無sender、期限/lease喪失と元結果保存を確認する。portsは明示合成の偽原本/偽leaseで、OS排他や実writer全参加の実証ではない。旧17/9/cleanup2は再走しない。
+
+実resource集合、全writer参加、共有Node境界、既存発行者/trust接続、OS adapter、Windows dirfsync、実target/health/prefix、専用ref/発行範囲、CLI実有効化/実行条件は未受入。実host/鍵/HTTP/native/配備や旧Ownerlater/Grokdisabled/SEC002/Windows3等の停止は維持する。writer-side viewとのsource差分と新指摘をFr窓口で合わせてから、必要な次工程へ進む。
