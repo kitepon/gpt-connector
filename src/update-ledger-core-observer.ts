@@ -79,10 +79,10 @@ export function createProductCoreObserver(bridge: CoreHelperBridge, options: {
       if (began) return blocked("run_mismatch");
       began = true;
       try {
-        const self = selfSchema.parse(selfInput), actual = selfSchema.parse(own());
+        const self = Object.freeze(selfSchema.parse(selfInput)), actual = selfSchema.parse(own());
         if (canonical(self) !== canonical(actual) || !["setup", "check"].includes(mode)) return blocked("runtime_mismatch");
         const started = integer.positive().parse(now()), runId = z.uuid().parse(uuid());
-        const raw = structuredClone(await bridge.exchange("core_begin", { mode, run_id: runId, runtime_self: self }, null));
+        const raw = structuredClone(await bridge.exchange("core_begin", { mode, run_id: runId, runtime_self: structuredClone(self) }, null));
         const missing = unknown.safeParse(raw);
         if (missing.success) return note(missing.data);
         const proof = beginReply.parse(raw), observed = proof.kernel_identity;

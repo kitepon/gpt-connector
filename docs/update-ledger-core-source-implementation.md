@@ -48,3 +48,7 @@ helper entry/storeをコピーしない。full frameは同bytes非置換0600保�
 ordinary helperはtrusted adapter無しならexpected_pins_provenance_missingでunknown停止。
 実host/cron/自然job/私有保存先作成、実core CLI有効化、Node/npm/NVM/resource/HTTP/ref/配布は0。
 次はsourceの独立採否と、Fr/Emmaのwholepins既信頼・通常PRCI/main・実方式gateである。
+# Begin runtime alias repair
+
+GPT-CORE-RUN-ALIAS-1: begin previously passed its validated private runtime object directly to the injected bridge. The bridge could change entry_path before the result was frozen. Begin now freezes the private validated snapshot immediately and passes a structured clone across the bridge boundary. Post-await own-runtime and kernel checks still use the private original. New focused tests cover a bridge mutation and the normal begin control, without rerunning the original 13 tests.
+
