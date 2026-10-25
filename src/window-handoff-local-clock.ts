@@ -1,6 +1,12 @@
 // Independent source candidate; not imported by the CLI or a real channel.
 import { performance } from "node:perf_hooks";
 import type { LocalClientClock, LocalWaitBudget } from "./window-handoff-session-port.js";
+import type { FramePoint } from "./window-handoff-frame-v2.js";
+
+export interface LocalFramedClientClock extends LocalClientClock {
+  startBoundedWait(absoluteDeadline: number, maximumWaitMs: number): LocalWaitBudget;
+  framePoint(): FramePoint;
+}
 
 export interface LocalClockSources {
   utcNow(): number;
@@ -22,13 +28,14 @@ interface Registration {
 const maximumTimerDelay = 2_147_483_647;
 
 /** Raw UTC + private per-operation monotonic budget. No corrected epoch crosses the channel. */
-export function createLocalClientClock(sources: LocalClockSources): LocalClientClock {
+export function createLocalClientClock(sources: LocalClockSources): LocalFramedClientClock {
   const utcNow = sources.utcNow.bind(sources), monotonicNow = sources.monotonicNow.bind(sources);
   const setTimer = sources.setTimer.bind(sources), clearTimer = sources.clearTimer.bind(sources);
   const active = new Set<Registration>();
   let previousMonotonic = -1;
   const budgets = new WeakMap<LocalWaitBudget, Budget>();
   const liveBudgets = new Set<Budget>();
+  const domain = Object.freeze({});
   const sample = () => {
     // Sample monotonic first, so time spent acquiring UTC cannot lengthen this wait.
     const mono = monotonicNow(), utc = utcNow();
@@ -56,9 +63,7 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     if (!budget) throw new LocalClockError();
     return budget;
   };
-  const create = (utcDeadline: number, limit: number, point: ReturnType<typeof sample>) => {
-    const ms = utcDeadline - point.utc;
-    if (!Number.isSafeInteger(utcDeadline) || !Number.isSafeInteger(ms) || ms > limit) throw new LocalClockError();
+  const issue = (utcDeadline: number, ms: number, point: ReturnType<typeof sample>) => {
     if (ms < 1) throw new LocalClockError("HANDOFF_EXPIRED");
     const monotonicDeadline = point.mono + ms;
     if (!Number.isFinite(monotonicDeadline) || monotonicDeadline > Number.MAX_SAFE_INTEGER) throw new LocalClockError();
@@ -66,6 +71,11 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     const budget: Budget = { utcDeadline, monotonicDeadline, expired: false };
     budgets.set(token, budget); liveBudgets.add(budget);
     return token;
+  };
+  const create = (utcDeadline: number, limit: number, point: ReturnType<typeof sample>) => {
+    const ms = utcDeadline - point.utc;
+    if (!Number.isSafeInteger(utcDeadline) || !Number.isSafeInteger(ms) || ms > limit) throw new LocalClockError();
+    return issue(utcDeadline, ms, point);
   };
   const fire = (entry: Registration) => {
     if (!entry.active) return;
@@ -95,6 +105,13 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     else entry.timer = { handle };
   };
   return {
+    framePoint() { const point = sample(); return Object.freeze({ rawUtcMs: point.utc, monotonicMs: point.mono, domain }); },
+    startBoundedWait(absoluteDeadline, maximumWaitMs) {
+      if (!Number.isSafeInteger(absoluteDeadline) || absoluteDeadline < 1 || !Number.isSafeInteger(maximumWaitMs)
+        || maximumWaitMs < 1 || maximumWaitMs > 120_000) throw new LocalClockError();
+      const point = sample();
+      return issue(absoluteDeadline, Math.min(maximumWaitMs, absoluteDeadline - point.utc), point);
+    },
     now() {
       const point = sample();
       // A reply/admission read after a forward UTC jump expires registered waits first.
@@ -125,7 +142,7 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
 
 /** Acquire Node's actual UTC/performance/timer APIs only on explicit construction.
  * This function supplies an implementation candidate, not evidence of real-time OS acceptance. */
-export function createSystemLocalClientClock(): LocalClientClock {
+export function createSystemLocalClientClock(): LocalFramedClientClock {
   const utcNow = Date.now.bind(Date), monotonicNow = performance.now.bind(performance);
   const schedule = setTimeout, unschedule = clearTimeout;
   return createLocalClientClock({ utcNow, monotonicNow,
