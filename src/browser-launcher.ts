@@ -86,7 +86,7 @@ export async function showBrowser(options: BrowserOptions = {}): Promise<Browser
   const showTimeout = options.appProbeTimeoutMs ?? appProbeTimeoutMs;
   const ownershipTimeout = Math.max(timeout, options.ownershipProbeGraceMs ?? adapter.ownershipProbeTimeoutMs ?? ownershipProbeGraceMs);
   if (!await bounded(ownershipReady(), ownershipTimeout, "CDP endpoint所有確認がtimeoutしました")) throw new ConnectorError("RUNTIME_DRIFT", "9223番ポートはgpt-connector専用profileのChromeが所有していません（ポート衝突）。", { portConflict: true });
-  await showOwnedWindow(inspect, options.windowShower ?? (() => showProviderWindow(fetcher, showTimeout, provider)), options.processRevealer ?? revealProcess, options.processActivator ?? activateProcess, options.windowVisibilityVerifier ?? verifyWindowVisibility, showTimeout, "専用Chromeを表示可能状態へ復帰できませんでした。", "CDP_UNAVAILABLE");
+  await showOwnedWindow(inspect, options.windowShower ?? (() => showProviderWindow(fetcher, showTimeout, provider)), options.processRevealer ?? revealProcess, options.processActivator ?? activateProcess, options.windowVisibilityVerifier ?? verifyWindowVisibility, showTimeout, "専用Chromeを表示可能状態へ復帰できませんでした。", provider);
   return { ok: true, status: "shown", endpoint };
 }
 
@@ -142,7 +142,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const readyDeadline = Date.now() + deadline;
   const visibilityTimeout = () => Math.max(visibilityGrace, Math.max(1, readyDeadline - Date.now()));
-  const authShow = () => showOwnedWindow(processInspector, windowShower, processRevealer, processActivator, visibilityVerifier, visibilityTimeout(), "認証復帰のため専用Chrome windowを表示できませんでした。", "AUTH_REQUIRED");
+  const authShow = () => showOwnedWindow(processInspector, windowShower, processRevealer, processActivator, visibilityVerifier, visibilityTimeout(), "認証復帰のため専用Chrome windowを表示できませんでした。", provider);
 
   const endpointExists = await bounded(endpointReady(), timeout, "CDP endpoint確認がtimeoutしました")
     .catch((error: unknown) => { throw launcherError("CDP_UNAVAILABLE", "CDP endpointを確認できませんでした。", error); });
@@ -174,7 +174,19 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
 }
 
 async function createAndVerifyTarget(create: ColdTargetCreator, verify: ColdWindowVerifier, provider: "chatgpt" | "grok"): Promise<void> { try { const targetId = await create(); if (targetId.length === 0) throw new Error("CDP targetIdが不正です"); if (await verify(targetId) !== "ready") throw new Error("CDP windowを確認できません"); } catch (error) { throw browserWindowError(`専用Chromeの${providerName(provider)} targetを作成・確認できませんでした。`, error); } }
-async function showOwnedWindow(inspect: ProcessInspector, shower: WindowShower, reveal: ProcessRevealer, activate: ProcessActivator, verify: WindowVisibilityVerifier, timeoutMs: number, message: string, code: "AUTH_REQUIRED" | "CDP_UNAVAILABLE"): Promise<void> { try { await shower(); const pid = await ownedListenerPid(inspect); await reveal(pid, timeoutMs); await activate(pid, timeoutMs); await verify(pid, true, timeoutMs); } catch (error) { throw new ConnectorError(code, message, undefined, { cause: error }); } }
+async function showOwnedWindow(inspect: ProcessInspector, shower: WindowShower, reveal: ProcessRevealer, activate: ProcessActivator, verify: WindowVisibilityVerifier, timeoutMs: number, message: string, provider: "chatgpt" | "grok"): Promise<void> {
+  try { await shower(); const pid = await ownedListenerPid(inspect); await reveal(pid, timeoutMs); await activate(pid, timeoutMs); await verify(pid, true, timeoutMs); }
+  catch (error) {
+    // Preserve only existing, source-proven precondition flags. Do not infer safety or change severity rules.
+    const details: Record<string, boolean> = {};
+    if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE") {
+      for (const field of ["targetMissing", "unreachable", "beforeSubmission"] as const) if (error.details?.[field] === true) details[field] = true;
+    }
+    throw new ConnectorError("CDP_UNAVAILABLE", details.targetMissing
+      ? `専用Chromeに表示する${providerName(provider)}公式page targetがありません。gpt-connector browser start${provider === "grok" ? " --provider grok" : ""}で再準備してください。` : message,
+    Object.keys(details).length ? details : undefined, { cause: error });
+  }
+}
 async function waitForReadyWithAuthRecovery(appReady: Readiness, sleep: (milliseconds: number) => Promise<void>, timeout: number, deadline: number, recover: () => Promise<void>, status: BrowserLaunchResult["status"], provider: "chatgpt" | "grok"): Promise<BrowserLaunchResult> {
   try {
     if (await waitForApp(appReady, sleep, timeout, deadline)) return { ok: true, status, endpoint };
