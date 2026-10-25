@@ -11,7 +11,7 @@ export interface LocalClockSources {
 export class LocalClockError extends Error {
   constructor(readonly code: "HANDOFF_CLOCK_INVALID" | "HANDOFF_EXPIRED" = "HANDOFF_CLOCK_INVALID") { super(code); this.name = "LocalClockError"; }
 }
-interface Budget { readonly utcDeadline: number; readonly monotonicDeadline: number }
+interface Budget { readonly utcDeadline: number; readonly monotonicDeadline: number; expired: boolean }
 interface Registration {
   readonly budget: Budget;
   active: boolean;
@@ -28,11 +28,13 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
   const active = new Set<Registration>();
   let previousMonotonic = -1;
   const budgets = new WeakMap<LocalWaitBudget, Budget>();
+  const liveBudgets = new Set<Budget>();
   const sample = () => {
     // Sample monotonic first, so time spent acquiring UTC cannot lengthen this wait.
     const mono = monotonicNow(), utc = utcNow();
     if (!Number.isFinite(mono) || mono < 0 || mono < previousMonotonic || !Number.isSafeInteger(utc) || utc <= 0) throw new LocalClockError();
     previousMonotonic = mono;
+    for (const budget of liveBudgets) duration(budget, { mono, utc });
     return { mono, utc };
   };
   const cancel = (entry: Registration) => {
@@ -42,8 +44,12 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     entry.timer = undefined; entry.ticket = undefined; entry.callback = undefined;
     if (timer) clearTimer(timer.handle);
   };
-  const duration = (budget: Budget, point: ReturnType<typeof sample>) =>
-    Math.floor(Math.min(budget.monotonicDeadline - point.mono, budget.utcDeadline - point.utc));
+  const duration = (budget: Budget, point: { mono: number; utc: number }) => {
+    if (budget.expired) return 0;
+    const remaining = Math.floor(Math.min(budget.monotonicDeadline - point.mono, budget.utcDeadline - point.utc));
+    if (remaining < 1) { budget.expired = true; liveBudgets.delete(budget); }
+    return remaining;
+  };
   const due = (entry: Registration, point: ReturnType<typeof sample>) => duration(entry.budget, point) < 1;
   const get = (token: LocalWaitBudget) => {
     const budget = budgets.get(token);
@@ -57,7 +63,8 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     const monotonicDeadline = point.mono + ms;
     if (!Number.isFinite(monotonicDeadline) || monotonicDeadline > Number.MAX_SAFE_INTEGER) throw new LocalClockError();
     const token = Object.freeze({}) as LocalWaitBudget;
-    budgets.set(token, Object.freeze({ utcDeadline, monotonicDeadline }));
+    const budget: Budget = { utcDeadline, monotonicDeadline, expired: false };
+    budgets.set(token, budget); liveBudgets.add(budget);
     return token;
   };
   const fire = (entry: Registration) => {

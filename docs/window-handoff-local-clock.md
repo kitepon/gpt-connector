@@ -14,6 +14,9 @@ startRequest(originalRawAbsolute)で最初のUTC残量を単調deadlineへ一回
 同じprivate tokenをbegin/current/capture/bindの全runで保持し、RPC完了/UTC rollbackで再発行しない。
 startCleanup(budgetMs)は元abort/元tokenと独立し、開始時raw UTC absoluteと単調deadlineを一回固定。
 opaque tokenは発行clockのWeakMapだけで有効。別clock/複写/JSON自己申告で作れない。
+期限超過/残量枯渇は各tokenのexpired終端へ不可逆記録する。remaining/atBudget/timer/時刻採取は
+同状態を参照し、後のrollbackや登録解除/再登録で復活させない。失効したtokenだけを終端にし、
+後で合法に作るcleanupへ過去のUTC上限/失効を持ち込まない。
 
 remaining(token)はraw absoluteとfloor(min(元mono残量, 元raw absolute - 現raw UTC))を返す。
 request上限120000ms、cleanup上限30000ms。残量1ms未満/尽きでは新exchange/writeを開始しない。
