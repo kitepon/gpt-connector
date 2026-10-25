@@ -1,3 +1,4 @@
+import { fixtureDeadlineClock } from "./fixtures/local-deadline-clock.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PromiseWindowHandoffClient } from "../src/window-handoff-promise-client.js";
@@ -35,7 +36,7 @@ for (const stimulus of ["direct", "native"] as const) for (const outcome of ["co
           watchLifetime: { session, beginCallId: request.callId, originalTuple: tuple, invalidated: native.signal } };
       },
     };
-    const client = new PromiseWindowHandoffClient({ channel, clock: { now: () => now, at: () => () => {} }, cleanupBudgetMs: 250,
+    const client = new PromiseWindowHandoffClient({ channel, clock: fixtureDeadlineClock({ now: () => now, at: () => () => {} }), cleanupBudgetMs: 250,
       capture: async () => { throw new Error("fixture capture not used"); } });
     const watch = await client.beginWatch("40", 2000);
     const outer = client.cancelWatch(watch);

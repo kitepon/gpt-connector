@@ -1,3 +1,4 @@
+import { fixtureDeadlineClock } from "./fixtures/local-deadline-clock.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareOwnedWindowHandoff, WindowHandoffInputError } from "../src/window-handoff-input.js";
@@ -5,14 +6,14 @@ import type { FreshWindowCapture } from "../src/window-handoff-input.js";
 import { decodeLocalRequest, encodeLocalReply } from "../src/window-handoff-local-codec.js";
 import type { LocalRequest } from "../src/window-handoff-local-codec.js";
 import { PromiseWindowHandoffClient } from "../src/window-handoff-promise-client.js";
-import type { LocalAuthenticatedChannel, LocalClientClock, LocalExchangeResult, LocalControl, LocalWatchLifetime } from "../src/window-handoff-session-port.js";
+import type { LocalAuthenticatedChannel, LocalExchangeResult, LocalControl, LocalWatchLifetime } from "../src/window-handoff-session-port.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-class Clock implements LocalClientClock {
+class Clock {
   value = 1000;
   readonly timers = new Map<object, { deadline: number; callback: () => void }>();
   now() { return this.value; }
@@ -68,7 +69,7 @@ function fixture() {
         "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`] },
       windowClass: "Chrome_WidgetWin_1", visible: true, minimized: false, targetId: "fake-cdp-target", browserWindowId: 1 };
   };
-  const make = () => new PromiseWindowHandoffClient({ channel, clock, capture, cleanupBudgetMs: 250 });
+  const make = () => new PromiseWindowHandoffClient({ channel, clock: fixtureDeadlineClock(clock), capture, cleanupBudgetMs: 250 });
   const run = (client: PromiseWindowHandoffClient) => prepareOwnedWindowHandoff({ hint: "40", profile, deadline: 2000, signal: original.signal }, client, () => clock.now());
   return { session, clock, original, eof, lossClosed, native, tuple, calls, channel, defaultReply, make, run,
     setHandler: (next: typeof handler) => { handler = next; },

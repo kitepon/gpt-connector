@@ -1,6 +1,6 @@
 // Independent source candidate; not imported by the CLI or a real channel.
 import { performance } from "node:perf_hooks";
-import type { LocalClientClock } from "./window-handoff-session-port.js";
+import type { LocalClientClock, LocalWaitBudget } from "./window-handoff-session-port.js";
 
 export interface LocalClockSources {
   utcNow(): number;
@@ -9,11 +9,11 @@ export interface LocalClockSources {
   clearTimer(handle: unknown): void;
 }
 export class LocalClockError extends Error {
-  constructor() { super("HANDOFF_CLOCK_INVALID"); this.name = "LocalClockError"; }
+  constructor(readonly code: "HANDOFF_CLOCK_INVALID" | "HANDOFF_EXPIRED" = "HANDOFF_CLOCK_INVALID") { super(code); this.name = "LocalClockError"; }
 }
+interface Budget { readonly utcDeadline: number; readonly monotonicDeadline: number }
 interface Registration {
-  readonly utcDeadline: number;
-  readonly monotonicDeadline: number;
+  readonly budget: Budget;
   active: boolean;
   callback?: () => void;
   ticket?: object;
@@ -21,23 +21,19 @@ interface Registration {
 }
 const maximumTimerDelay = 2_147_483_647;
 
-/** Each at() fixes one monotonic deadline. The returned function destroys only that registration. */
+/** Raw UTC + private per-operation monotonic budget. No corrected epoch crosses the channel. */
 export function createLocalClientClock(sources: LocalClockSources): LocalClientClock {
   const utcNow = sources.utcNow.bind(sources), monotonicNow = sources.monotonicNow.bind(sources);
   const setTimer = sources.setTimer.bind(sources), clearTimer = sources.clearTimer.bind(sources);
   const active = new Set<Registration>();
   let previousMonotonic = -1;
-  let epoch: { utc: number; mono: number } | undefined;
+  const budgets = new WeakMap<LocalWaitBudget, Budget>();
   const sample = () => {
     // Sample monotonic first, so time spent acquiring UTC cannot lengthen this wait.
     const mono = monotonicNow(), utc = utcNow();
     if (!Number.isFinite(mono) || mono < 0 || mono < previousMonotonic || !Number.isSafeInteger(utc) || utc <= 0) throw new LocalClockError();
     previousMonotonic = mono;
-    const projected = epoch ? epoch.utc + (mono - epoch.mono) : utc;
-    const effective = Math.max(utc, projected);
-    if (!Number.isFinite(effective) || effective > Number.MAX_SAFE_INTEGER) throw new LocalClockError();
-    if (!epoch || utc > projected) epoch = { utc, mono }; // Forward only, never rebase on rollback/read progress.
-    return { mono, utc, effective };
+    return { mono, utc };
   };
   const cancel = (entry: Registration) => {
     if (!entry.active) return;
@@ -46,8 +42,24 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
     entry.timer = undefined; entry.ticket = undefined; entry.callback = undefined;
     if (timer) clearTimer(timer.handle);
   };
-  const due = (entry: Registration, point: ReturnType<typeof sample>) =>
-    point.mono >= entry.monotonicDeadline || point.effective >= entry.utcDeadline;
+  const duration = (budget: Budget, point: ReturnType<typeof sample>) =>
+    Math.floor(Math.min(budget.monotonicDeadline - point.mono, budget.utcDeadline - point.utc));
+  const due = (entry: Registration, point: ReturnType<typeof sample>) => duration(entry.budget, point) < 1;
+  const get = (token: LocalWaitBudget) => {
+    const budget = budgets.get(token);
+    if (!budget) throw new LocalClockError();
+    return budget;
+  };
+  const create = (utcDeadline: number, limit: number, point: ReturnType<typeof sample>) => {
+    const ms = utcDeadline - point.utc;
+    if (!Number.isSafeInteger(utcDeadline) || !Number.isSafeInteger(ms) || ms > limit) throw new LocalClockError();
+    if (ms < 1) throw new LocalClockError("HANDOFF_EXPIRED");
+    const monotonicDeadline = point.mono + ms;
+    if (!Number.isFinite(monotonicDeadline) || monotonicDeadline > Number.MAX_SAFE_INTEGER) throw new LocalClockError();
+    const token = Object.freeze({}) as LocalWaitBudget;
+    budgets.set(token, Object.freeze({ utcDeadline, monotonicDeadline }));
+    return token;
+  };
   const fire = (entry: Registration) => {
     if (!entry.active) return;
     const callback = entry.callback;
@@ -56,8 +68,9 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
   };
   const arm = (entry: Registration, point: ReturnType<typeof sample>) => {
     const ticket = {}; entry.ticket = ticket;
-    const remaining = Math.min(entry.monotonicDeadline - point.mono, entry.utcDeadline - point.effective);
-    const delay = Math.max(1, Math.min(maximumTimerDelay, Math.ceil(remaining)));
+    const remaining = duration(entry.budget, point);
+    if (remaining < 1) { fire(entry); return; }
+    const delay = Math.min(maximumTimerDelay, remaining);
     let handle: unknown;
     try {
       handle = setTimer(() => {
@@ -79,15 +92,23 @@ export function createLocalClientClock(sources: LocalClockSources): LocalClientC
       const point = sample();
       // A reply/admission read after a forward UTC jump expires registered waits first.
       for (const entry of [...active]) if (due(entry, point)) fire(entry);
-      // Deadline epoch only, not an observation timestamp. Preserve elapsed time between RPCs too.
-      return Math.floor(point.effective);
+      return point.utc;
     },
-    at(utcDeadline, callback) {
-      if (!Number.isSafeInteger(utcDeadline) || utcDeadline <= 0 || typeof callback !== "function") throw new LocalClockError();
+    startRequest(absoluteDeadline) { return create(absoluteDeadline, 120_000, sample()); },
+    startCleanup(maximumWaitMs) {
+      if (!Number.isSafeInteger(maximumWaitMs) || maximumWaitMs < 1 || maximumWaitMs > 30_000) throw new LocalClockError();
       const point = sample();
-      const monotonicDeadline = point.mono + Math.max(0, utcDeadline - point.effective);
-      if (!Number.isFinite(monotonicDeadline) || monotonicDeadline > Number.MAX_SAFE_INTEGER) throw new LocalClockError();
-      const entry: Registration = { utcDeadline, monotonicDeadline, callback, active: true };
+      return create(point.utc + maximumWaitMs, 30_000, point);
+    },
+    remaining(token) {
+      const budget = get(token), ms = duration(budget, sample());
+      if (ms < 1) throw new LocalClockError("HANDOFF_EXPIRED");
+      return Object.freeze({ absoluteDeadline: budget.utcDeadline, maximumWaitMs: ms });
+    },
+    atBudget(token, callback) {
+      if (typeof callback !== "function") throw new LocalClockError();
+      const budget = get(token), point = sample();
+      const entry: Registration = { budget, callback, active: true };
       active.add(entry);
       if (due(entry, point)) fire(entry); else arm(entry, point);
       return () => cancel(entry);

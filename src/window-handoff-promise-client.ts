@@ -3,12 +3,13 @@ import { WindowHandoffInputError } from "./window-handoff-input.js";
 import type { ArmedWindowWatch, WindowHandoffInputPorts, LocalWindowBinding } from "./window-handoff-input.js";
 import { decodeLocalReply, decodeLocalRequest } from "./window-handoff-local-codec.js";
 import type { LocalWatchTuple } from "./window-handoff-local-codec.js";
+import { LocalClockError } from "./window-handoff-local-clock.js";
 import { LocalHandoffReceiptMap, LocalReceiptError } from "./window-handoff-local-receipts.js";
 import type { LocalPendingCall } from "./window-handoff-local-receipts.js";
 
 import { encodeLocalReply } from "./window-handoff-local-codec.js";
 import type { LocalAuthenticatedChannel, LocalClientClock, LocalControl, LocalControlSubscription,
-  LocalWatchLifetime, LocalWatchLoss } from "./window-handoff-session-port.js";
+  LocalWatchLifetime, LocalWatchLoss, LocalWaitBudget } from "./window-handoff-session-port.js";
 
 export type BeginTransportState = "not_called" | "not_sent" | "unknown" | "reply_received";
 interface FlowControl { readonly callId: number; tuple?: LocalWatchTuple; lossTuple?: LocalWatchTuple;
@@ -21,10 +22,11 @@ const fixedTuple = (tuple: LocalWatchTuple): LocalWatchTuple => {
   return Object.freeze({ ...decoded.watch, identity: Object.freeze({ ...decoded.watch.identity }) });
 };
 const losses = new Set(["window_destroyed", "process_exited", "anchor_lost", "monitor_lost", "registration_changed", "deadline_expired", "session_closed"]);
-interface WatchContext { readonly deadline: number; readonly signal?: AbortSignal; readonly watchSignal: AbortSignal }
+interface WatchContext { readonly budget: LocalWaitBudget; readonly deadline: number; readonly signal?: AbortSignal; readonly watchSignal: AbortSignal }
 const failure = (code: "HANDOFF_UNSUPPORTED" | "HANDOFF_EXPIRED" | "HANDOFF_LOCAL_CLEANUP_UNCONFIRMED" = "HANDOFF_UNSUPPORTED") => new WindowHandoffInputError(code);
 const safeError = (error: unknown): WindowHandoffInputError => {
   if (error instanceof WindowHandoffInputError) return error;
+  if (error instanceof LocalClockError && error.code === "HANDOFF_EXPIRED") return failure("HANDOFF_EXPIRED");
   if (error instanceof LocalReceiptError) {
     switch (error.code) {
       case "HANDOFF_INVALID": case "HANDOFF_EXPIRED": case "HANDOFF_BINDING_INVALID":
@@ -46,7 +48,10 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
   #closeState: "not_requested" | "pending" | "completed" | "failed" = "not_requested";
   readonly #exchange: LocalAuthenticatedChannel["exchange"];
   readonly #now: LocalClientClock["now"];
-  readonly #at: LocalClientClock["at"];
+  readonly #at: LocalClientClock["atBudget"];
+  readonly #startRequest: LocalClientClock["startRequest"];
+  readonly #startCleanup: LocalClientClock["startCleanup"];
+  readonly #remaining: LocalClientClock["remaining"];
   readonly #capture: WindowHandoffInputPorts["capture"];
   readonly #budget: number;
   readonly #map: LocalHandoffReceiptMap;
@@ -63,7 +68,9 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       || !Number.isSafeInteger(cleanupBudgetMs) || cleanupBudgetMs <= 0 || cleanupBudgetMs > 30_000) throw failure();
     this.#session = session; this.#closed = closed;
     this.#channelClose = channel.close.bind(channel); this.#exchange = channel.exchange.bind(channel);
-    this.#now = clock.now.bind(clock); this.#at = clock.at.bind(clock); this.#capture = capture;
+    this.#now = clock.now.bind(clock); this.#at = clock.atBudget.bind(clock); this.#capture = capture;
+    this.#startRequest = clock.startRequest.bind(clock); this.#startCleanup = clock.startCleanup.bind(clock);
+    this.#remaining = clock.remaining.bind(clock);
     this.#budget = cleanupBudgetMs; this.#map = new LocalHandoffReceiptMap(session, hostRegistrationId, this.#now);
     try { this.#subscription = channel.subscribeControl(control => this.#control(control)); }
     catch { this.#seal(); throw failure(); }
@@ -106,7 +113,7 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
     if (!Number.isSafeInteger(value) || value <= 0) throw failure();
     return value;
   }
-  #bounded<T>(operation: () => Promise<T>, deadline: number, signals: readonly (AbortSignal | undefined)[]): Promise<T> {
+  #bounded<T>(operation: () => Promise<T>, budget: LocalWaitBudget, signals: readonly (AbortSignal | undefined)[]): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       let settled = false;
       let stop = () => {};
@@ -119,32 +126,33 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       };
       const aborted = () => finish(failure());
       try {
-        if (!Number.isSafeInteger(deadline) || this.#time() >= deadline) { finish(failure("HANDOFF_EXPIRED")); return; }
+        this.#remaining(budget);
         for (const source of sources) {
           source.addEventListener("abort", aborted, { once: true });
           if (source.aborted) { finish(failure()); return; }
         }
-        stop = this.#at(deadline, () => finish(failure("HANDOFF_EXPIRED")));
+        stop = this.#at(budget, () => finish(failure("HANDOFF_EXPIRED")));
         if (settled) { stop(); return; }
         // The port owns actual I/O termination. Late completion can never settle this call again.
         void operation().then(result => {
           try {
-            if (this.#time() >= deadline) finish(failure("HANDOFF_EXPIRED"));
-            else if (sources.some(signal => signal.aborted)) finish(failure());
+            this.#remaining(budget);
+            if (sources.some(signal => signal.aborted)) finish(failure());
             else finish(undefined, result);
-          } catch { finish(failure()); }
+          } catch (error) { finish(safeError(error)); }
         }, error => finish(safeError(error)));
-      } catch { finish(failure()); }
+      } catch (error) { finish(safeError(error)); }
     });
   }
-  async #rpc(call: LocalPendingCall, deadline: number, purpose: "request" | "cleanup",
+  async #rpc(call: LocalPendingCall, budget: LocalWaitBudget, purpose: "request" | "cleanup",
     signal?: AbortSignal, watchSignal?: AbortSignal): Promise<ArmedWindowWatch | undefined> {
     const sources = purpose === "cleanup" ? [this.#closed, this.#sealed.signal] : [this.#closed, this.#sealed.signal, this.#subscriptionLost, signal, watchSignal];
     const envelope = await this.#bounded(async () => {
       this.#delivery.set(call, "unknown"); // Invocation/throw alone proves no absence.
+      const wait = this.#remaining(budget);
       const result = await this.#exchange(call.bytes, purpose === "request"
-        ? Object.freeze({ absoluteDeadline: deadline, purpose, originalAbort: signal })
-        : Object.freeze({ absoluteDeadline: deadline, purpose }));
+        ? Object.freeze({ ...wait, purpose, originalAbort: signal })
+        : Object.freeze({ ...wait, purpose }));
       if (result.kind === "failure") {
         this.#delivery.set(call, result.delivery === "not_sent" ? "not_sent" : "unknown");
         if (["peer_eof", "io_failed", "protocol_invalid", "session_closed"].includes(result.reason)) this.#seal();
@@ -161,8 +169,8 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
           watchLifetime: life && Object.freeze({ session: life.session, beginCallId: life.beginCallId,
             originalTuple: fixedTuple(life.originalTuple), invalidated: life.invalidated, loss: life.loss }) });
       } catch { this.#seal(); throw failure(); }
-    }, deadline, sources);
-    if (this.#time() >= deadline) throw failure("HANDOFF_EXPIRED");
+    }, budget, sources);
+    this.#remaining(budget);
     let nativeSignal: AbortSignal | undefined;
     let wire;
     try { wire = decodeLocalReply(envelope.bytes); } catch { this.#seal(); throw failure(); }
@@ -181,16 +189,16 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       flow.tuple = tuple; flow.lifetime = life;
       if (flow.loss || life.loss !== undefined || nativeSignal.aborted || this.#subscriptionLost.aborted || this.#sealed.signal.aborted) throw failure();
     }
+    this.#remaining(budget); // Final adoption checks the same private mono token, including between RPCs.
     try { return this.#map.accept(envelope.session, call, envelope.bytes, nativeSignal); }
     catch (error) { if (error instanceof LocalReceiptError && error.code === "HANDOFF_BINDING_INVALID") this.#seal(); throw error; }
   }
   async #cleanup(makeCall: () => LocalPendingCall): Promise<void> {
     // Fixed once for this cleanup; independent of request abort, watch loss, and original expiry.
     try {
-      const deadline = this.#time() + this.#budget;
-      if (!Number.isSafeInteger(deadline)) throw failure();
+      const budget = this.#startCleanup(this.#budget);
       const call = makeCall();
-      await this.#rpc(call, deadline, "cleanup");
+      await this.#rpc(call, budget, "cleanup");
       if (this.#map.cleanup(call) !== "confirmed") throw failure();
     } catch { this.#seal(); throw failure("HANDOFF_LOCAL_CLEANUP_UNCONFIRMED"); }
   }
@@ -200,12 +208,13 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       const started = this.#time();
       if (!Number.isSafeInteger(deadline) || deadline <= started || deadline - started > 120_000) throw failure("HANDOFF_EXPIRED");
       if (signal?.aborted || this.#closed.aborted || this.#sealed.signal.aborted || this.#subscriptionLost.aborted) throw failure();
+      const budget = this.#startRequest(deadline);
       call = this.#map.beginWatch(hint, deadline, signal); this.#begin = call;
       const request = decodeLocalRequest(call.bytes);
       this.#flows.set(request.callId, { callId: request.callId });
-      const watch = await this.#rpc(call, deadline, "request", signal);
+      const watch = await this.#rpc(call, budget, "request", signal);
       if (!watch) throw failure();
-      this.#watches.set(watch, Object.freeze({ deadline, signal, watchSignal: watch.signal }));
+      this.#watches.set(watch, Object.freeze({ budget, deadline, signal, watchSignal: watch.signal }));
       return watch;
     } catch (error) {
       if (call) await this.#cleanup(() => this.#map.cancelUnknownBegin(call!));
@@ -223,18 +232,18 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
   async assertCurrent(watch: ArmedWindowWatch, deadline: number, signal?: AbortSignal): Promise<void> {
     try {
       const context = this.#context(watch, deadline, signal);
-      await this.#rpc(this.#map.assertCurrent(watch, deadline, signal), deadline, "request", signal, context.watchSignal);
+      await this.#rpc(this.#map.assertCurrent(watch, deadline, signal), context.budget, "request", signal, context.watchSignal);
     } catch (error) { throw safeError(error); }
   }
   async bindTarget(watch: ArmedWindowWatch, binding: LocalWindowBinding, deadline: number, signal?: AbortSignal): Promise<void> {
     try {
       const context = this.#context(watch, deadline, signal);
-      await this.#rpc(this.#map.bindTarget(watch, binding, deadline, signal), deadline, "request", signal, context.watchSignal);
+      await this.#rpc(this.#map.bindTarget(watch, binding, deadline, signal), context.budget, "request", signal, context.watchSignal);
     } catch (error) { throw safeError(error); }
   }
   async capture(watch: ArmedWindowWatch, deadline: number, signal?: AbortSignal) {
     const context = this.#context(watch, deadline, signal);
-    return this.#bounded(() => this.#capture(watch, deadline, signal), deadline,
+    return this.#bounded(() => this.#capture(watch, deadline, signal), context.budget,
       [signal, context.watchSignal, this.#closed, this.#sealed.signal, this.#subscriptionLost]);
   }
   cancelWatch(watch: ArmedWindowWatch): Promise<void> {

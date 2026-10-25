@@ -18,8 +18,8 @@ export type LocalControl =
   | { readonly kind: "session_ended"; readonly session: object; readonly reason: LocalTransportFailure };
 export interface LocalControlSubscription { readonly lost: AbortSignal; dispose(): void }
 export type LocalWait =
-  | { readonly purpose: "request"; readonly absoluteDeadline: number; readonly originalAbort?: AbortSignal }
-  | { readonly purpose: "cleanup"; readonly absoluteDeadline: number };
+  | { readonly purpose: "request"; readonly absoluteDeadline: number; readonly maximumWaitMs: number; readonly originalAbort?: AbortSignal }
+  | { readonly purpose: "cleanup"; readonly absoluteDeadline: number; readonly maximumWaitMs: number };
 export type LocalExchangeResult =
   | { readonly kind: "reply"; readonly session: object; readonly bytes: string | Uint8Array; readonly watchLifetime?: LocalWatchLifetime }
   | { readonly kind: "failure"; readonly reason: LocalTransportFailure; readonly delivery: "not_sent" | "unknown" };
@@ -34,7 +34,12 @@ export interface LocalAuthenticatedChannel {
   close(): Promise<void>; // Seals session. Completion is not native reclamation ACK.
 }
 export interface LocalClientClock {
+  // Raw Unix UTC only. Never expose a corrected/private epoch as a peer deadline.
   now(): number;
-  // Production clock must fix remaining time to a monotonic deadline and never extend on UTC rollback.
-  at(absoluteDeadline: number, callback: () => void): () => void;
+  startRequest(absoluteDeadline: number): LocalWaitBudget;
+  startCleanup(maximumWaitMs: number): LocalWaitBudget;
+  remaining(budget: LocalWaitBudget): Readonly<{ absoluteDeadline: number; maximumWaitMs: number }>;
+  atBudget(budget: LocalWaitBudget, callback: () => void): () => void;
 }
+declare const budgetBrand: unique symbol;
+export interface LocalWaitBudget { readonly [budgetBrand]: true }

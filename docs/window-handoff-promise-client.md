@@ -14,8 +14,8 @@ Windows発行opaque session・最初のhostRegistrationId・session.closedを持
 
 ```ts
 subscribeControl(receive) // -> { lost: AbortSignal, dispose() }
-exchange(bytes, { purpose: "request", absoluteDeadline, originalAbort? }
-              | { purpose: "cleanup", absoluteDeadline })
+exchange(bytes, { purpose: "request", absoluteDeadline, maximumWaitMs, originalAbort? }
+              | { purpose: "cleanup", absoluteDeadline, maximumWaitMs })
   // -> { kind: "reply", session, bytes, watchLifetime? }
   //  | { kind: "failure", reason, delivery: "not_sent" | "unknown" }
 close() // -> Promise<void>; 回収ACKとは別
@@ -92,3 +92,13 @@ before4fail→after4passで確認する。direct/native失効listenerからの�
 Windowsは相互認証session発行・初回登録・同接続RPC・EOF/watch-loss・監視投影・
 native owner cleanupを持つ。clock portの実実装/実frame/handshakeの採用も別工程。
 この候補とfixtureはsource合成だけであり、現FOX反映やOwnerへ渡せる実入口ではない。
+
+
+## clock/Wait結合P2の追加修理
+
+30f補正epochを生Unix deadlineへ渡さず、raw UTC/private mono token/maximumWaitMsを分離する。
+requestは元JSON期限と最初のtokenを全RPCで維持。cleanupは一回の別token/raw期限を持つ。
+最大request120000/cleanup30000、残量floor/1ms未満exchange0。元signalをCleanupWaitへ持ち込まない。
+実exchange直前/reply後/最終採用前に同tokenを確認する。clock/token APIは独立原本時刻の代用ではない。
+receiver有限cap・sender queue経過控除・frameVersion2の実配送はWindows所有の別受入。
+詳細window-handoff-local-clock.md。旧30fの11単体結果を新結合成功へ昇格しない。
