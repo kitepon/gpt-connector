@@ -44,6 +44,18 @@ export interface CoreCompletionOriginal {
   readonly serialized_result_bytes: number;
   readonly stdout_write: "callback_completed" | "failed" | "not_written";
 }
+/** Proposed bounds, not an enabled policy or an implemented validation/store port. */
+export interface CoreFrameStorageScope {
+  readonly kind: "setup_v1_single_write_json_frame";
+  readonly schema: "gpt-connector.setup.v1";
+  readonly maximum_frame_bytes: 65536;
+  readonly maximum_control_reply_bytes: 16384;
+  readonly child_timeout_ms: 2500;
+  readonly frame_input: "dedicated_child_stdin_pipe";
+  readonly receipt_output: "captured_child_fd3_pipe";
+  readonly unknown_fields: "metadata_only_unknown";
+  readonly truncated_or_redacted_frame_is_original: false;
+}
 export type CoreObservationOutcome =
   | { readonly status: "recorded_raw"; readonly original: ObserverOriginalRef;
     readonly normal_job_binding: "unknown_until_dispatcher_source_correlation";
