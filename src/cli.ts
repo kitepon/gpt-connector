@@ -25,6 +25,7 @@ import { showBrowser, startBrowser } from "./browser-launcher.js";
 import { setup } from "./setup.js";
 import { setupClients, type SetupClient } from "./setup-registration.js";
 import { installSetupPackage } from "./platform/setup-package.js";
+import { runRegisteredCoreSetup } from "./update-ledger-core-registration.js";
 import { isAbsolute, join } from "node:path";
 import { configureCodexSteer, type CodexSteerAction } from "./setup-codex-steer.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
@@ -122,6 +123,13 @@ async function main(): Promise<void> {
     const check = flagArg(values, "check");
     const codexConfig = stringArg(values, "codex-config");
     if (codexConfig !== undefined && (!isAbsolute(codexConfig) || !clients.includes("codex"))) throw new Error("--codex-configはCodex設定の絶対pathが必要です。");
+    const runSetup = () => setup({ clients: [...new Set(clients)] as SetupClient[], codexConfig, check });
+    // Only the adopted preload registers an EX-completed installed core. Its SH
+    // invocation must not enter package installation or a different re-exec.
+    if (await runRegisteredCoreSetup(check ? "check" : "setup", runSetup, {
+      write: (text, callback) => process.stdout.write(text, callback),
+      setExitCode: code => { process.exitCode = code; },
+    })) return;
     let installed: number | null;
     try { installed = check ? null : installSetupPackage(argv.slice(1)); } catch {
       writeJson({ schema: "gpt-connector.setup.v1", overall: "failed", stage: "package", code: "SETUP_PACKAGE_FAILED" });
@@ -129,7 +137,7 @@ async function main(): Promise<void> {
       return;
     }
     if (installed !== null) { process.exitCode = installed; return; }
-    const result = await setup({ clients: [...new Set(clients)] as SetupClient[], codexConfig, check });
+    const result = await runSetup();
     writeJson(result);
     process.exitCode = result.overall === "ready" ? 0 : result.overall === "partial" ? 2 : 1;
     return;
