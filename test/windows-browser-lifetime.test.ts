@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { windowsNativeProcessSource } from "../src/platform/windows-codex-native.js";
 import { quotePowerShell, windowsPowerShell } from "../src/platform/windows-powershell.js";
 
-test("Windows: 専用browserの起動処理は呼出元の終了jobを継承せず引数を保持する", { skip: process.platform !== "win32" }, async () => {
+test("Windows: WMI子起動は呼出元の終了jobを継承せず引数を保持する", { skip: process.platform !== "win32" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "gpt browser 寿命 "));
   const receipt = join(directory, "receipt.json");
   const fixture = join(directory, "child.mjs");
@@ -14,7 +14,8 @@ test("Windows: 専用browserの起動処理は呼出元の終了jobを継承せ�
   const args = ["日本語と 空白", '引用"文字', "末尾\\", "$(実行しない)`記号"];
   await writeFile(fixture, `import {writeFileSync} from 'node:fs';writeFileSync(process.argv[2],JSON.stringify({pid:process.pid,args:process.argv.slice(3)}));setInterval(()=>{},1000);`);
   const adapter = new URL("../src/platform/windows-browser.ts", import.meta.url).href;
-  await writeFile(launcher, `import {spawnDetached} from ${JSON.stringify(adapter)};await spawnDetached(process.execPath,${JSON.stringify([fixture, receipt, ...args])});`);
+  const powershell = new URL("../src/platform/windows-powershell.ts", import.meta.url).href;
+  await writeFile(launcher, `import {detachedLaunchSource} from ${JSON.stringify(adapter)};import {windowsPowerShell} from ${JSON.stringify(powershell)};await windowsPowerShell(detachedLaunchSource(process.execPath,${JSON.stringify([fixture, receipt, ...args])}));`);
   try {
     const output = await windowsPowerShell(`
 Add-Type -TypeDefinition @'

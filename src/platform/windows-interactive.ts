@@ -60,7 +60,10 @@ $action.Arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Enc
     Start-Sleep -Milliseconds 25
   }
   if ([DateTime]::UtcNow -ge $expires) { throw 'interactive_receipt_deadline' }
-} catch { $failure = 'interactive_task_failed' } finally {
+} catch {
+  $known = @('interactive_session_missing_or_ambiguous', 'interactive_task_principal_mismatch', 'interactive_task_timeout', 'interactive_receipt_deadline')
+  $failure = if ($known -contains $_.Exception.Message) { $_.Exception.Message } else { 'interactive_task_failed' }
+} finally {
   if ($created) {
    try {
     $own = $folder.GetTask($name)

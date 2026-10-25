@@ -19,6 +19,7 @@ export function chromeLaunchCommand(profile: string, env = process.env, exists =
   return { command, args: ["--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`, "--no-startup-window", "--no-first-run", "--no-default-browser-check"] };
 }
 
+/** WMI owns argument quoting, same-session placement and lifetime; the caller owns interactive UI eligibility. */
 export function detachedLaunchSource(command: string, args: readonly string[]): string {
   const commandLine = [command, ...args].map(value => '"' +
     value.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/u, '$1$1') + '"').join(" ");
@@ -28,7 +29,7 @@ $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property
 $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${quotePowerShell(commandLine)}; ProcessStartupInformation = $startup }
 if ($created.ReturnValue -ne 0 -or $created.ProcessId -le 0) { throw 'interactive_browser_create_failed' }
 $child = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $created.ProcessId)
-if (!$child -or $child.SessionId -le 0 -or $child.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId) { throw 'interactive_browser_session_mismatch' }
+if (!$child -or $child.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId) { throw 'interactive_browser_session_mismatch' }
 $owner = Invoke-CimMethod -InputObject $child -MethodName GetOwnerSid
 if ($owner.Sid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'interactive_browser_owner_mismatch' }
 `;
