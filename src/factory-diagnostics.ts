@@ -5,6 +5,8 @@ import { bridgeBuildId } from "./page-bridge.js";
 import { evaluateByValue } from "./runtime-evaluate.js";
 import { packageVersion } from "./version.js";
 import { supportsLiveBrowser } from "./platform/browser.js";
+import { factoryRuntimeObservationExpression, projectFactoryRuntimeObservation } from "./factory-observation-context.js";
+import type { FactoryRuntimeObservation, GptObservationContext } from "./factory-observation-context.js";
 
 export const factoryDiagnosticsSchema = "gpt-connector.factory-diagnostics.v1" as const;
 
@@ -12,10 +14,12 @@ export interface FactoryDiagnosticsOptions {
   readonly endpoint?: string;
   readonly stateDirectory?: string;
   readonly platform?: NodeJS.Platform;
+  // Source-only opt-in; no CLI flag/default change before the full report path is connected.
+  readonly includeObservationContext?: boolean;
 }
 
 type CheckStatus = "ready" | "not_ready" | "unsupported" | "unverified";
-interface FactoryCheck { readonly id: string; readonly status: CheckStatus; readonly reason: string; }
+interface FactoryCheck { readonly id: string; readonly status: CheckStatus; readonly reason: string; readonly safe_context?: GptObservationContext; }
 interface RuntimeProbe {
   readonly cdp: FactoryCheck;
   readonly origin: FactoryCheck;
@@ -38,7 +42,7 @@ export async function factoryDiagnostics(options: FactoryDiagnosticsOptions = {}
   ]);
 
   const state = await inspectState(options.stateDirectory);
-  const runtime = await inspectRuntime(options.endpoint ?? "http://127.0.0.1:9223");
+  const runtime = await inspectRuntime(options.endpoint ?? "http://127.0.0.1:9223", options.includeObservationContext === true);
   const checks = [
     check("version", "ready", "package_version_available"),
     check("state_schema", state, state === "ready" ? "consult_jobs_json_v1" : "state_unavailable"),
@@ -67,39 +71,15 @@ async function inspectState(stateDirectory?: string): Promise<"ready" | "not_rea
   }
 }
 
-async function inspectRuntime(endpoint: string): Promise<RuntimeProbe> {
+async function inspectRuntime(endpoint: string, includeContext: boolean): Promise<RuntimeProbe> {
   let client: CdpClient | undefined;
   try {
     const target = await discoverChatGptTarget(endpoint);
     client = await CdpClient.connect(target.webSocketDebuggerUrl);
     await client.call("Runtime.enable");
-    const result = await evaluateByValue<{
-      readonly officialOrigin: boolean;
-      readonly authenticated: boolean;
-      readonly bridgeReady: boolean;
-    }>(client, String.raw`(async () => {
-      const response = await fetch("/api/auth/session", { credentials: "include" });
-      let authenticated = false;
-      if (response.ok) {
-        const data = await response.json();
-        authenticated = Boolean(data?.user);
-      }
-      const bridge = globalThis.__gptConnectorBridgeV1;
-      return {
-        officialOrigin: location.origin === "https://chatgpt.com",
-        authenticated,
-        bridgeReady: bridge?.version === 1 &&
-          bridge?.buildId === ${JSON.stringify(bridgeBuildId)} &&
-          typeof bridge.summary === "function"
-      };
-    })()`);
-    return {
-      cdp: check("cdp", "ready", "connected"),
-      origin: check("official_origin", result.officialOrigin ? "ready" : "not_ready", result.officialOrigin ? "official" : "not_official"),
-      auth: check("auth", result.authenticated ? "ready" : "not_ready", result.authenticated ? "authenticated" : "auth_required"),
-      // bridgeは最初の操作でpageへ入る。tabを開いただけ・再読込しただけなら無いのが平常で、次の利用で入るため未検証とする。
-      bridge: check("runtime_bridge", result.bridgeReady ? "ready" : "unverified", result.bridgeReady ? "existing_bridge_ready" : "bridge_not_initialized"),
-    };
+    const result = await evaluateByValue<FactoryRuntimeObservation>(client, factoryRuntimeObservationExpression(bridgeBuildId));
+    // A missing bridge still means unverified; preserving detail does not initialize it.
+    return projectFactoryRuntimeObservation(result, includeContext);
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "INVALID_INPUT") throw error;
     if (

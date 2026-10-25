@@ -7,7 +7,7 @@ import { grokChatModeSchema } from "./contract.js";
 import { connectChatGptWithBrowser, connectGrokWithBrowser } from "./browser-connection.js";
 import { ConsultJobStore } from "./consult-job-store.js";
 import { ConnectorError } from "./errors.js";
-import { factoryDiagnostics } from "./factory-diagnostics.js";
+import { readFactoryDiagnosticCommandOptions, runFactoryDiagnosticCommand } from "./factory-diagnostics-command.js";
 import {
   acknowledgeRuntimeErrors,
   compactRuntimeErrors,
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     return;
   }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> [--provider grok] | models | doctor | factory-diagnostics --json | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> [--mode auto|fast|expert|heavy] | grok-consult --prompt <text> --slug <id> [--mode auto|fast|expert|heavy] | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> [--provider grok] | models | doctor | factory-diagnostics --json [--include-observation-context] | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> [--mode auto|fast|expert|heavy] | grok-consult --prompt <text> --slug <id> [--mode auto|fast|expert|heavy] | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {
@@ -151,6 +151,7 @@ async function main(): Promise<void> {
     return;
   }
   const { command, values } = parseArgs(argv);
+  const factoryCommand = readFactoryDiagnosticCommandOptions(command, values);
   if (command === "--version" || command === "version") {
     process.stdout.write(`${packageVersion}\n`);
     return;
@@ -159,11 +160,8 @@ async function main(): Promise<void> {
   const endpoint = stringArg(values, "endpoint") ?? "http://127.0.0.1:9223";
   const stateDirectory = stringArg(values, "state-directory") ??
     process.env.GPT_CONNECTOR_STATE_DIR;
-  if (command === "factory-diagnostics") {
-    if (!flagArg(values, "json") || values.size !== 1) {
-      throw new Error("usage: gpt-connector factory-diagnostics --json");
-    }
-    const diagnostics = await factoryDiagnostics({ endpoint, stateDirectory });
+  if (factoryCommand !== undefined) {
+    const diagnostics = await runFactoryDiagnosticCommand(factoryCommand, { endpoint, stateDirectory });
     writeJson(diagnostics);
     if (diagnostics.overall !== "ready") process.exitCode = 1;
     return;

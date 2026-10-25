@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.5 - 2026-10-26
+
+- `factory-diagnostics --json --include-observation-context`で、同じ一回の観測から認証HTTP/user有無と既存bridgeの検査内訳を固定7項目で返す。既定では追加せず、元のcheck・reason・overallを保つ。未検査をfalseへ置き換えず、任意本文・認証値・実build IDを出力しない。
+- factory-diagnostics専用flagは`--json`と併用し、値付きや他commandへの指定は拒否する。工場側の一回呼出し・中央契約と通常接続が揃うまで非空groupの送信を有効化しない。
+- state・MCP/hook設定・認証profile・runtime error storeの形式は0.16.4と同じ。必要時は既存設定を保って0.16.4へ戻せる。
+
 ## 0.16.4 - 2026-10-25
 
 - 表示する公式pageが無いという既存の観測をwrapperから失わず、通常の再準備手順を案内する。表示復帰そのものの失敗を認証待ちへ置き換えない。元の重大度判定規則は変えない。
