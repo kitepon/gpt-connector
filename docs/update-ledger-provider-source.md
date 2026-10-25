@@ -43,3 +43,5 @@ Ed25519は一つの候補方式に留める。新署名鍵基盤を実装/完成
 新規test/update-ledger-provider.test.tsだけを実行する。resource集合/未知/世代割込、trust原本とpayload hash、incomplete/採用projection不一致/Node不足、同manifestの実tree変更、同run受入/hash/clients不一致とunknown、check無sender、期限/lease喪失と元結果保存を確認する。portsは明示合成の偽原本/偽leaseで、OS排他や実writer全参加の実証ではない。旧17/9/cleanup2は再走しない。
 
 実resource集合、全writer参加、共有Node境界、既存発行者/trust接続、OS adapter、Windows dirfsync、実target/health/prefix、専用ref/発行範囲、CLI実有効化/実行条件は未受入。実host/鍵/HTTP/native/配備や旧Ownerlater/Grokdisabled/SEC002/Windows3等の停止は維持する。writer-side viewとのsource差分と新指摘をFr窓口で合わせてから、必要な次工程へ進む。
+
+factory writerとの実schema差はupdate-ledger-factory-bridge.mdを正本とする。writer readDeploymentが既取得SHを渡す通常callbackではrunSetupWithFactoryReceiptを用いるsource案とし、runSetupWithBorrowedLedgerLeaseが再取得/再解放を防ぐ。原receiptは原byte規約で検証し、reader viewのhashとは区別する。新schemaの自己申告やplanで不足値を埋めない。実source adapterの共同不足は上記正本に保持する。

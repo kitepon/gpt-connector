@@ -46,6 +46,12 @@ export interface ProviderResult {
   provider: { status: "verified-source"; proof: ProviderProof } | { status: "blocked"; reason: string; proof: ProviderProof | null };
 }
 
+/** Writer readDeployment owns this SH lease. Never acquire/release it again, including on failure. */
+export function runSetupWithBorrowedLedgerLease(plan: unknown, scope: unknown, lease: ReadLease,
+  ports: Omit<ProviderPorts, "withReadLease">, options: Omit<SetupOptions, "updateLedger"> = {}): Promise<ProviderResult> {
+  return runSetupWithVerifiedLedger(plan, scope, { ...ports, withReadLease: async (_resources, _generation, _deadline, fn) => fn(lease) }, options);
+}
+
 /** Explicit composition only. No default ports, CLI activation, native locks, trust issuer or credential loading. */
 export async function runSetupWithVerifiedLedger(planInput: unknown, scopeInput: unknown, ports: ProviderPorts,
   options: Omit<SetupOptions, "updateLedger"> = {}): Promise<ProviderResult> {
