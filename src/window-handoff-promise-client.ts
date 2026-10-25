@@ -58,6 +58,7 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
   readonly #watches = new WeakMap<ArmedWindowWatch, WatchContext>();
   readonly #cancels = new WeakMap<ArmedWindowWatch, Promise<void>>();
   readonly #delivery = new WeakMap<LocalPendingCall, BeginTransportState>();
+  readonly #receivedBegins = new WeakMap<LocalPendingCall, ArmedWindowWatch>();
   #begin?: LocalPendingCall;
 
   constructor(options: { channel: LocalAuthenticatedChannel; clock: LocalClientClock;
@@ -190,7 +191,12 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       if (flow.loss || life.loss !== undefined || nativeSignal.aborted || this.#subscriptionLost.aborted || this.#sealed.signal.aborted) throw failure();
     }
     this.#remaining(budget); // Final adoption checks the same private mono token, including between RPCs.
-    try { return this.#map.accept(envelope.session, call, envelope.bytes, nativeSignal); }
+    try {
+      const accepted = this.#map.accept(envelope.session, call, envelope.bytes, nativeSignal);
+      if (accepted) this.#receivedBegins.set(call, accepted);
+      this.#remaining(budget); // Do not publish a receipt if source inspection crossed the mono deadline.
+      return accepted;
+    }
     catch (error) { if (error instanceof LocalReceiptError && error.code === "HANDOFF_BINDING_INVALID") this.#seal(); throw error; }
   }
   async #cleanup(makeCall: () => LocalPendingCall): Promise<void> {
@@ -217,7 +223,10 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
       this.#watches.set(watch, Object.freeze({ budget, deadline, signal, watchSignal: watch.signal }));
       return watch;
     } catch (error) {
-      if (call) await this.#cleanup(() => this.#map.cancelUnknownBegin(call!));
+      if (call) await this.#cleanup(() => {
+        const received = this.#receivedBegins.get(call!);
+        return received ? this.#map.cancelWatch(received) : this.#map.cancelUnknownBegin(call!);
+      });
       const original = safeError(error);
       // A later exact owner ACK has resolved the cleanup uncertainty, while begin still failed.
       if (call && original.code === "HANDOFF_LOCAL_CLEANUP_UNCONFIRMED") throw failure();

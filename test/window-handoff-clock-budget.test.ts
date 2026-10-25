@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalClientClock } from "../src/window-handoff-local-clock.js";
+import { PromiseWindowHandoffClient } from "../src/window-handoff-promise-client.js";
+import { decodeLocalRequest, encodeLocalReply } from "../src/window-handoff-local-codec.js";
+import type { LocalAuthenticatedChannel } from "../src/window-handoff-session-port.js";
 
 function fixture() {
   let utc = 10000, mono = 100;
@@ -69,4 +72,32 @@ test("cancel destroys one timer registration while preserving the original token
   assert.equal(f.clock.remaining(token).maximumWaitMs, 150); // Never mint another250.
   f.clock.atBudget(token, () => { fired++; });
   f.set(5000, 350); f.callbacks.at(-1)!(); assert.equal(fired, 1); assert.equal(f.timers.size, 0);
+});
+
+test("mono expiry during final receipt inspection never publishes armed and cancels its received tuple", async () => {
+  const f = fixture(), session = {}, eof = new AbortController(), lost = new AbortController(), native = new AbortController();
+  let replied = false, reads = 0, cancelMode: string | undefined;
+  const rawNow = f.clock.now.bind(f.clock);
+  f.clock.now = () => {
+    if (replied && ++reads === 2) f.set(5000, 1101); // Inside receipt validation, after pre-adoption token check.
+    return rawNow();
+  };
+  const tuple = { watchId: "final-clock", hostRegistrationId: "a".repeat(32), expiresAt: 11000,
+    identity: { pid: 30, createdAt: "1970-01-01T00:00:00.0010000Z", ownerSid: "S-1-5-21-1", sessionId: 1, hwnd: "40" } };
+  const channel: LocalAuthenticatedChannel = { session, hostRegistrationId: tuple.hostRegistrationId, closed: eof.signal,
+    subscribeControl() { return { lost: lost.signal, dispose() { lost.abort(); } }; }, async close() { eof.abort(); },
+    async exchange(bytes, wait) {
+      const request = decodeLocalRequest(bytes);
+      if (request.kind === "cancel_watch") {
+        cancelMode = request.reference.mode; assert.equal(wait.purpose, "cleanup");
+        return { kind: "reply", session, bytes: encodeLocalReply({ version: 1, callId: request.callId, outcome: "cancelled", reference: request.reference }) };
+      }
+      replied = true;
+      return { kind: "reply", session, bytes: encodeLocalReply({ version: 1, callId: request.callId, outcome: "armed", watch: tuple }),
+        watchLifetime: { session, beginCallId: request.callId, originalTuple: tuple, invalidated: native.signal } };
+    } };
+  const client = new PromiseWindowHandoffClient({ channel, clock: f.clock, cleanupBudgetMs: 250,
+    capture: async () => { throw new Error("must not capture"); } });
+  await assert.rejects(client.beginWatch("40", 11000), { code: "HANDOFF_EXPIRED" });
+  assert.equal(cancelMode, "watch"); assert.equal(client.cleanupState, "confirmed");
 });

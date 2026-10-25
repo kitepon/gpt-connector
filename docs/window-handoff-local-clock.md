@@ -40,7 +40,8 @@ raw UTC/monoを保持し、min(maximumWaitMs, max(0, rawAbsolute - rawNow))を�
 同じactual-source probeを固定30f before checkoutと新sourceへ適用する。
 通常/RPC間rollback/cleanup中rollback/forwardの4条件はbefore2fail2pass→after4pass。
 旧remaining6251/5250を新cap250以内へ抑え、forwardではowner ACKを成功採用しない。
-別の新6budget focusedで生UTC/private token/RPC間期限/独立cleanup/端数floor/範囲/破棄を確認する。
+最終receipt検査の途中でmono期限を越えた場合も公開せず、内部受領済みの原tupleへ取消を到達させる。
+別の新7budget focusedで生UTC/private token/RPC間期限/独立cleanup/端数floor/範囲/破棄を確認する。
 旧13/9/11/4は再走しない。既13/4のfixture driverだけ新clock型へ適合し、期待を変えない。
 
 OS時刻変更/実IPC/OS/FOX/CDP/API/通知0。system factory実時間検証0。
