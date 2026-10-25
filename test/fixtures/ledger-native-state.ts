@@ -1,16 +1,16 @@
 import { canonical, collectSnapshot, sha256, type CurrentProduct, type LedgerPlan, type RuntimeMeasurement, type SetupCompletion } from "../../src/update-ledger-contract.js";
 import type { JournalState } from "../../src/update-ledger-journal.js";
 
-export function nativeJournalFixture() {
+export function nativeJournalFixture(executionPrefix = "/synthetic/native-fixture", manifestSha = "a".repeat(64)) {
   const at = "2026-10-25T08:00:00.000Z", runId = "11111111-1111-4111-8111-111111111111";
   const owner = { system: "bellteam", id: "bot-7696018a" } as const;
-  const plan: LedgerPlan = { identity: { product_id: "gpt-connector-rabbit", host_id: "rabbit", owner, execution_prefix: "/synthetic/native-fixture" },
+  const plan: LedgerPlan = { identity: { product_id: "gpt-connector-rabbit", host_id: "rabbit", owner, execution_prefix: executionPrefix },
     source_wire_agreement_ref: "synthetic-source-only", health_agreement_ref: "synthetic-source-only", required_clients: ["claude"],
     targets: [{ component: "connector", target: { kind: "npm", name: "gpt-connector", series: "0.16" }, adoption_ref: "synthetic-adoption" }] };
   const completion: SetupCompletion = { run: { run_id: runId, mode: "setup", started_at: at, completed_at: at }, result: { schema: "gpt-connector.setup.v1", version: "0.16.3", overall: "ready",
     registrations: [{ client: "claude", stateRead: "ready", mcp: { status: "ready" }, live: { status: "ready" } }] } };
   const measured: RuntimeMeasurement = { identity: plan.identity, run_id: runId, observed_at: at, source: { kind: "installed-package", name: "gpt-connector", installed: "0.16.3",
-    deployment_revision: "synthetic-native-fixture", manifest_sha256: "a".repeat(64), deployment_evidence_ref: "synthetic-source-only" },
+    deployment_revision: "synthetic-native-fixture", manifest_sha256: manifestSha, deployment_evidence_ref: "synthetic-source-only" },
     bindings: [{ component: "connector", target: plan.targets[0]!.target, installed: "0.16.3", status: "active" }],
     health: { run_id: runId, observed_at: at, raw: true, acceptance: { run_id: runId, observed_at: at, source_revision: "synthetic-native-fixture", execution_prefix: plan.identity.execution_prefix,
       normal_path: true, passed: true, evidence_ref: "synthetic-not-real-health" } } };
