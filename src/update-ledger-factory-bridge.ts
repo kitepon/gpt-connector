@@ -20,7 +20,7 @@ const factoryPayload = z.object({ schema: z.literal("factory.deployment-receipt.
   execution_package_root: resourcePath, mutation_resources: resourcesSchema, deployment_generation: z.uuid(),
   manifest_sha256: digest, artifact_or_tree_sha256: digest, deployment_revision: text, provenance_evidence_ref: text,
   adopted_targets_sha256: digest, issued_at: z.iso.datetime({ precision: 3 }) }).strict();
-const factoryReceipt = z.object({ payload: factoryPayload, issuer_id: text, evidence_ref: text, proof: z.unknown() }).strict();
+export const factoryReceipt = z.object({ payload: factoryPayload, issuer_id: text, evidence_ref: text, proof: z.unknown() }).strict();
 const factoryState = z.object({ schema: z.literal("factory.deployment-state.v1"), identity: factoryIdentity,
   execution_package_root: resourcePath, mutation_resources: resourcesSchema, generation: z.uuid(),
   phase: z.literal("committed"), receipt: factoryReceipt }).strict();
@@ -34,6 +34,8 @@ export interface SourceView {
   original: OriginalPacket;
   view: unknown;
   issuer: string;
+  /** Exact retained bundle/original lineage consumed by verifySource; never an authority by itself. */
+  lineage?: unknown;
 }
 export interface ViewVerification extends Verification { view_sha256: string; }
 export interface FactorySources { provenance: SourceView | null; adoption: SourceView | null; coverage: SourceView | null; }
