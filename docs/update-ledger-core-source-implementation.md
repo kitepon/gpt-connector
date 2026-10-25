@@ -51,4 +51,3 @@ ordinary helperはtrusted adapter無しならexpected_pins_provenance_missingで
 # Begin runtime alias repair
 
 GPT-CORE-RUN-ALIAS-1: begin previously passed its validated private runtime object directly to the injected bridge. The bridge could change entry_path before the result was frozen. Begin now freezes the private validated snapshot immediately and passes a structured clone across the bridge boundary. Post-await own-runtime and kernel checks still use the private original. New focused tests cover a bridge mutation and the normal begin control, without rerunning the original 13 tests.
-
