@@ -241,8 +241,11 @@ export class PromiseWindowHandoffClient implements WindowHandoffInputPorts {
     if (!this.#watches.has(watch)) return Promise.reject(failure("HANDOFF_LOCAL_CLEANUP_UNCONFIRMED"));
     let pending = this.#cancels.get(watch);
     if (!pending) {
-      pending = this.#cleanup(() => this.#map.cancelWatch(watch));
+      // Reserve ownership before clock/transport/native callbacks can reenter.
+      const reservation = Promise.withResolvers<void>();
+      pending = reservation.promise;
       this.#cancels.set(watch, pending);
+      void this.#cleanup(() => this.#map.cancelWatch(watch)).then(reservation.resolve, reservation.reject);
     }
     return pending;
   }

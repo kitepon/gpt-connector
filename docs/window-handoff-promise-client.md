@@ -57,7 +57,9 @@ actual I/O終了と期限遵守はWindows channelにも必要であり、client�
 
 begin応答が無い/不正/元要求abort/期限切れなら、begin port自身が元callの取消を行う。
 受領済みwatchの異常はaf14がcancelWatchへ渡す。known watchの重複cancelは同じPromiseへ
-まとめ、一つの元tupleと一つのcleanup期限で処理する。
+まとめ、一つの元tupleと一つのcleanup期限で処理する。共有Promiseの予約をclock/transport等の
+外部処理より先に行う。native失効listenerから同期的に再入しても、元予約を返し二つ目の
+cleanup/RPC/予算を作らない。ACKの二重受理無視やowner idempotenceには依存しない。
 
 cleanupBudgetMsは候補の明示引数（正safe整数、上限30秒）。cleanup開始時刻+budgetを
 一回固定し、元要求/監視signalはcancelへ渡さない。session.closed/sealは送達不能として残す。元期限後も同channelで取消できる。応答待ち/再照会で期限を延長しない。
@@ -81,6 +83,10 @@ begin自体は失敗のまま。任意transport例外本文は外へ出さない
 旧9/旧11/Windows135/Appleのgreen群は再走しない。
 Windowsのlocal-session-order-cases.jsonはexecuted=falseの原候補として保持する。
 当席13件の結果だけが実行済みで、owner factory/OS回収など未実装の期待まで合格へしない。
+
+3303fdfで見つかったcancel同期再入P2は、上記の予約順で修理する。追加のfocused4件だけを
+before4fail→after4passで確認する。direct/native失効listenerからの同期再入×取消confirmed/unknownで、
+同Promise/原reference/一RPC/固定cleanup期限を確認。旧13/9/11は再走しない。
 
 当席は元signal/receipt/call/Promise/有限cleanupと注入captureの接続を持つ。
 Windowsは相互認証session発行・初回登録・同接続RPC・EOF/watch-loss・監視投影・
