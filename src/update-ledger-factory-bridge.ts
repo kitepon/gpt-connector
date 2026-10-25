@@ -26,7 +26,7 @@ const factoryState = z.object({ schema: z.literal("factory.deployment-state.v1")
   phase: z.literal("committed"), receipt: factoryReceipt }).strict();
 // These are reader views of existing originals, not a demand for new signatures/keys or a new writer receipt.
 const provenanceView = z.object({ factory_payload_sha256: digest, provenance_evidence_ref: text,
-  artifact_or_tree_kind: z.enum(["tree", "artifact-source"]), tree_sha256: digest, artifact_source_sha256: digest,
+  artifact_or_tree_kind: z.enum(["tree", "artifact"]), tree_sha256: digest, artifact_sha256: digest.nullable(), artifact_source_sha256: digest,
   node_runtime: deploymentPayloadSchema.shape.node_runtime }).strict();
 const coverageView = z.object({ mutation_resources: resourcesSchema, coverage_ref: text, all_writers: z.literal(true) }).strict();
 const adoptionView = z.object({ targets: planSchema.shape.targets }).strict();
@@ -93,7 +93,8 @@ export async function runSetupWithFactoryReceipt(plan: unknown, scope: unknown, 
       }
       const provenance = provenanceView.parse(sources.provenance!.view), coverage = coverageView.parse(sources.coverage!.view), adoption = adoptionView.parse(sources.adoption!.view);
       if (provenance.factory_payload_sha256 !== subject || provenance.provenance_evidence_ref !== payload.provenance_evidence_ref ||
-          payload.artifact_or_tree_sha256 !== (provenance.artifact_or_tree_kind === "tree" ? provenance.tree_sha256 : provenance.artifact_source_sha256)) block("factory_provenance_mismatch");
+          provenance.artifact_source_sha256 !== subjects.provenance.original_sha256 ||
+          payload.artifact_or_tree_sha256 !== (provenance.artifact_or_tree_kind === "tree" ? provenance.tree_sha256 : provenance.artifact_sha256)) block("factory_provenance_mismatch");
       // Writer hashes the whole adoption original (including evidence_ref), never just targets or plan.
       if (subjects.adoption.original_sha256 !== payload.adopted_targets_sha256 ||
           canonical((sources.adoption!.original.payload as { targets?: unknown }).targets) !== canonical(adoption.targets)) block("factory_adoption_mismatch");

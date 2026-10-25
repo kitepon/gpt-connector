@@ -12,7 +12,7 @@ const writer: { canonicalDeployment(value: unknown): string; readDeployment(...a
   ? (assert.equal(sha256(await readFile(writerPath)), fixedWriter), await import(pathToFileURL(writerPath).href)) : null;
 const generation = "33333333-3333-4333-8333-333333333333", run = "11111111-1111-4111-8111-111111111111";
 const at = "2026-10-25T06:00:00.100Z";
-function fixture() {
+function fixture(digestKind: "tree" | "artifact" = "tree") {
   const plan: LedgerPlan = { identity: { product_id: "gpt-connector-rabbit", host_id: "rabbit", owner: { system: "bellteam", id: "bot-7696018a" }, execution_prefix: "/synthetic/npm/lib/node_modules/gpt-connector" },
     source_wire_agreement_ref: "synthetic-source", health_agreement_ref: "synthetic-health", required_clients: ["claude"],
     targets: [{ component: "connector", target: { kind: "npm", name: "gpt-connector", series: "0.16" }, adoption_ref: "synthetic-adoption" }] };
@@ -21,15 +21,16 @@ function fixture() {
   const identity = { product_id: plan.identity.product_id, host_id: plan.identity.host_id, owner: plan.identity.owner };
   const adoption = { evidence_ref: "synthetic-adoption-original", targets: plan.targets, Z: "case-sensitive-byte-order", a: "not-locale-order" };
   const raw = { payload: { schema: "factory.deployment-receipt.v1", identity, execution_package_root: scope.execution_package_root, mutation_resources: scope.mutation_resources!,
-    deployment_generation: generation, manifest_sha256: "a".repeat(64), artifact_or_tree_sha256: "b".repeat(64), deployment_revision: "synthetic-actual-artifact",
+    deployment_generation: generation, manifest_sha256: "a".repeat(64), artifact_or_tree_sha256: (digestKind === "tree" ? "b" : "d").repeat(64), deployment_revision: "synthetic-actual-artifact",
     provenance_evidence_ref: "synthetic-provenance-original", adopted_targets_sha256: sha256(factoryCanonical(adoption)), issued_at: at },
     issuer_id: "synthetic-existing-issuer", evidence_ref: "synthetic-issued-receipt", proof: { attestation: "synthetic-no-new-key" } };
   const state = { schema: "factory.deployment-state.v1", identity, execution_package_root: scope.execution_package_root, mutation_resources: scope.mutation_resources!, generation, phase: "committed", receipt: raw };
-  const provenance = { factory_payload_sha256: sha256(factoryCanonical(raw.payload)), provenance_evidence_ref: raw.payload.provenance_evidence_ref,
-    artifact_or_tree_kind: "tree", tree_sha256: "b".repeat(64), artifact_source_sha256: "c".repeat(64), node_runtime: null };
+  const provenanceOriginal = { factory_payload_sha256: sha256(factoryCanonical(raw.payload)), provenance_evidence_ref: raw.payload.provenance_evidence_ref,
+    artifact_or_tree_kind: digestKind, tree_sha256: "b".repeat(64), artifact_sha256: "d".repeat(64), node_runtime: null };
+  const provenance = { ...provenanceOriginal, artifact_source_sha256: sha256(factoryCanonical(provenanceOriginal)) };
   const coverage = { mutation_resources: scope.mutation_resources, coverage_ref: scope.coverage_ref, all_writers: true };
   const source = (payload: unknown, view: unknown) => ({ original: { payload, provenance: { existing: "synthetic-trust" } }, view, issuer: "synthetic-existing-resolver" });
-  const sources: FactorySources = { provenance: source({ original_deployment: provenance }, provenance), adoption: source(adoption, { targets: plan.targets }), coverage: source({ agreement: coverage }, coverage) };
+  const sources: FactorySources = { provenance: source(provenanceOriginal, provenance), adoption: source(adoption, { targets: plan.targets }), coverage: source({ agreement: coverage }, coverage) };
   const events: string[] = [], abort = new AbortController(); let held = false, publicCalls = 0, acquisitions = 0;
   const lease: ReadLease = { mode: "SH", resources: scope.mutation_resources!, generation, signal: abort.signal, assertCurrent: async () => { assert.ok(held); } };
   const now = () => Date.parse(at);
@@ -102,9 +103,10 @@ test("missing originals, raw-subject mismatch and unverified source projection b
 });
 
 test("ambiguous artifact/tree kind, plan-derived adoption and unaccepted writer coverage cannot fill missing fields", { skip: !writer }, async () => {
-  for (const kind of ["digest-kind", "adoption-whole", "adoption-projection", "coverage"] as const) {
+  for (const kind of ["digest-kind", "source-subject", "adoption-whole", "adoption-projection", "coverage"] as const) {
     const f = fixture();
     if (kind === "digest-kind") (f.sources.provenance!.view as Record<string, unknown>).artifact_or_tree_kind = "unknown";
+    if (kind === "source-subject") (f.sources.provenance!.view as Record<string, unknown>).artifact_source_sha256 = "e".repeat(64);
     if (kind === "adoption-whole") f.sources.adoption!.original.payload = { targets: f.plan.targets };
     if (kind === "adoption-projection") (f.sources.adoption!.view as Record<string, unknown>).targets = [];
     if (kind === "coverage") (f.sources.coverage!.view as Record<string, unknown>).all_writers = false;
@@ -130,4 +132,14 @@ test("lease loss inside same-run provider settles before writer releases and pre
   const result = await f.execute(), normal = result.normal_result!;
   assert.equal(result.status, "blocked"); assert.equal(normal.result!.overall, "ready"); assert.equal(normal.provider.status, "blocked");
   assert.equal(f.calls().acquisitions, 1); assert.equal(f.events.at(-1), "SH-released"); assert.ok(!f.events.includes("collector"));
+});
+
+
+test("artifact bytes digest stays distinct from tree and artifact-source original subject", { skip: !writer }, async () => {
+  const f = fixture("artifact"), result = (await f.execute()).normal_result!;
+  assert.equal(result.provider.status, "verified-source"); assert.equal(result.bridge.status, "verified-view");
+  assert.notEqual(f.provenance.artifact_source_sha256, f.raw.payload.artifact_or_tree_sha256);
+  assert.notEqual(f.provenance.artifact_source_sha256, f.provenance.tree_sha256);
+  assert.equal(result.bridge.proof!.source_subjects.provenance.original_sha256, f.provenance.artifact_source_sha256);
+  assert.equal(f.raw.payload.artifact_or_tree_sha256, f.provenance.artifact_sha256);
 });

@@ -17,7 +17,7 @@ Dorothyの`runNpmDeploymentUpdate`はEX区間の完了解放後に`readDeploymen
 | identity / execution_prefix | 原payload identityとexecution_package_root。product/host/ownerを厳密検査し、rootをplanと別照合 |
 | generation / state | 原deployment_generationとSH中に同じwriter storeから読むfactory stateのgeneration/committed。scope/原receipt完全一致 |
 | manifest / revision / issuer / evidence_ref | 原manifest_sha256、deployment_revision、outer issuer_id/evidence_ref |
-| tree / artifact_source | 既存provenance原本から検証したview。factory_payload_sha256/原provenance_evidence_refに束縛。artifact_or_tree_kindを明示して原digestと対応照合。単一の曖昧digestを両方へ流用しない |
+| tree / artifact_source | 既存provenance原本から検証したview。factory_payload_sha256/原provenance_evidence_refに束縛。artifact_or_tree_kind=tree|artifactを明示し、原digestをtree_sha256又は独立artifact_sha256（配布bytes digest）へ対応照合。artifact_source_sha256はartifact↔source対応原本subjectのfactory canonical SHAとし、verifySourceが検証したprovenance原本subjectに一致させる。配布bytes hashとは別の意味で保持する。単一の曖昧digestを両方へ流用しない |
 | adoption original / projection | 原adopted_targets_sha256はwriterのverifyAdoptionが返したオブジェクト全体のfactory canonical hash。evidence_refや追加fieldsを含む。その正確なhash subjectを既存根拠から回収/検証し、payload.targetsとview.targetsも一致確認。planのtargetsから原本hashを作らない。collector向けtargets hashは別途ledger canonicalで算出 |
 | coverage | 実mutation_resourcesと全writer参加を裏付ける既存agreement原本の検証済みview。all_writers=trueとcoverage_ref/実集合を照合。planや自己申告では不足 |
 | node_runtime | 検証済みprovenance viewからのみ。原本が無ければnull、Node targetが必要なら既readerがunknown停止 |
@@ -31,3 +31,9 @@ readSourcesはprovenance/adoption/coverageをOriginalPacket+view+issuerで渡す
 `GPT_LEDGER_WRITER_SOURCE`で固定writer deployment-writer.mjsを指定し、SHA256 42c11b7d1626ceee330766262b242e8ab0b9db8d5a2b52d27907d3085303120fを一致させてから、その実readDeploymentと橋を合成する。新5件だけ実行。単一SH保持とcallback/hook終了順、大小文字キーを含む原canonical subject/outer/view別hash、原本不足/原subject不一致/投影未検証、digest意味不明/採用全体hash不足/全writer未受入、lease metadata欠測/世代不一致/committed store変更、同run受入中のabortと元ready結果保持を確認する。
 
 原本とtransport/lockは合成のoffline検査であり、実発行・実OS排他・全writer参加・実health採用を実証しない。外部writer pathが無い通常testではこのinterop試験はskipし、今回の保存実行では固定sourceを明示してskip0。旧17/9/cleanup2/前provider8は再走0。
+
+## Dorothy照合後のdigest意味固定
+
+Dorothyへの15cf6ae6で、issueReceipt contextにsource_evidence bundleを渡し、発行evidence_refからreadSourceEvidenceを読み戻してcanonical全体一致後だけcommittedとする最小差分案、および実adapterのSH metadataを各guardで検査する案に同意した。payload/outer/store v1を維持し、新署名/新鍵を要求しない。bundleは原payload hash、exact verifyAdoption返却、検証前adoption/provenance入力とverifier返却、独立tree_original、artifact_source_original、kindと各digestの来歴を保持する。当席はこれらの不足原本を既に発行されたものと見なさない。
+
+artifact_source_sha256は配布artifact bytesのhashではなく、配布物とsource revision/manifest/tree対応を示す既存原本のsubject digest。原本の正確なpayloadをfactory canonicalでhashし、既verifySourceで既存trust/対象範囲/対応を検証する。artifact bytes digestが必要な枝はartifact_sha256へ分ける。旧e425のkind=artifact-sourceの曖昧さは新source差分でtree|artifactへ修正。tree/artifact bytes/対応原本subjectがそれぞれ違う合成入力の新1件を追加し、source変更に関係するbridge6件を検査。旧17/9/cleanup2/provider8は再走しない。
