@@ -8,8 +8,8 @@ import { quotePowerShell, windowsPowerShell } from "./windows-powershell.js";
 import { ConnectorError } from "../errors.js";
 
 /** Internal source builder: callers own the private receipt directory; no task is created here. */
-export function interactiveTaskSource(script: string, receipt: string, nonce: string, timeoutMs: number): string {
-  if (!/^gpt-connector-interactive-[a-f0-9-]{36}$/u.test(nonce) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) throw new Error("interactive task input");
+export function interactiveTaskSource(script: string, receipt: string, nonce: string, timeoutMs: number, deadlineUtcMs: number = Date.now() + timeoutMs): string {
+  if (!/^gpt-connector-interactive-[a-f0-9-]{36}$/u.test(nonce) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000 || !Number.isSafeInteger(deadlineUtcMs) || deadlineUtcMs <= 0) throw new Error("interactive task input");
   const pending = receipt + ".pending";
   const guarded = `$ErrorActionPreference = 'Stop'
 $value = @{ nonce = '${nonce}'; session_id = [Diagnostics.Process]::GetCurrentProcess().SessionId;
@@ -17,13 +17,14 @@ $value = @{ nonce = '${nonce}'; session_id = [Diagnostics.Process]::GetCurrentPr
 try {
   if (!$value.owner_matches -or $value.session_id -ne __GPT_SESSION__ -or [DateTime]::UtcNow.Ticks -ge __GPT_DEADLINE__) { throw 'interactive_scope_or_deadline' }
   & ([scriptblock]::Create(${quotePowerShell(script)})) | Out-Null
+  if ([DateTime]::UtcNow.Ticks -ge __GPT_DEADLINE__) { throw 'interactive_action_deadline' }
   $value.ok = $true
 } catch { $value.error_code = 'interactive_action_failed'; $value.error_hresult = $_.Exception.HResult }
 [IO.File]::WriteAllText(${quotePowerShell(pending)}, ($value | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
 [IO.File]::Move(${quotePowerShell(pending)}, ${quotePowerShell(receipt)})`;
   return `
 $name = ${quotePowerShell(nonce)}
-$expires = [DateTime]::UtcNow.AddMilliseconds(${timeoutMs})
+$expires = [DateTimeOffset]::FromUnixTimeMilliseconds(${deadlineUtcMs}).UtcDateTime
 $created = $false; $cleaned = $false; $targetSession = $null; $failure = $null; $folder = $null
 try {
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -58,6 +59,7 @@ $action.Arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Enc
     if ([DateTime]::UtcNow -ge $expires) { throw 'interactive_task_timeout' }
     Start-Sleep -Milliseconds 25
   }
+  if ([DateTime]::UtcNow -ge $expires) { throw 'interactive_receipt_deadline' }
 } catch { $failure = 'interactive_task_failed' } finally {
   if ($created) {
    try {
@@ -77,20 +79,29 @@ $action.Arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Enc
 `;
 }
 
+export interface InteractiveSessionPorts {
+  runPowerShell(script: string, timeoutMs: number, receipt: { path: string; nonce: string }): Promise<string>;
+  now(): number;
+}
+const defaultPorts: InteractiveSessionPorts = { runPowerShell: (script, timeout) => windowsPowerShell(script, timeout), now: Date.now };
+
 /** Same-SID InteractiveToken only. No S4U/password/elevation/service or cross-user fallback. */
-export async function runInInteractiveSession(script: string, timeoutMs: number): Promise<void> {
+export async function runInInteractiveSession(script: string, timeoutMs: number, ports: InteractiveSessionPorts = defaultPorts): Promise<void> {
+  const deadlineUtcMs = ports.now() + timeoutMs;
   const directory = await mkdtemp(join(tmpdir(), "gpt-connector-interactive-"));
   const receipt = join(directory, "receipt.json"), nonce = `gpt-connector-interactive-${randomUUID()}`;
   let cleanupConfirmed = false;
   try {
     ensurePrivateDirectory(directory);
-    const output = await windowsPowerShell(interactiveTaskSource(script, receipt, nonce, timeoutMs), timeoutMs + 8_000);
+    const output = await ports.runPowerShell(interactiveTaskSource(script, receipt, nonce, timeoutMs, deadlineUtcMs), Math.max(1, deadlineUtcMs - ports.now()) + 8_000, { path: receipt, nonce });
     const task = z.object({ ok: z.boolean(), error_code: z.string().nullable(), task_removed: z.boolean(), target_session: z.number().int().positive().nullable() }).strict().parse(JSON.parse(output));
     cleanupConfirmed = task.task_removed;
     if (!task.ok || !task.task_removed || task.target_session === null) throw new ConnectorError("CDP_UNAVAILABLE", "同一利用者の対話taskが失敗しました。", {
       interactiveSession: true, cleanupUnconfirmed: !cleanupConfirmed, reason: task.error_code });
     const result = z.object({ nonce: z.literal(nonce), session_id: z.literal(task.target_session), owner_matches: z.literal(true), ok: z.boolean(),
       error_code: z.literal("interactive_action_failed").optional(), error_hresult: z.number().optional() }).strict().parse(JSON.parse(await readFile(receipt, "utf8")));
+    if (ports.now() >= deadlineUtcMs) throw new ConnectorError("CDP_UNAVAILABLE", "同一利用者の対話操作は元の期限内に完了を確認できませんでした。", {
+      interactiveSession: true, reason: "interactive_task_deadline", cleanupUnconfirmed: !cleanupConfirmed });
     if (!result.ok) throw new ConnectorError("CDP_UNAVAILABLE", "同一利用者の対話sessionで専用Chromeの操作に失敗しました。", { interactiveSession: true });
   } catch (error) {
     if (error instanceof ConnectorError) throw error;

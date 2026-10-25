@@ -11,3 +11,11 @@ taskのworkerは実SID/session>0/期限を再照合してから操作し、nonce
 次に候補の通常startBrowser/showBrowserを同じprofileで実行。readOnly ConsultJobStoreはjob33/active0。専用listener PID9032の同一SID/Session0/作成時刻/profile一致を確認し、CDP Browser.closeの正規応答とendpoint終了を確認した。killや別profileを使わず、候補通常startから再起動した専用Chromeは同一SID/Session1、同profile。startは現在AUTH_REQUIREDを正しく返し、showBrowserはshown（Win32可視性検証込み）となった。本人認証前の状態をreadyや旧fox解決と数えない。
 
 未了: 必要な製品gate/独立確認、正規release/公開後反映、本人ChatGPTログイン、Claude/Codex/Cursorの実相談/同親配送、元f050原因/修理適用と正規結果確認。台帳providerのsource-only採否とは別工程で継続する。GrokdisabledはOwner指示を保持し、このrepairのため解除しない。旧Aiterm/keeper/FA8別保留や全利用者基盤を再開しない。
+
+## GPT-WIN-INTERACTIVE-DEADLINE-1修理
+
+2e7560の独立採否はAnchor cb3ad3cc/21整合/必須P2一件で保留。worker開始前だけの期限検査と、receiptが無い間だけのpollにより、元期限1000/空poll990/sleep25/worker1001/receipt1002/採用1015で遅いok receiptを成功扱いできた。保存済み07:09の失敗を主張する所見ではない。
+
+共通入口で絶対UTCms期限を一度だけ決め、私有directory準備/PowerShell開始でもリセットせず、同じ値をworker/controllerへ渡す。workerの操作後、controllerのreceipt確認後、Nodeの厳密receipt読取り後の最終採用で元期限を検査する。回収用の既8秒猶予は成功期限へ足さない。所有task回収/安全error/nonce/SID/session検証は保持。明示clock/PowerShell portはoffline反例用の内部注入口でCLIや環境から自動ロードしない。
+
+新test/windows-interactive-deadline.test.tsの2件だけを、元ok receiptと回収済みcontrolを返すfake PowerShell/clockで実行。修理前は1015ms採用を拒否せずfail1/期限内990msはpass1、修理後は両方pass2/fail0/skip0。型/変更lint成功。旧native1内3枝/324成功群は再走0、追加のhost/native/本人操作/公開0。修理sourceは独立再受入へ返し、2e最終受入保留を解除済みとは扱わない。
