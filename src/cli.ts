@@ -95,13 +95,15 @@ function writeJson(value: unknown): void {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === "setup" && argv[1] === "--help" && argv.length === 2) {
-    process.stdout.write("usage: gpt-connector setup [--ai claude,codex,grok,cursor] [--codex-config <absolute-config.toml>] [--check] [--codex-steer enable|status|disable]\n");
+    process.stdout.write("usage: gpt-connector setup [--ai claude,codex,grok,cursor] [--codex-config <absolute-config.toml>] [--check | --repair-launch] [--codex-steer enable|status|disable]\n");
     return;
   }
   if (argv[0] === "setup") {
     const { values } = parseArgs(argv);
-    if ([...values.keys()].some((key) => !["ai", "codex-config", "check", "codex-steer"].includes(key))) throw new Error("setupの引数が不正です。");
+    if ([...values.keys()].some((key) => !["ai", "codex-config", "check", "repair-launch", "codex-steer"].includes(key))) throw new Error("setupの引数が不正です。");
     const steer = stringArg(values, "codex-steer");
+    const repairLaunch = flagArg(values, "repair-launch");
+    if (repairLaunch && (values.has("check") || steer)) throw new Error("--repair-launchは--checkや--codex-steerと併用できません。");
     if (steer && (!["enable", "status", "disable"].includes(steer) || values.has("check"))) throw new Error("--codex-steerはenable/status/disableを指定し、--checkとは併用しません。");
     if (steer === "status" || steer === "disable") {
       if (values.size !== 1) throw new Error("Steerの確認・解除は単独で指定してください。");
@@ -128,7 +130,7 @@ async function main(): Promise<void> {
       return;
     }
     if (installed !== null) { process.exitCode = installed; return; }
-    const result = await setup({ clients: [...new Set(clients)] as SetupClient[], codexConfig, check });
+    const result = await setup({ clients: [...new Set(clients)] as SetupClient[], codexConfig, check, repairLaunch });
     writeJson(result);
     process.exitCode = result.overall === "ready" ? 0 : result.overall === "partial" ? 2 : 1;
     return;

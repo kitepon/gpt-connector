@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareBrowser, setup, setupRuntimeDriftOptions } from "../src/setup.js";
+import { prepareBrowser, setup, setupRuntimeDriftOptions, verifyMcp } from "../src/setup.js";
 import { ConnectorError } from "../src/errors.js";
 import type { ConnectorDiagnostics } from "../src/contract.js";
 import { setupClients, type SetupClient, type SetupServer } from "../src/setup-registration.js";
@@ -77,6 +77,39 @@ function setupPorts(platform: NodeJS.Platform) {
     cursorHooks: (() => ({ status: "ready", path: "fixture-hooks.json", changed: false })) as typeof configureCursorHooks,
   };
 }
+
+test("明示した起動先修理はMCP受入だけを行いstate/browser/hookを操作しない", async () => {
+  const deps = setupPorts("linux");
+  let verified = 0;
+  const result = await setup({ repairLaunch: true, clients: ["claude"] }, {
+    ...deps,
+    register: async (client, command, args, path, repairLaunch) => {
+      assert.equal(repairLaunch, true);
+      return deps.register(client, command, args, path);
+    },
+    state: async () => { throw new Error("unexpected state"); },
+    browser: async () => { throw new Error("unexpected browser"); },
+    steer: async () => { throw new Error("unexpected steer"); },
+    cursorHooks: () => { throw new Error("unexpected hooks"); },
+    verify: async (_command, _args, _env, _cwd, diagnostics) => {
+      assert.equal(diagnostics, false); verified++;
+      return { status: "ready", tools: ["diagnostics", "sessions"], diagnostics: "not_checked" };
+    },
+  });
+  assert.equal(verified, 1);
+  assert.equal(result.overall, "ready");
+  assert.equal(result.mode, "repair_launch");
+  assert.equal(result.live.status, "not_checked");
+  assert.equal(result.registrations[0]!.stateRead, undefined);
+  await assert.rejects(setup({ check: true, repairLaunch: true }, deps), /併用/u);
+});
+
+test("起動先修理の通常MCP受入は製品childを終了しdiagnosticsを実行しない", async () => {
+  const result = await verifyMcp(process.execPath, ["--import", "tsx", "src/mcp.ts"], {}, undefined, false);
+  assert.equal(result.status, "ready");
+  assert.equal(result.diagnostics, "not_checked");
+  assert.equal(result.tools.length, 13);
+});
 
 test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerも導入する", async () => {
   const deps = setupPorts("linux");

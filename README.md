@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.5`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.6`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -68,6 +68,7 @@ npx --yes gpt-connector@latest setup
 初回も更新も同じ入口を使う。実行した版を公式npmでglobal installしてから、導入済みCLIへ処理を引き継ぐ。
 Claude・Codex・Grok・Cursorのユーザー設定へ`gpt_connector`を登録し、MCP initialize／13 tools／診断応答とstate読取りを確認する。
 既存command、args、env、モデル、認証、他MCP、利用者のtimeout・無効化・ツール制限は保持する。
+廃止した導入先を参照する既存登録は、`gpt-connector setup --repair-launch`でcommand/argsを現在の製品へ修理できます。envなど他の設定を保ち、MCP起動版と13 toolsを確認します。ブラウザ・状態DB・hook・既存接続は操作しません。未知のwrapperやNode起動flagは拒否します。
 変更前の設定は`~/.gpt-connector/setup-backups/`へtarで保存する。
 
 Mac、Windows、Linuxでは`startBrowser`／`showBrowser`が専用Chromeを準備する。ログインが必要なら画面を表示し、

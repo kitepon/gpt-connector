@@ -10,6 +10,15 @@ function runCli(...args: string[]) {
   });
 }
 
+test("起動先修理の矛盾するflagはnpm導入前に拒否する", () => {
+  for (const args of [["--repair-launch", "--check"], ["--repair-launch", "--codex-steer", "status"], ["--repair-launch", "true"]]) {
+    const result = runCli("setup", ...args);
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /npm global/u);
+  }
+  assert.match(runCli("setup", "--help").stdout, /--repair-launch/u);
+});
+
 test("--helpはCDP接続前にusageを表示する", () => {
   const result = runCli("--help");
   assert.equal(result.status, 0, result.stderr);

@@ -15,6 +15,8 @@ import { supportsCodexSteer } from "./platform/codex.js";
 import { recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
+import { setupNodeExecutable } from "./platform/setup-node.js";
+import { fileURLToPath } from "node:url";
 
 export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
   return {
@@ -23,7 +25,7 @@ export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
   };
 }
 
-export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string) {
+export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string, diagnostics = true) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
   const transport = new StdioClientTransport({ command, args, cwd, env: { ...Object.fromEntries(Object.entries(process.env).filter((pair): pair is [string, string] => pair[1] !== undefined)), ...env }, stderr: "pipe" });
   let stderrBytes = 0;
@@ -33,10 +35,12 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
     if (client.getServerVersion()?.version !== packageVersion) throw new Error("MCP起動版がsetupの版と一致しません。");
     const { tools } = await client.listTools();
     if (tools.length !== setupTools.length || setupTools.some((name) => !tools.some((tool) => tool.name === name))) throw new Error("MCP公開tool集合が一致しません。");
-    const diagnostics = await client.callTool({ name: "diagnostics", arguments: {} });
-    if (diagnostics.isError) throw new Error("MCP diagnosticsが失敗しました。");
+    if (diagnostics) {
+      const result = await client.callTool({ name: "diagnostics", arguments: {} });
+      if (result.isError) throw new Error("MCP diagnosticsが失敗しました。");
+    }
     if (stderrBytes > 0) throw new Error("MCPがstderrへ診断外の出力を返しました。");
-    return { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: "responded" };
+    return { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked" };
   } finally { await client.close(); }
 }
 
@@ -84,6 +88,7 @@ interface SetupOptions {
   clients?: readonly SetupClient[];
   codexConfig?: string;
   check?: boolean;
+  repairLaunch?: boolean;
 }
 
 async function inspectState(env: Record<string, string>) {
@@ -93,7 +98,8 @@ async function inspectState(env: Record<string, string>) {
 
 const setupDependencies = {
   platform: process.platform,
-  register: (client: SetupClient, _command: string, _args: string[], path: string) => {
+  register: (client: SetupClient, _command: string, _args: string[], path: string, repairLaunch = false) => {
+    if (repairLaunch) return registerClient(client, setupNodeExecutable(), [fileURLToPath(new URL("./mcp.js", import.meta.url))], path, undefined, {}, true);
     const defaults = setupLaunchDefaults(client);
     return registerClient(client, defaults.command, [], path, undefined, defaults.env);
   },
@@ -109,6 +115,7 @@ const setupDependencies = {
 };
 
 export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupDependencies, "reportRuntimeDrift"> & { reportRuntimeDrift?: (failures: RuntimeFailure[]) => Promise<void> } = setupDependencies) {
+  if (options.check && options.repairLaunch) throw new Error("--checkと--repair-launchは併用できません。");
   const registrations: Record<string, unknown>[] = [];
   const browsers = new Map<string, Awaited<ReturnType<typeof prepareBrowser>>>();
   let failed = false;
@@ -123,11 +130,11 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
     registrations.push(item);
     let stage = "registration";
     try {
-      const registration = options.check ? await deps.read(client, path) : await deps.register(client, "gpt-connector-mcp", [], path);
+      const registration = options.check ? await deps.read(client, path) : await deps.register(client, "gpt-connector-mcp", [], path, options.repairLaunch);
       const { server, ...receipt } = registration;
       Object.assign(item, receipt);
       stage = "state";
-      item.stateRead = await deps.state(server.env);
+      if (!options.repairLaunch) item.stateRead = await deps.state(server.env);
       if (server.enabled === false || server.disabled === true) {
         item.clientActivation = "disabled_by_user";
         item.mcp = "not_checked";
@@ -135,9 +142,10 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
         continue;
       }
       stage = "mcp";
-      item.mcp = await deps.verify(server.command, server.args, server.env, typeof server.cwd === "string" ? server.cwd : undefined);
+      item.mcp = await deps.verify(server.command, server.args, server.env, typeof server.cwd === "string" ? server.cwd : undefined, !options.repairLaunch);
       item.clientActivation = "new_client_session_required";
       item.enabledTools = availableTools(server);
+      if (options.repairLaunch) continue;
       if (client === "codex" && supportsCodexSteer(deps.platform)) {
         stage = "codex_steer";
         const steer = await deps.steer(options.check ? "status" : "enable");
@@ -180,8 +188,8 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
   // One setup run is one occurrence even when four clients inspect the same browser.
   // --check remains read-only; the diagnostic/reporting schemas do not change.
   if (!options.check && runtimeDrift) await deps.reportRuntimeDrift?.([...runtimeFailures.values()]);
-  const overall = failed ? "failed" : actionRequired ? "action_required" : supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
-  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform) }, next: "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
+  const overall = failed ? "failed" : actionRequired ? "action_required" : options.repairLaunch || supportsLiveBrowser(deps.platform) && !liveUnavailable ? "ready" : "partial";
+  return { schema: "gpt-connector.setup.v1", version: packageVersion, overall, package: "ready", registrations, live: { supported: supportsLiveBrowser(deps.platform), ...(options.repairLaunch ? { status: "not_checked" } : {}) }, ...(options.repairLaunch ? { mode: "repair_launch" } : {}), next: options.repairLaunch ? "新しいMCP接続で修理後の起動先を読み込みます。既存接続は終了していません。" : "codexSteerがrestart_requiredならCodexを完全終了して再起動してください。各AIは新しいセッションで登録を読み込みます。" };
 }
 
 function availableTools(server: SetupServer) {
