@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.6"
+gpt_connector_version="0.16.7"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -161,10 +161,19 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の最小Chat、
 
 ## 既存の起動先を明示的に修理する
 
-`setup --repair-launch`は既存の`gpt_connector`登録のcommand/argsだけを、実行中の製品のNodeとMCP scriptへ更新する。通常setupの既存値保持は変更しない。旧導入先を撤去するとき、公開版を製品所有の通常npm prefixへ導入してから実行する。`npm install --global --prefix <製品所有先> gpt-connector@0.16.6`のようにprefixを指定した場合、setupにも同じ`npm_config_prefix`を渡す。
+`setup --repair-launch`は既存の`gpt_connector`登録のcommand/argsだけを、実行中の製品のNodeとMCP scriptへ更新する。通常setupの既存値保持は変更しない。旧導入先を撤去するとき、公開版を製品所有の通常npm prefixへ導入してから実行する。`npm install --global --prefix <製品所有先> gpt-connector@0.16.7`のようにprefixを指定した場合、setupにも同じ`npm_config_prefix`を渡す。
 
 認識する旧起動は`gpt-connector-mcp`（Windowsのcmd/ps1を含む）、またはNodeと絶対パスの`gpt-connector/dist/src/mcp.js`の組合せ。NodeのCA選択flagは位置と順序を保ち、script以後の引数はscript引数のまま保持する。未知wrapper、remote登録、その他のNode起動flag、既存登録が無い場合は書込み前に拒否する。
 
 元のenv・モデル・認証・他MCP・timeout・無効化・tool制限を保ち、既存の設定backup・同時更新検出・原子的保存を使う。通常MCP initializeとtools listで起動版と13 toolsを確認し、diagnostics/browser/状態DB/hookを操作しない。`mode=repair_launch`の`overall=ready`は登録とMCP受入の範囲に限り、`live.status=not_checked`でライブ未検査を示す。無効化された登録は無効のまま起動せず、`action_required`として返す。`--check`と`--codex-steer`の併用は拒否する。
 
 既存接続や親clientは停止しない。新しい接続で新起動先を使う。旧導入先の削除は、その登録を参照しなくなり、既存接続も旧導入先を使用しなくなったことを確認してから行う。
+
+
+## 安全な失敗ログ
+
+`runtime-errors events --json`の新規記録は製品版とfingerprintを含み、同じ観測時刻で集約へ対応する。CLI/MCPの公開操作は固定operation/entrypointで識別し、CDP失敗は固定stage/reasonとtarget_missing/unreachable/before_submissionを残す。未観測flagはnull、未知stage/reasonはunknownとし、例外本文・URL・argv・envは出さない。収集が無効な端末へ勝手に有効化せず、重大度・受付判断と報告wireを変えない。
+
+通常setupでMCP確認が失敗した場合、元の`stage=mcp`と`code=SETUP_MCP_FAILED`を保ち、`substep`（transport/connect/version/tools/diagnostics/stderr/close）と固定`reason_code`を返す。`close_failed`は先行失敗後のclose失敗も別に示す。raw例外・stderr本文をJSONへ含めず、failed/exit1をaction_requiredへ置き換えない。工場は同じ公開setup JSONを通常ログへ保存できる。
+
+新診断はprivate `.events.v2`へ保存し、旧`.events`は変更しない。新版のevents読取りは両方を時刻順で最大128件へまとめ、旧稼働clientや巻戻し後のstrict readerは従来ファイルを使い続ける。既存集約storeの形式・過去count/重大度/履歴は変わらない。

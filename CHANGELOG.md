@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.7 - 2026-10-27
+
+- private `runtime-errors events --json`へCLI/MCPの固定操作名、CDP失敗段階/分類/安全flag、製品版、集約と照合できるfingerprint/同観測時刻を追加する。例外本文・URL・argv・env・資格値は記録しない。集約wire/累計/重大度規則は変更しない。
+- 通常setupのMCP失敗JSONへ`substep`/固定`reason_code`/`close_failed`を追加し、close失敗が先行原因を消さないようにする。元のfailed/exit1は維持する。
+- 新診断はprivate `.events.v2`へ保存し、旧`.events`を変更しない。新版は両方を最大128件で読めるため、旧稼働clientのstrict reader/writerや巻戻しを妨げない。集約store/schemaと報告wireは同じ。
+
 ## 0.16.6 - 2026-10-27
 
 - `setup --repair-launch`で廃止する導入先を指す既存GPT登録の起動先を製品自身へ修理する。command/argsだけを更新し、CA選択flag・script引数・env・他MCP・利用者設定を保持する。未知の起動形式は拒否する。

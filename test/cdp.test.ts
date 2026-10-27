@@ -11,6 +11,17 @@ import {
 } from "../src/cdp.js";
 import { ConnectorError } from "../src/errors.js";
 
+test("不正なCDP JSONは本文を漏らさず固定段階/分類を付ける", async () => {
+  await assert.rejects(discoverChatGptTarget("http://127.0.0.1:9223", async () => new Response("private-token-invalid-json")),
+    (error: unknown) => {
+      assert.ok(error instanceof ConnectorError);
+      assert.equal(error.code, "CDP_UNAVAILABLE");
+      assert.deepEqual(error.details, { cdpStage: "target_discovery", cdpReason: "invalid_response" });
+      assert.doesNotMatch(error.message, /private-token/u);
+      return true;
+    });
+});
+
 class FakeSocket extends EventEmitter implements CdpSocket {
   readonly sent: string[] = [];
 

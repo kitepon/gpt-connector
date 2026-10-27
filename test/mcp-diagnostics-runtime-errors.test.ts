@@ -80,8 +80,14 @@ test("未送信で安全に終了したCDP接続失敗は診断へ残し、修�
   const result = runTool("chatgpt_models");
   assert.equal(result.response.isError, true);
   assert.throws(() => statSync(result.store), { code: "ENOENT" });
-  const events = JSON.parse(readFileSync(`${result.store}.events`, "utf8"));
+  const events = JSON.parse(readFileSync(`${result.store}.events.v2`, "utf8"));
   assert.equal(events[0].assessment.cause, "unknown");
   assert.equal(events[0].assessment.handling, "handled");
   assert.equal(events[0].decision.register, false);
+  assert.equal(events[0].context.operation, "chatgpt_models");
+  assert.equal(events[0].context.entrypoint, "mcp");
+  assert.equal(events[0].context.cdp.stage, "target_discovery");
+  assert.equal(events[0].context.cdp.reason, "connection_failed");
+  assert.equal(events[0].context.cdp.unreachable, true);
+  assert.equal(events[0].product_version, packageVersion);
 });

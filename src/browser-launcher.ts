@@ -5,6 +5,7 @@ import { CdpClient, discoverProviderTarget } from "./cdp.js";
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
 import { ConnectorError } from "./errors.js";
+import { cdpFailureReasonSchema, cdpFailureStageSchema } from "./runtime-error-events.js";
 import { browserPlatform, type BrowserPlatform, type ListenerProcess } from "./platform/browser.js";
 
 export interface BrowserLaunchResult { readonly ok: true; readonly status: "already_ready" | "started"; readonly endpoint: "http://127.0.0.1:9223"; }
@@ -178,9 +179,13 @@ async function showOwnedWindow(inspect: ProcessInspector, shower: WindowShower, 
   try { await shower(); const pid = await ownedListenerPid(inspect); await reveal(pid, timeoutMs); await activate(pid, timeoutMs); await verify(pid, true, timeoutMs); }
   catch (error) {
     // Preserve only existing, source-proven precondition flags. Do not infer safety or change severity rules.
-    const details: Record<string, boolean> = {};
+    const details: Record<string, string | boolean> = { cdpStage: "browser_display", cdpReason: "display_failed" };
     if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE") {
       for (const field of ["targetMissing", "unreachable", "beforeSubmission"] as const) if (error.details?.[field] === true) details[field] = true;
+      const stage = cdpFailureStageSchema.safeParse(error.details?.cdpStage);
+      const reason = cdpFailureReasonSchema.safeParse(error.details?.cdpReason);
+      if (stage.success) details.cdpStage = stage.data;
+      if (reason.success) details.cdpReason = reason.data;
     }
     throw new ConnectorError("CDP_UNAVAILABLE", details.targetMissing
       ? `専用Chromeに表示する${providerName(provider)}公式page targetがありません。gpt-connector browser start${provider === "grok" ? " --provider grok" : ""}で再準備してください。` : message,
@@ -196,13 +201,13 @@ async function waitForReadyWithAuthRecovery(appReady: Readiness, sleep: (millise
     }
     throw error;
   }
-  throw new ConnectorError("CDP_UNAVAILABLE", `専用Chromeの${providerName(provider)}が利用可能になるまで待機がtimeoutしました。`);
+  throw new ConnectorError("CDP_UNAVAILABLE", `専用Chromeの${providerName(provider)}が利用可能になるまで待機がtimeoutしました。`, { cdpStage: "browser_preparation", cdpReason: "timeout" });
 }
 
 function providerName(provider: "chatgpt" | "grok"): "ChatGPT" | "Grok" { return provider === "chatgpt" ? "ChatGPT" : "Grok"; }
 
 function launcherError(code: "CDP_UNAVAILABLE" | "RUNTIME_DRIFT", message: string, cause: unknown): ConnectorError {
-  return cause instanceof ConnectorError ? cause : new ConnectorError(code, message, undefined, { cause });
+  return cause instanceof ConnectorError ? cause : new ConnectorError(code, message, code === "CDP_UNAVAILABLE" ? { cdpStage: "browser_preparation", cdpReason: "unknown" } : undefined, { cause });
 }
 
 async function prepareReadyWindow(prepare: WindowPreparer, provider: "chatgpt" | "grok"): Promise<void> {
