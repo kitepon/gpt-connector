@@ -17,6 +17,7 @@ import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
 import { setupNodeExecutable } from "./platform/setup-node.js";
 import { fileURLToPath } from "node:url";
+import { runtimeDiagnosticsSchema, type RuntimeDiagnostics } from "./runtime-diagnostics.js";
 
 export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
   return {
@@ -38,7 +39,7 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
   let substep: SetupMcpError["substep"] = "transport";
   let failure: SetupMcpError | undefined;
-  let ready: { status: string; tools: string[]; diagnostics: string } | undefined;
+  let ready: { status: string; tools: string[]; diagnostics: string; runtime?: RuntimeDiagnostics } | undefined;
   let stderrBytes = 0;
   try {
     const transport = new StdioClientTransport({ command, args, cwd, env: { ...Object.fromEntries(Object.entries(process.env).filter((pair): pair is [string, string] => pair[1] !== undefined)), ...env }, stderr: "pipe" });
@@ -50,6 +51,12 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
     substep = "tools";
     const { tools } = await client.listTools();
     if (tools.length !== setupTools.length || setupTools.some((name) => !tools.some((tool) => tool.name === name))) throw new Error("MCP公開tool集合が一致しません。");
+    substep = "diagnostics";
+    const runtimeResult = await client.callTool({ name: "diagnostics", arguments: { runtimeOnly: true } });
+    if (runtimeResult.isError) throw new Error("MCP runtime diagnosticsが失敗しました。");
+    const runtimeContent = runtimeResult.content as { type: string; text?: string }[];
+    const runtime = runtimeDiagnosticsSchema.parse(JSON.parse(runtimeContent.find(item => item.type === "text")?.text ?? "null"));
+    if (runtime.packageVersion !== packageVersion) throw new Error("MCP runtime診断版が一致しません。");
     if (diagnostics) {
       substep = "diagnostics";
       const result = await client.callTool({ name: "diagnostics", arguments: {} });
@@ -57,7 +64,7 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
     }
     substep = "stderr";
     if (stderrBytes > 0) throw new Error("MCPがstderrへ診断外の出力を返しました。");
-    ready = { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked" };
+    ready = { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked", runtime };
   } catch { failure = new SetupMcpError(substep); }
   try { await client.close(); } catch {
     failure ??= new SetupMcpError("close");

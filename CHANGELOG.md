@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.8 - 2026-10-27
+
+- `doctor --runtime-only`とMCP `diagnostics({runtimeOnly:true})`で、ブラウザーやネットワークを使わず同じprocessのNode版/PID/instance IDと固定CA選択分類、SEC021対象証明書のNode default CA一覧内の有無を返す。argv/env/証明書本文・一覧・pathは出力しない。
+- 選択が不明、API未対応、空一覧、解析失敗は`unknown`。一覧内の不在はOpenSSL既定パス・connection独自CA・既存TLS session・他thread/processの排除を証明しない。
+- setupのMCP受入は同childのruntime証跡を検証して`mcp.runtime`へ残す。`--repair-launch`もbrowser診断を省いたまま取得する。通常diagnostics応答、13 tools、state/config/認証の形式は同じで、0.16.7へ戻せる。
+
 ## 0.16.7 - 2026-10-27
 
 - private `runtime-errors events --json`へCLI/MCPの固定操作名、CDP失敗段階/分類/安全flag、製品版、集約と照合できるfingerprint/同観測時刻を追加する。例外本文・URL・argv・env・資格値は記録しない。集約wire/累計/重大度規則は変更しない。

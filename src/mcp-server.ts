@@ -28,6 +28,7 @@ import { ConnectorError } from "./errors.js";
 import { recordRuntimeErrorBestEffort, runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { packageVersion } from "./version.js";
+import { runtimeDiagnostics } from "./runtime-diagnostics.js";
 import type { RuntimeOperation } from "./runtime-error-events.js";
 
 interface ConnectorPort {
@@ -284,7 +285,7 @@ export const mcpToolDescriptions = {
   sessions:
     "本serverが所有する既知slug 1件の状態・sessionId・terminal result・errorを返し、再送は行わない。会話の継続はconsultへ同じsessionIdと新しいslugを渡す。",
   diagnostics:
-    "本server自身をread-only診断し、会話やuploadを作らず接続・bridge・job/session件数だけを返す。",
+    "本server自身をread-only診断し、会話やuploadを作らず接続・bridge・job/session件数を返す。runtimeOnly=trueはブラウザーやネットワークを使わず同じprocessのNode/CA証跡だけを返す。",
   chatgpt_close:
     "本serverがChatGPT上に保持したsessionをserver archiveし、継続用sessionIdを破棄する。MCP再接続後も専用Chromeのpageに会話が残っていれば利用できる。deleteは行わない。",
   grok_modes: "Grok公式Web runtimeのmode一覧と現在選択中のmodeを返す。Chat送信ではauto・fast・expert・heavyから選ぶ。",
@@ -398,14 +399,14 @@ export function createGptConnectorMcpServer(
     {
       title: "ChatGPT connectorの診断",
       description: mcpToolDescriptions.diagnostics,
-      inputSchema: z.object({}).strict(),
+      inputSchema: z.object({ runtimeOnly: z.boolean().optional().describe("同じserver processのNode/CA証跡だけを返し、browserへ接続しない。") }).strict(),
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
       },
     },
-    async () => toolResult("diagnostics", async () => host.diagnostics()),
+    async ({ runtimeOnly }) => toolResult("diagnostics", async () => runtimeOnly ? runtimeDiagnostics() : host.diagnostics()),
   );
 
   server.registerTool(
