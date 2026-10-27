@@ -104,11 +104,14 @@ test("明示した起動先修理はMCP受入だけを行いstate/browser/hook�
   await assert.rejects(setup({ check: true, repairLaunch: true }, deps), /併用/u);
 });
 
-test("起動先修理の通常MCP受入は製品childを終了しdiagnosticsを実行しない", async () => {
+test("起動先修理の通常MCP受入は同childのruntime証跡を返して終了しbrowser診断を省く", async () => {
   const result = await verifyMcp(process.execPath, ["--import", "tsx", "src/mcp.ts"], {}, undefined, false);
   assert.equal(result.status, "ready");
   assert.equal(result.diagnostics, "not_checked");
   assert.equal(result.tools.length, 13);
+  assert.equal(result.runtime?.process.nodeVersion, process.version);
+  assert.notEqual(result.runtime?.process.pid, process.pid);
+  assert.equal(result.runtime?.schema, "gpt-connector.runtime-diagnostics.v1");
 });
 
 test("Linux: 4AIの登録から共通のlive準備へ進み、Codex Steerも導入する", async () => {

@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.7`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.8`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -216,10 +216,15 @@ gpt-connector sessions --slug review-001
 
 ```bash
 gpt-connector doctor
+gpt-connector doctor --runtime-only
 gpt-connector --version
 ```
 
 `doctor`は`gpt-connector.diagnostics.v1` JSONを返します。接続可能なら`overall: "ready"`、CDPや認証などが未準備なら`overall: "not_ready"`と安定`reasonCode`をstdoutへ返し、exit codeは非0です。診断はChromeの表示状態を変えず、uploadや会話作成も行いません。
+
+`doctor --runtime-only`（`diagnostics --runtime-only`も同じ）とMCP `diagnostics({runtimeOnly:true})`は、ブラウザー・ネットワーク・状態DBを使わず、実行中の同じprocessの`gpt-connector.runtime-diagnostics.v1`を返します。Node版/PID/instance ID、module読込時のCA選択分類、SEC021固定証明書のNode default CA一覧内の有無を含みます。argv/env/path/証明書本文や一覧は出力しません。CAの`unknown`は未確認です。CLIの終了0は診断応答の成功を示し、CA排除の判定ではありません。
+
+CAの`absent`はAPIが返した一覧内の不在だけを示します。OpenSSL既定パス・connection独自CA・既存TLS session・他thread/processの排除や、旧接続の新Node採用を証明しません。NODE_OPTIONSやOpenSSL選択などを解釈できない場合、API未対応・空一覧・解析失敗は`unknown`を返します。setupの`mcp.runtime`も同じ範囲の証跡で、起動して受入後に終了した子processについての結果です。
 
 ## 更新・復旧・release
 
@@ -359,7 +364,7 @@ MCP tools（`consult`／`sessions`／`diagnostics`はChatGPT用。Grokには`gro
 - `chatgpt_close`: sessionをarchiveしてhandleを破棄。deleteは行わない。
 - `consult`: slug冪等化、会話の継続、任意の正規添付、`level`選択、dry-runを持つsecond opinion入口。`wait=false`は回答完了前に受付結果を返す。
 - `sessions`: exact slug 1件の状態／sessionId／terminal resultを返す。uploadや会話を作らず、connector未起動時は台帳を直接読む。
-- `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数だけを返すread-only診断。
+- `diagnostics`: 接続、bridge build、job／session／operation／upload buffer件数を返すread-only診断。`runtimeOnly:true`は同じprocessのNode/CA証跡だけを返す。
 - `grok_modes`: Grokのlive mode一覧と選択中のmode。Chat送信はauto・fast・expert・heavyに対応。
 - `grok_chat`: Grokへの本文送信。
 - `grok_consult`: 本文相談をslugで冪等化し、親への完了通知と会話継続に対応する。

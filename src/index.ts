@@ -16,3 +16,4 @@ export * from "./runtime-evaluate.js";
 export * from "./runtime-error-store.js";
 export * from "./session-registry.js";
 export * from "./version.js";
+export { runtimeDiagnostics, runtimeDiagnosticsSchema, type RuntimeDiagnostics } from "./runtime-diagnostics.js";

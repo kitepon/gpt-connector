@@ -5,6 +5,7 @@ import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdi
 import { setup, verifyMcp } from "../src/setup.js";
 import { setupTools } from "../src/setup-registration.js";
 import { packageVersion } from "../src/version.js";
+import { runtimeDiagnostics } from "../src/runtime-diagnostics.js";
 
 for (const substep of ["connect", "version", "tools", "diagnostics", "stderr", "close", "tools_with_close"] as const) {
   test(`setup MCP ${substep}: 固定substepを返し、先行失敗をcloseで失わない`, async (t) => {
@@ -17,7 +18,7 @@ for (const substep of ["connect", "version", "tools", "diagnostics", "stderr", "
       if (substep === "tools" || substep === "tools_with_close") throw new Error("private-tools-token");
       return { tools: setupTools.map(name => ({ name, inputSchema: { type: "object" as const } })) };
     });
-    t.mock.method(Client.prototype, "callTool", async () => ({ isError: substep === "diagnostics", content: [] }));
+    t.mock.method(Client.prototype, "callTool", async () => ({ isError: substep === "diagnostics", content: [{ type: "text", text: JSON.stringify(runtimeDiagnostics()) }] }));
     t.mock.method(Client.prototype, "close", async () => {
       if (substep === "close" || substep === "tools_with_close") throw new Error("private-close-token");
     });
