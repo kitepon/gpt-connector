@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.6 - 2026-10-27
+
+- `setup --repair-launch`で廃止する導入先を指す既存GPT登録の起動先を製品自身へ修理する。command/argsだけを更新し、CA選択flag・script引数・env・他MCP・利用者設定を保持する。未知の起動形式は拒否する。
+- 起動先修理は通常MCP initialize/tools受入だけを行い、browser・状態DB・hook・既存接続を操作しない。通常setupの既存値保持契約は変えない。stateと設定の形式は0.16.5と同じ。旧製品へ戻す際も、利用中の起動先を削除しない。
+
 ## 0.16.5 - 2026-10-26
 
 - `factory-diagnostics --json --include-observation-context`で、同じ一回の観測から認証HTTP/user有無と既存bridgeの検査内訳を固定7項目で返す。既定では追加せず、元のcheck・reason・overallを保つ。未検査をfalseへ置き換えず、任意本文・認証値・実build IDを出力しない。

@@ -29,7 +29,7 @@ export function registrationPath(client: SetupClient, home = homedir(), env = pr
   }
 }
 
-export function mergeRegistration(source: string, client: SetupClient, command: string, args: string[], environmentDefaults: Record<string, string> = {}) {
+export function mergeRegistration(source: string, client: SetupClient, command: string, args: string[], environmentDefaults: Record<string, string> = {}, repairLaunch = false): { text: string; server: SetupServer; changed: boolean } {
   const toml = client === "codex" || client === "grok";
   const data = table(source.trim() ? (toml ? parse(source, { integersAsBigInt: true }) : JSON.parse(source)) : {});
   const key = toml ? "mcp_servers" : "mcpServers";
@@ -43,6 +43,35 @@ export function mergeRegistration(source: string, client: SetupClient, command: 
   } : client === "grok" ? { enabled: true } : {};
   const env = existing.env === undefined ? {} : table(existing.env);
   if (Object.values(env).some((value) => typeof value !== "string")) throw new Error("MCP envには文字列が必要です。");
+  if (repairLaunch) {
+    const executable = (existing.command as string | undefined)?.replaceAll("\\", "/").split("/").at(-1);
+    const previous = (existing.args ?? []) as string[];
+    let tail: string[];
+    let flags: string[] = [];
+    if (["gpt-connector-mcp", "gpt-connector-mcp.cmd", "gpt-connector-mcp.ps1"].includes(executable ?? "")) tail = previous;
+    else if (executable === "node" || executable === "node.exe") {
+      let at = 0;
+      while (["--use-system-ca", "--use-bundled-ca", "--use-openssl-ca"].includes(previous[at] ?? "")) at++;
+      flags = previous.slice(0, at);
+      if (previous[at] === "--") at++;
+      const script = previous[at]?.replaceAll("\\", "/");
+      if (!script || !/^(?:\/|[A-Za-z]:\/).+\/gpt-connector\/dist\/src\/mcp\.js$/.test(script)) throw new Error("既存のGPT起動先を確認できません。");
+      tail = previous.slice(at + 1);
+    } else throw new Error("既存のGPT起動形式を修理できません。");
+    const server = { ...existing, command, args: [...flags, ...args, ...tail] } as SetupServer;
+    const changed = !isDeepStrictEqual(existing, server);
+    let text = source;
+    if (changed) {
+      if (toml) {
+        text = replaceTomlValue(source, [key, "gpt_connector", "command"], command);
+        text = existing.args === undefined ? addTomlValues(text, [{ path: [key, "gpt_connector", "args"], value: server.args }]) : replaceTomlValue(text, [key, "gpt_connector", "args"], server.args);
+      } else {
+        data[key] = { ...servers, gpt_connector: server };
+        text = `${JSON.stringify(data, null, 2)}\n`;
+      }
+    }
+    return { text, server: { ...server, env: env as Record<string, string> }, changed };
+  }
   const upgradeDefaultTools = client === "codex" && isDeepStrictEqual(existing.enabled_tools, previousDefaultTools);
   const server: SetupServer = { command, args: existing.command === undefined ? args : [], ...defaults, ...existing,
     ...(upgradeDefaultTools ? { enabled_tools: setupTools } : {}),
@@ -57,7 +86,7 @@ export function mergeRegistration(source: string, client: SetupClient, command: 
     : added : `${JSON.stringify(data, null, 2)}\n`) : source, server, changed };
 }
 
-export async function registerClient(client: SetupClient, command: string, args: string[], path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups"), environmentDefaults: Record<string, string> = {}) {
+export async function registerClient(client: SetupClient, command: string, args: string[], path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups"), environmentDefaults: Record<string, string> = {}, repairLaunch = false) {
   // 共有設定の保存先がsymlinkなら、その実体を更新してリンクを維持する。
   let source = "";
   let target = path;
@@ -72,7 +101,7 @@ export async function registerClient(client: SetupClient, command: string, args:
   } catch (error) {
     if (exists || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const merged = mergeRegistration(source, client, command, args, environmentDefaults);
+  const merged = mergeRegistration(source, client, command, args, environmentDefaults, repairLaunch);
   let backup: string | null = null;
   if (merged.changed) {
     await mkdir(dirname(target), { recursive: true });

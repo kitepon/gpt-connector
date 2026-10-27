@@ -8,6 +8,56 @@ import { parse } from "smol-toml";
 import { mergeRegistration, registerClient, registrationPath, setupClients, setupTools } from "../src/setup-registration.js";
 
 for (const client of setupClients) {
+  test(`${client}: 起動先修理はcommand/argsだけを更新しCA flagと利用者設定を保持する`, () => {
+    const server = { command: "/old node/bin/node", args: ["--use-bundled-ca", "--", "/retired/prefix/node_modules/gpt-connector/dist/src/mcp.js", "--fixture", "private-value"], disabled: true, enabled: false, env: { TOKEN: "fixture", PATH: "/user/bin" }, enabled_tools: ["sessions"] };
+    const toml = client === "codex" || client === "grok";
+    const source = toml
+      ? `serial = 9223372036854775807\n# preserved\n[mcp_servers.other]\ncommand = "other"\n[mcp_servers.gpt_connector]\ncommand = ${JSON.stringify(server.command)} # launch comment\nargs = ${JSON.stringify(server.args)}\ndisabled = true\nenabled = false\nenabled_tools = ["sessions"]\n[mcp_servers.gpt_connector.env]\nTOKEN = "fixture"\nPATH = "/user/bin"\n`
+      : JSON.stringify({ oauth: { account: "fixture" }, mcpServers: { other: { command: "other" }, gpt_connector: server } });
+    const result = mergeRegistration(source, client, "/current/bin/node", ["/owned/node_modules/gpt-connector/dist/src/mcp.js"], {}, true);
+    const parseSource = (text: string) => toml ? parse(text, { integersAsBigInt: true }) : JSON.parse(text);
+    const expected = parseSource(source);
+    const table = expected[toml ? "mcp_servers" : "mcpServers"];
+    table.gpt_connector.command = "/current/bin/node";
+    table.gpt_connector.args = ["--use-bundled-ca", "/owned/node_modules/gpt-connector/dist/src/mcp.js", "--fixture", "private-value"];
+    assert.deepEqual(parseSource(result.text), expected);
+    if (toml) assert.match(result.text, /# launch comment/u);
+    assert.equal(mergeRegistration(result.text, client, "/current/bin/node", ["/owned/node_modules/gpt-connector/dist/src/mcp.js"], {}, true).changed, false);
+  });
+}
+
+test("起動先修理はshim引数をNode引数へ昇格せず、Windowsの正規起動も認識する", () => {
+  const source = (command: string, args?: string[]) => JSON.stringify({ mcpServers: { gpt_connector: { command, ...(args === undefined ? {} : { args }) } } });
+  const shim = mergeRegistration(source("C:\\old\\npm\\gpt-connector-mcp.cmd", ["--use-system-ca"]), "cursor", "/node", ["/new/node_modules/gpt-connector/dist/src/mcp.js"], {}, true);
+  assert.deepEqual(shim.server.args, ["/new/node_modules/gpt-connector/dist/src/mcp.js", "--use-system-ca"]);
+  const node = mergeRegistration(source("C:\\old\\node.exe", ["--use-system-ca", "C:\\old\\node_modules\\gpt-connector\\dist\\src\\mcp.js"]), "cursor", "/node", ["/new/node_modules/gpt-connector/dist/src/mcp.js"], {}, true);
+  assert.deepEqual(node.server.args, ["--use-system-ca", "/new/node_modules/gpt-connector/dist/src/mcp.js"]);
+  const inline = 'mcp_servers = { gpt_connector = { command = "gpt-connector-mcp" } } # keep\n';
+  const missingArgs = mergeRegistration(inline, "codex", "/node", ["/new/node_modules/gpt-connector/dist/src/mcp.js"], {}, true);
+  assert.match(missingArgs.text, /# keep/u);
+  assert.deepEqual(missingArgs.server.args, ["/new/node_modules/gpt-connector/dist/src/mcp.js"]);
+});
+
+test("未知wrapper/Node flag/別script/remoteは書込み・backup前に拒否する", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "gpt-launch-repair-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "mcp.json");
+  for (const server of [
+    { command: "/custom/wrapper", args: [] },
+    { command: "/old/node", args: ["--require", "private-value", "/old/node_modules/gpt-connector/dist/src/mcp.js"] },
+    { command: "/old/node", args: ["/other/mcp.js"] },
+    { command: "node", args: ["relative/gpt-connector/dist/src/mcp.js"] },
+    { command: "gpt-connector-mcp", url: "https://example.test" },
+  ]) {
+    const source = JSON.stringify({ mcpServers: { gpt_connector: server } });
+    await writeFile(path, source);
+    await assert.rejects(registerClient("cursor", "/new/node", ["/new/node_modules/gpt-connector/dist/src/mcp.js"], path, join(root, "backups"), {}, true));
+    assert.equal(await readFile(path, "utf8"), source);
+    assert.deepEqual(await readdir(root), ["mcp.json"]);
+  }
+});
+
+for (const client of setupClients) {
   test(`${client}: 初回登録と再実行は同じ登録を維持する`, () => {
     const first = mergeRegistration("", client, "/node", ["/gpt-connector/dist/src/mcp.js"]);
     assert.equal(first.changed, true);

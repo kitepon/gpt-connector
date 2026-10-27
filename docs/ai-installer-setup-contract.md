@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.5"
+gpt_connector_version="0.16.6"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -48,6 +48,7 @@ Mac、Windows、LinuxでCodexを登録する時は、同梱コードでCodexへ�
 gpt-connector setup --ai claude,codex,grok,cursor
 gpt-connector setup --ai codex --codex-config /absolute/project/.codex/config.toml
 gpt-connector setup --check --ai codex --codex-config /absolute/project/.codex/config.toml
+gpt-connector setup --repair-launch --ai claude,codex,grok,cursor
 ```
 
 従来のREADMEに従いproject単位のCodex設定を作った環境では、同じfileを`--codex-config`へ渡す。
@@ -156,3 +157,14 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の最小Chat、
 本serverの相談先はChatGPTとGrok。Claude・Codex・Grok・CursorはMCPの呼出し元AI名であり、呼出し元の名前から相談先は決まらない。ChatGPTには`consult`、Grokには`grok_consult`を使う。GrokのChat modeは`auto`・`fast`・`expert`・`heavy`から選び、省略時は`auto`。Grokの添付・画像生成は提供しない。
 最終報告には公開version、正規コマンド、OS/AI/機能別の実測・未実施、設定fileとbackup、
 未完了なら失敗段階・reason・次に必要な操作を記す。工場が所有する他MCP、AI本体、host管理を製品へ取り込まない。
+
+
+## 既存の起動先を明示的に修理する
+
+`setup --repair-launch`は既存の`gpt_connector`登録のcommand/argsだけを、実行中の製品のNodeとMCP scriptへ更新する。通常setupの既存値保持は変更しない。旧導入先を撤去するとき、公開版を製品所有の通常npm prefixへ導入してから実行する。`npm install --global --prefix <製品所有先> gpt-connector@0.16.6`のようにprefixを指定した場合、setupにも同じ`npm_config_prefix`を渡す。
+
+認識する旧起動は`gpt-connector-mcp`（Windowsのcmd/ps1を含む）、またはNodeと絶対パスの`gpt-connector/dist/src/mcp.js`の組合せ。NodeのCA選択flagは位置と順序を保ち、script以後の引数はscript引数のまま保持する。未知wrapper、remote登録、その他のNode起動flag、既存登録が無い場合は書込み前に拒否する。
+
+元のenv・モデル・認証・他MCP・timeout・無効化・tool制限を保ち、既存の設定backup・同時更新検出・原子的保存を使う。通常MCP initializeとtools listで起動版と13 toolsを確認し、diagnostics/browser/状態DB/hookを操作しない。`mode=repair_launch`の`overall=ready`は登録とMCP受入の範囲に限り、`live.status=not_checked`でライブ未検査を示す。無効化された登録は無効のまま起動せず、`action_required`として返す。`--check`と`--codex-steer`の併用は拒否する。
+
+既存接続や親clientは停止しない。新しい接続で新起動先を使う。旧導入先の削除は、その登録を参照しなくなり、既存接続も旧導入先を使用しなくなったことを確認してから行う。
