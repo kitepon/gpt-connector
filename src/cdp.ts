@@ -129,18 +129,20 @@ export async function discoverProviderTarget(
   } catch {
     // 接続自体の失敗＝専用Chromeが起動していない（unreachable）。起動中の異常（HTTP error・
     // target形式不正）と区別し、診断がidle（平常）と故障を見分けられるようにする。
-    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧へ接続できません。", { unreachable: true });
+    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧へ接続できません。", { unreachable: true, cdpStage: "target_discovery", cdpReason: "connection_failed" });
   }
 
   if (!response.ok) {
     throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧の取得に失敗しました。", {
-      status: response.status,
+      status: response.status, cdpStage: "target_discovery", cdpReason: "http_error",
     });
   }
 
-  const raw: unknown = await response.json();
+  let raw: unknown;
+  try { raw = await response.json(); }
+  catch { throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧のJSONが不正です。", { cdpStage: "target_discovery", cdpReason: "invalid_response" }); }
   if (!Array.isArray(raw)) {
-    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧の形式が不正です。");
+    throw new ConnectorError("CDP_UNAVAILABLE", "CDP target一覧の形式が不正です。", { cdpStage: "target_discovery", cdpReason: "invalid_response" });
   }
 
   const targets = raw.filter(isCdpTarget);
@@ -157,7 +159,7 @@ export async function discoverProviderTarget(
     throw new ConnectorError(
       "CDP_UNAVAILABLE",
       `専用Chromeに${provider === "chatgpt" ? "ChatGPT" : "Grok"}公式page targetがありません。`,
-      { targetMissing: true },
+      { targetMissing: true, cdpStage: "target_discovery", cdpReason: "target_missing" },
     );
   }
 
@@ -190,10 +192,10 @@ export class CdpClient {
       this.#handleMessage(data.toString());
     });
     socket.on("close", () => {
-      this.#failAll(new ConnectorError("CDP_UNAVAILABLE", "CDP接続が閉じられました。"));
+      this.#failAll(new ConnectorError("CDP_UNAVAILABLE", "CDP接続が閉じられました。", { cdpStage: "transport_closed", cdpReason: "closed" }));
     });
     socket.on("error", () => {
-      this.#failAll(new ConnectorError("CDP_UNAVAILABLE", "CDP接続でエラーが発生しました。"));
+      this.#failAll(new ConnectorError("CDP_UNAVAILABLE", "CDP接続でエラーが発生しました。", { cdpStage: "transport_closed", cdpReason: "transport_error" }));
     });
   }
 
@@ -205,13 +207,14 @@ export class CdpClient {
     try {
       url = new URL(debuggerUrl);
     } catch {
-      throw new ConnectorError("CDP_UNAVAILABLE", "debugger WebSocket URLが不正です。");
+      throw new ConnectorError("CDP_UNAVAILABLE", "debugger WebSocket URLが不正です。", { cdpStage: "websocket_connect", cdpReason: "invalid_endpoint" });
     }
 
     if (url.protocol !== "ws:" || !loopbackHosts.has(url.hostname)) {
       throw new ConnectorError(
         "CDP_UNAVAILABLE",
         "debugger WebSocketはloopbackだけを利用できます。",
+        { cdpStage: "websocket_connect", cdpReason: "invalid_endpoint" },
       );
     }
 
@@ -219,7 +222,7 @@ export class CdpClient {
       const candidate = new WebSocket(url, { handshakeTimeout: defaultTimeoutMs });
       candidate.once("open", () => resolve(candidate));
       candidate.once("error", () => {
-        reject(new ConnectorError("CDP_UNAVAILABLE", "CDP WebSocketへ接続できません。", { beforeSubmission: true }));
+        reject(new ConnectorError("CDP_UNAVAILABLE", "CDP WebSocketへ接続できません。", { beforeSubmission: true, cdpStage: "websocket_connect", cdpReason: "connection_failed" }));
       });
     });
 
@@ -234,7 +237,7 @@ export class CdpClient {
   call<T>(method: string, params: unknown = {}, timeoutMs = this.#defaultTimeoutMs): Promise<T> {
     if (this.#closed) {
       return Promise.reject(
-        new ConnectorError("CDP_UNAVAILABLE", "閉じたCDP接続は利用できません。"),
+        new ConnectorError("CDP_UNAVAILABLE", "閉じたCDP接続は利用できません。", { cdpStage: "protocol_call", cdpReason: "closed" }),
       );
     }
 
@@ -244,7 +247,7 @@ export class CdpClient {
         this.#pending.delete(id);
         reject(
           new ConnectorError("CDP_UNAVAILABLE", "CDP呼出しがtimeoutしました。", {
-            method,
+            method, cdpStage: "protocol_call", cdpReason: "timeout",
           }),
         );
       }, timeoutMs);

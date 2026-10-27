@@ -6,7 +6,36 @@ import test from "node:test";
 
 import { ConnectorError } from "../src/errors.js";
 import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment } from "../src/runtime-error-assessment.js";
-import { readRuntimeErrorEvents } from "../src/runtime-error-events.js";
+import { readRuntimeErrorEvents, runtimeOperationFromCli } from "../src/runtime-error-events.js";
+
+test("CDPの操作/段階/固定flagと版を記録し、集約と同じfingerprint/時刻で照合できる", () => {
+  const options = sandbox();
+  assert.equal(recordRuntimeErrorBestEffort(new ConnectorError("CDP_UNAVAILABLE", "private-prompt", {
+    cdpStage: "target_discovery", cdpReason: "target_missing", targetMissing: true, unreachable: "private-token", beforeSubmission: false,
+    url: "https://private.invalid/?secret=credential",
+  }), { ...options, operation: "browser_show", entrypoint: "cli", assessment: failed }), "recorded");
+  const event = readRuntimeErrorEvents(options)[0]!;
+  const aggregate = readRuntimeErrorSnapshot(options).runtime_errors[0]!;
+  assert.equal(event.product_version, aggregate.product_version);
+  assert.equal(event.fingerprint, aggregate.fingerprint);
+  assert.equal(event.observed_at, aggregate.last_seen);
+  assert.deepEqual(event.context, { source: "public_operation", failures: [], operation: "browser_show", entrypoint: "cli",
+    cdp: { stage: "target_discovery", reason: "target_missing", target_missing: true, unreachable: null, before_submission: false } });
+  assert.doesNotMatch(JSON.stringify(event), /private|credential|secret=|https:/u);
+  console.log("SAFE_CDP_EVENT_JSON", JSON.stringify(event));
+});
+
+test("CLI操作名は固定語だけにし、未知argvやprovider値を診断へ写さない", () => {
+  assert.equal(runtimeOperationFromCli(["browser", "show"]), "browser_show");
+  assert.equal(runtimeOperationFromCli(["browser", "start", "--provider", "grok"]), "grok_browser_start");
+  assert.equal(runtimeOperationFromCli(["chat", "--prompt", "private-prompt"]), "chat");
+  assert.equal(runtimeOperationFromCli(["private-token"]), "unknown");
+  assert.equal(runtimeOperationFromCli(["browser", "private-token"]), "unknown");
+  const options = sandbox();
+  recordRuntimeErrorBestEffort(new ConnectorError("CDP_UNAVAILABLE", "secret", { cdpStage: "private-token" }), { ...options, operation: "chat", entrypoint: "mcp", assessment: failed });
+  assert.equal(readRuntimeErrorEvents(options)[0]?.context?.cdp?.stage, "unknown");
+  assert.doesNotMatch(JSON.stringify(readRuntimeErrorEvents(options)), /private-token|secret/u);
+});
 import { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath, observeRuntimeError, readRuntimeErrorSnapshot, recordRuntimeErrorBestEffort, resolveRuntimeError } from "../src/runtime-error-store.js";
 import { setupRuntimeDriftOptions } from "../src/setup.js";
 
@@ -35,7 +64,7 @@ test("取消確認のないAbortという本文だけでは正常な取消と決
   const options = sandbox();
   assert.equal(recordRuntimeErrorBestEffort(error, options), "recorded");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]?.severity, "high");
-  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events`, "utf8"), /private|AbortError|token/);
+  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`, "utf8"), /private|AbortError|token/);
   const cancelled = new ConnectorError("CHAT_FAILED", "cancelled", { cancellationConfirmed: true });
   assert.equal(recordRuntimeErrorBestEffort(cancelled, options), "disabled");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]?.occurrence_count, 1);
@@ -88,12 +117,13 @@ test("旧eventsを読み、過去の累計を変えずに新しいsetup診断を
   assert.equal(record.occurrence_count, 2);
   assert.equal(record.last_seen, "2026-10-12T00:00:00.000Z");
   assert.equal(record.severity, "high");
+  assert.deepEqual(JSON.parse(readFileSync(`${store}.events`, "utf8")), [old]);
   const prior = JSON.parse(before).records[0];
   assert.equal(record.fingerprint, prior.fingerprint);
   assert.equal(record.error_code, prior.error_code);
   recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret prompt", { runtimeStage: "bridge_bootstrap", runtimeTag: "sender", secret: "private-token" }), options);
   assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context, { source: "public_operation", failures: [{ stage: "bridge_bootstrap", tag: "sender" }] });
-  assert.doesNotMatch(readFileSync(`${store}.events`, "utf8"), /private-token|secret prompt/u);
+  assert.doesNotMatch(readFileSync(`${store}.events.v2`, "utf8"), /private-token|secret prompt/u);
 });
 
 test("不正な診断contextは保存せず、実害の登録を隠さない", () => {
@@ -102,7 +132,7 @@ test("不正な診断contextは保存せず、実害の登録を隠さない", (
   assert.equal(recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...options, assessment: { ...failed, cause: "environment", impact: "data_loss" }, context: context as never }), "recorded");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]!.severity, "high");
   assert.equal(readRuntimeErrorEvents(options)[0]!.context, undefined);
-  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events`, "utf8"), /private-token|secret|private-prompt/u);
+  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`, "utf8"), /private-token|secret|private-prompt/u);
   recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret", { runtimeStage: "runtime_discovery", runtimeTag: "private-token" }), options);
   assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context?.failures, [{ stage: "unknown", tag: "unknown" }]);
 });
@@ -122,5 +152,5 @@ test("4組の診断付きeventsを128件保持しても読取上限内で、古�
   assert.equal(events.length, 128);
   assert.equal(events[0]!.observed_at, "2026-10-12T00:00:01.000Z");
   assert.equal(events.at(-1)!.observed_at, "2026-10-12T00:02:08.000Z");
-  assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events`).length < 128 * 1024);
+  assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`).length < 128 * 1024);
 });

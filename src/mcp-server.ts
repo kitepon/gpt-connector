@@ -28,6 +28,7 @@ import { ConnectorError } from "./errors.js";
 import { recordRuntimeErrorBestEffort, runtimeErrorStoreDiagnostic } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { packageVersion } from "./version.js";
+import type { RuntimeOperation } from "./runtime-error-events.js";
 
 interface ConnectorPort {
   readonly transportFailed: boolean;
@@ -326,7 +327,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: true,
       },
     },
-    async () => toolResult(async () => host.run((connector) => connector.models())),
+    async () => toolResult("chatgpt_models", async () => host.run((connector) => connector.models())),
   );
 
   server.registerTool(
@@ -341,7 +342,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: false,
       },
     },
-    async (input) => toolResult(async () => host.run((connector) => connector.chat(input))),
+    async (input) => toolResult("chatgpt_chat", async () => host.run((connector) => connector.chat(input))),
   );
 
   server.registerTool(
@@ -356,7 +357,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: true,
       },
     },
-    async (input) => toolResult(async () => host.run((connector) => connector.image(input))),
+    async (input) => toolResult("chatgpt_image", async () => host.run((connector) => connector.image(input))),
   );
 
   server.registerTool(
@@ -371,7 +372,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: true,
       },
     },
-    async (input, extra) => toolResult(async () => {
+    async (input, extra) => toolResult("consult", async () => {
       const parent = input.dryRun ? null : resolveParent(server.server.getClientVersion()?.name, extra._meta);
       return host.run((connector) => connector.consult(input, parent ?? undefined));
     }),
@@ -389,7 +390,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: true,
       },
     },
-    async (input) => toolResult(async () => host.sessions(input)),
+    async (input) => toolResult("sessions", async () => host.sessions(input)),
   );
 
   server.registerTool(
@@ -404,7 +405,7 @@ export function createGptConnectorMcpServer(
         idempotentHint: true,
       },
     },
-    async () => toolResult(async () => host.diagnostics()),
+    async () => toolResult("diagnostics", async () => host.diagnostics()),
   );
 
   server.registerTool(
@@ -419,26 +420,26 @@ export function createGptConnectorMcpServer(
         idempotentHint: false,
       },
     },
-    async (input) => toolResult(async () => host.run((connector) => connector.closeSession(input))),
+    async (input) => toolResult("chatgpt_close", async () => host.run((connector) => connector.closeSession(input))),
   );
 
   server.registerTool("grok_modes", {
     title: "Grokのmode一覧", description: mcpToolDescriptions.grok_modes,
     inputSchema: z.object({}).strict(),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, async () => toolResult(async () => grokHost.run((connector) => connector.modes())));
+  }, async () => toolResult("grok_modes", async () => grokHost.run((connector) => connector.modes())));
 
   server.registerTool("grok_chat", {
     title: "Grok Chatへ送信", description: mcpToolDescriptions.grok_chat,
     inputSchema: grokChatInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async (input) => toolResult(async () => grokHost.run((connector) => connector.chat(input))));
+  }, async (input) => toolResult("grok_chat", async () => grokHost.run((connector) => connector.chat(input))));
 
   server.registerTool("grok_consult", {
     title: "Grokへ相談", description: mcpToolDescriptions.grok_consult,
     inputSchema: grokConsultInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  }, async (input, extra) => toolResult(async () => {
+  }, async (input, extra) => toolResult("grok_consult", async () => {
     const parent = input.dryRun ? null : resolveParent(server.server.getClientVersion()?.name, extra._meta);
     return grokHost.run((connector) => connector.consult(input, parent ?? undefined));
   }));
@@ -447,24 +448,24 @@ export function createGptConnectorMcpServer(
     title: "Grok相談の状態を回収", description: mcpToolDescriptions.grok_sessions,
     inputSchema: sessionsInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, async (input) => toolResult(async () => grokHost.sessions(input)));
+  }, async (input) => toolResult("grok_sessions", async () => grokHost.sessions(input)));
 
   server.registerTool("grok_diagnostics", {
     title: "Grok connectorの診断", description: mcpToolDescriptions.grok_diagnostics,
     inputSchema: z.object({}).strict(),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, async () => toolResult(async () => grokHost.diagnostics()));
+  }, async () => toolResult("grok_diagnostics", async () => grokHost.diagnostics()));
 
   server.registerTool("grok_close", {
     title: "Grok会話を削除して閉じる", description: mcpToolDescriptions.grok_close,
     inputSchema: z.object({ sessionId: z.string().uuid() }).strict(),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, async (input) => toolResult(async () => grokHost.run((connector) => connector.closeSession(input))));
+  }, async (input) => toolResult("grok_close", async () => grokHost.run((connector) => connector.closeSession(input))));
 
   return server;
 }
 
-async function toolResult(action: () => Promise<unknown>) {
+async function toolResult(operation: RuntimeOperation, action: () => Promise<unknown>) {
   try {
     const result = await action();
     return {
@@ -473,7 +474,7 @@ async function toolResult(action: () => Promise<unknown>) {
         typeof result === "object" && result !== null ? { ...result } : { value: result },
     };
   } catch (error) {
-    const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error) : "disabled";
+    const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error, { operation, entrypoint: "mcp" }) : "disabled";
     if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
     // 送信はtoolの応答を待たせない。無効な端末では通信しない。
     if (telemetry === "recorded") void reportRuntimeErrorsBestEffort();

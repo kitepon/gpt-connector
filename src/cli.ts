@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readRuntimeErrorEvents } from "./runtime-error-events.js";
+import { readRuntimeErrorEvents, runtimeOperationFromCli } from "./runtime-error-events.js";
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
@@ -388,7 +388,7 @@ async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
 }
 
 main().catch(async (error: unknown) => {
-  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error) : "disabled";
+  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error, { operation: runtimeOperationFromCli(process.argv.slice(2)), entrypoint: "cli" }) : "disabled";
   if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
   if (telemetry === "recorded") await reportRuntimeErrorsBestEffort();
   if (error instanceof ConnectorError) {

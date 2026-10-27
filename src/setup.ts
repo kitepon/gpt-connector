@@ -25,23 +25,46 @@ export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
   };
 }
 
+export class SetupMcpError extends Error {
+  closeFailed = false;
+  readonly reasonCode: string;
+  constructor(readonly substep: "transport" | "connect" | "version" | "tools" | "diagnostics" | "stderr" | "close") {
+    super(`MCP_${substep.toUpperCase()}_FAILED`);
+    this.reasonCode = `MCP_${substep.toUpperCase()}_FAILED`;
+  }
+}
+
 export async function verifyMcp(command: string, args: string[], env: Record<string, string>, cwd?: string, diagnostics = true) {
   const client = new Client({ name: "gpt-connector-setup", version: packageVersion });
-  const transport = new StdioClientTransport({ command, args, cwd, env: { ...Object.fromEntries(Object.entries(process.env).filter((pair): pair is [string, string] => pair[1] !== undefined)), ...env }, stderr: "pipe" });
+  let substep: SetupMcpError["substep"] = "transport";
+  let failure: SetupMcpError | undefined;
+  let ready: { status: string; tools: string[]; diagnostics: string } | undefined;
   let stderrBytes = 0;
-  transport.stderr?.on("data", (data: Buffer) => { stderrBytes += data.length; });
   try {
+    const transport = new StdioClientTransport({ command, args, cwd, env: { ...Object.fromEntries(Object.entries(process.env).filter((pair): pair is [string, string] => pair[1] !== undefined)), ...env }, stderr: "pipe" });
+    transport.stderr?.on("data", (data: Buffer) => { stderrBytes += data.length; });
+    substep = "connect";
     await client.connect(transport);
+    substep = "version";
     if (client.getServerVersion()?.version !== packageVersion) throw new Error("MCP起動版がsetupの版と一致しません。");
+    substep = "tools";
     const { tools } = await client.listTools();
     if (tools.length !== setupTools.length || setupTools.some((name) => !tools.some((tool) => tool.name === name))) throw new Error("MCP公開tool集合が一致しません。");
     if (diagnostics) {
+      substep = "diagnostics";
       const result = await client.callTool({ name: "diagnostics", arguments: {} });
       if (result.isError) throw new Error("MCP diagnosticsが失敗しました。");
     }
+    substep = "stderr";
     if (stderrBytes > 0) throw new Error("MCPがstderrへ診断外の出力を返しました。");
-    return { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked" };
-  } finally { await client.close(); }
+    ready = { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked" };
+  } catch { failure = new SetupMcpError(substep); }
+  try { await client.close(); } catch {
+    failure ??= new SetupMcpError("close");
+    failure.closeFailed = true;
+  }
+  if (failure) throw failure;
+  return ready!;
 }
 
 function browserDependencies(env: Record<string, string | undefined>) {
@@ -182,6 +205,7 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
       }
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
       item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
+        ...(error instanceof SetupMcpError ? { substep: error.substep, reason_code: error.reasonCode, close_failed: error.closeFailed } : {}),
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }

@@ -15,7 +15,7 @@ import { isRuntimeErrorReportingEnabled } from "./runtime-error-reporting-state.
 import { packageVersion } from "./version.js";
 import { ConnectorError } from "./errors.js";
 import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment, type RuntimeErrorSeverity } from "./runtime-error-assessment.js";
-import { recordRuntimeErrorEvent, type RuntimeErrorContext } from "./runtime-error-events.js";
+import { cdpFailureReasonSchema, cdpFailureStageSchema, recordRuntimeErrorEvent, type RuntimeErrorContext, type RuntimeOperation } from "./runtime-error-events.js";
 import { runtimeFailureFromError } from "./runtime-failure.js";
 
 export { defaultFactoryReporterConfigPath, defaultRuntimeErrorStorePath } from "./platform/state.js";
@@ -66,7 +66,7 @@ interface RecordEntry {
   sequence: number;
 }
 interface Store { schema: typeof runtimeErrorStoreSchema; next_sequence: number; acknowledged_through: number; records: RecordEntry[]; }
-export interface RuntimeErrorOptions { readonly assessment?: FailureAssessment; readonly context?: RuntimeErrorContext; readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly reportingPath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
+export interface RuntimeErrorOptions { readonly assessment?: FailureAssessment; readonly context?: RuntimeErrorContext; readonly operation?: RuntimeOperation; readonly entrypoint?: "cli" | "mcp"; readonly env?: NodeJS.ProcessEnv; readonly configPath?: string; readonly storePath?: string; readonly reportingPath?: string; readonly version?: string; readonly now?: string; readonly platform?: string; readonly arch?: string; readonly windowsAcl?: WindowsAclApplier; }
 
 /** 収集は、工場の設定が有効にした時か、製品自身の送信を端末で有効にした時に行う。 */
 export function isRuntimeErrorCollectionEnabled(options: Pick<RuntimeErrorOptions, "env" | "configPath" | "storePath" | "reportingPath"> = {}): boolean {
@@ -153,10 +153,19 @@ export function recordRuntimeErrorBestEffort(error: string | ConnectorError, opt
   let diagnosticsFailed = false;
   const context = options.context ?? (error instanceof ConnectorError ? {
     source: "public_operation" as const, failures: code === "RUNTIME_DRIFT" ? [runtimeFailureFromError(error)] : [],
+    ...(options.operation ? { operation: options.operation } : {}), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}),
+    ...(code === "CDP_UNAVAILABLE" ? { cdp: {
+      stage: cdpFailureStageSchema.safeParse(error.details?.cdpStage).data ?? "unknown",
+      reason: cdpFailureReasonSchema.safeParse(error.details?.cdpReason).data ?? "unknown",
+      target_missing: typeof error.details?.targetMissing === "boolean" ? error.details.targetMissing : null,
+      unreachable: typeof error.details?.unreachable === "boolean" ? error.details.unreachable : null,
+      before_submission: typeof error.details?.beforeSubmission === "boolean" ? error.details.beforeSubmission : null,
+    } } : {}),
   } : undefined);
-  try { recordRuntimeErrorEvent(code, assessment, decision, { ...options, context }); } catch { diagnosticsFailed = true; }
+  const observation = { ...options, now: options.now ?? new Date().toISOString() };
+  try { recordRuntimeErrorEvent(code, assessment, decision, { ...observation, context, version: safeVersion(options.version), fingerprint: fingerprintFor(code as RuntimeErrorCode) }); } catch { diagnosticsFailed = true; }
   if (!decision.register || decision.severity === null) return diagnosticsFailed ? "store_unavailable" : "disabled";
-  try { return observeRuntimeError({ code: code as RuntimeErrorCode, severity: decision.severity, now: options.now }, options).status; } catch { return "store_unavailable"; }
+  try { return observeRuntimeError({ code: code as RuntimeErrorCode, severity: decision.severity, now: observation.now }, options).status; } catch { return "store_unavailable"; }
 }
 
 function updateStatus(store: Store, fingerprint: string, status: Status, options: RuntimeErrorOptions & { readonly reasonCode?: "manual" | "recovered" }) {
