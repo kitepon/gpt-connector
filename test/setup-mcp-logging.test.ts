@@ -32,8 +32,25 @@ for (const substep of ["connect", "version", "tools", "diagnostics", "stderr", "
     const expectedStep = substep === "tools_with_close" ? "tools" : substep;
     assert.equal(result.overall, "failed");
     assert.deepEqual(result.registrations[0]?.failure, { stage: "mcp", code: "SETUP_MCP_FAILED", substep: expectedStep,
-      reason_code: `MCP_${expectedStep.toUpperCase()}_FAILED`, close_failed: substep === "close" || substep === "tools_with_close" });
+      reason_code: `MCP_${expectedStep.toUpperCase()}_FAILED`, close_failed: substep === "close" || substep === "tools_with_close",
+      ...(substep === "version" ? { version_check: { expected: packageVersion, actual: "0.0.0", status: "mismatch" },
+        next: "公開版のsetup --repair-launchで既存MCPの起動先を更新し、新しいクライアントセッションで読み込んでください。" } : {}) });
     assert.doesNotMatch(JSON.stringify(result), /private-|token|stderr-token/u);
     console.log("SAFE_SETUP_FAILURE_JSON", JSON.stringify(result));
+  });
+}
+
+for (const actual of [undefined, "private-token\n0.16.7", "1.2.3-private-token", "9".repeat(1000)] as const) {
+  test(`setup MCP version: ${actual === undefined ? "欠測" : "不正応答"}を秘密値なしで返しclose失敗も保つ`, async (t) => {
+    t.mock.method(Client.prototype, "connect", async () => {});
+    t.mock.method(Client.prototype, "getServerVersion", () => actual === undefined ? undefined : ({ name: "private-token", version: actual }));
+    t.mock.method(Client.prototype, "close", async () => { throw new Error("private-close-token"); });
+    await assert.rejects(verifyMcp("fixture", [], {}), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.deepEqual(JSON.parse(JSON.stringify(error)), { substep: "version", closeFailed: true, reasonCode: "MCP_VERSION_FAILED",
+        versionCheck: { expected: packageVersion, actual: null, status: actual === undefined ? "missing" : "invalid" } });
+      assert.doesNotMatch(JSON.stringify(error), /private-|999999999/u);
+      return true;
+    });
   });
 }

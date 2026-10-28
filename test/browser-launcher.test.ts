@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { showBrowser, startBrowser } from "../src/browser-launcher.js";
 import { ConnectorError } from "../src/errors.js";
 
-const home = "/tmp/gpt-browser-test";
+const home = await mkdtemp(join(tmpdir(), "gpt-browser-test-"));
+after(() => rm(home, { recursive: true, force: true }));
 const profile = resolve(join(home, ".gpt-connector", "browser-profile"));
 const command = (userDataDir = profile) => `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-address=127.0.0.1 --remote-debugging-port=9223 --user-data-dir=${userDataDir}`;
 const owned = async () => [{ pid: "42", command: command() }];
