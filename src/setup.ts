@@ -28,6 +28,7 @@ export function setupRuntimeDriftOptions(failures: RuntimeFailure[]) {
 
 export class SetupMcpError extends Error {
   closeFailed = false;
+  versionCheck?: { expected: string; actual: string | null; status: "mismatch" | "missing" | "invalid" };
   readonly reasonCode: string;
   constructor(readonly substep: "transport" | "connect" | "version" | "tools" | "diagnostics" | "stderr" | "close") {
     super(`MCP_${substep.toUpperCase()}_FAILED`);
@@ -47,7 +48,14 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
     substep = "connect";
     await client.connect(transport);
     substep = "version";
-    if (client.getServerVersion()?.version !== packageVersion) throw new Error("MCP起動版がsetupの版と一致しません。");
+    const actual = client.getServerVersion()?.version;
+    if (actual !== packageVersion) {
+      const error = new SetupMcpError("version");
+      // 応答の自由文字列を出さず、公開版番号の数値部分だけを診断に残す。
+      const safe = typeof actual === "string" && /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/.test(actual);
+      error.versionCheck = { expected: packageVersion, actual: safe ? actual : null, status: actual === undefined ? "missing" : safe ? "mismatch" : "invalid" };
+      throw error;
+    }
     substep = "tools";
     const { tools } = await client.listTools();
     if (tools.length !== setupTools.length || setupTools.some((name) => !tools.some((tool) => tool.name === name))) throw new Error("MCP公開tool集合が一致しません。");
@@ -65,7 +73,7 @@ export async function verifyMcp(command: string, args: string[], env: Record<str
     substep = "stderr";
     if (stderrBytes > 0) throw new Error("MCPがstderrへ診断外の出力を返しました。");
     ready = { status: "ready", tools: tools.map((tool) => tool.name), diagnostics: diagnostics ? "responded" : "not_checked", runtime };
-  } catch { failure = new SetupMcpError(substep); }
+  } catch (error) { failure = error instanceof SetupMcpError ? error : new SetupMcpError(substep); }
   try { await client.close(); } catch {
     failure ??= new SetupMcpError("close");
     failure.closeFailed = true;
@@ -212,7 +220,9 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
       }
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
       item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
-        ...(error instanceof SetupMcpError ? { substep: error.substep, reason_code: error.reasonCode, close_failed: error.closeFailed } : {}),
+        ...(error instanceof SetupMcpError ? { substep: error.substep, reason_code: error.reasonCode, close_failed: error.closeFailed,
+          ...(error.versionCheck ? { version_check: error.versionCheck,
+            next: "公開版のsetup --repair-launchで既存MCPの起動先を更新し、新しいクライアントセッションで読み込んでください。" } : {}) } : {}),
         ...(error instanceof CodexSteerSetupError ? { reason_code: error.reasonCode, message: error.message } : {}) };
     }
   }

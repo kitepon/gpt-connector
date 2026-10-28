@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.9 - 2026-10-28
+
+- setupのMCP version不一致に期待版・安全な応答版・欠測/不正形式の分類と、公開`setup --repair-launch`による修理案内を追加する。既存登録保持、failed/exit1、close失敗保全は維持し、応答の自由文字列は出力しない。
+
 ## 0.16.8 - 2026-10-27
 
 - `doctor --runtime-only`とMCP `diagnostics({runtimeOnly:true})`で、ブラウザーやネットワークを使わず同じprocessのNode版/PID/instance IDと固定CA選択分類、SEC021対象証明書のNode default CA一覧内の有無を返す。argv/env/証明書本文・一覧・pathは出力しない。
