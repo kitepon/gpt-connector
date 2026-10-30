@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.12`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.13`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -263,6 +263,8 @@ host は `unsupported`、検査できない項目は `unverified` です。専�
 `chrome_idle`）と、起動中ChromeでChatGPT tabが閉じられているだけの状態（`chatgpt_tab_idle`）は、
 次の利用で準備し直せる平常状態なので `unverified` です。ChatGPT tabにbridgeがまだ入っていない状態
 （`runtime_bridge`の reason `bridge_not_initialized`）も、最初の操作で入るため `unverified` です。
+CDP探査は target一覧・接続・各呼出しを4秒ずつで打ち切り、tabの応答が止まっている時は `cdp` の reason
+`cdp_probe_timeout` で `unverified` を返します（工場reporterの20秒予算内に収めるため）。
 同じproviderのtabが複数開いている時は、bridgeが入っているtab（無ければtarget idの順で1枚）を選んで調べます。
 MCPとCLIの操作も同じtabを使います。いずれも upload、conversation、archive、job 作成を行いません。
 

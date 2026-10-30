@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.13 - 2026-10-30
+
+- `factory-diagnostics`のCDP探査（target一覧・接続・各呼出し）を4秒ずつで打ち切り、ChatGPT tabの応答が止まっている時は`cdp: unverified`（reason `cdp_probe_timeout`）を返す。page内の認証確認fetchが網の揺れで止まると、工場reporterの20秒予算を超えてpresenceが「確認できていません」になっていた。
+
 ## 0.16.12 - 2026-10-30
 
 - `browser start`がログイン待ち（`AUTH_REQUIRED`）で止まる時は終了2を返す。専用Chromeは表示したまま残し、他の起動失敗は引き続き終了1にする。常駐serviceは`SuccessExitStatus=2`でログイン待ちのChromeを保てる。

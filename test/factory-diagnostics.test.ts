@@ -90,6 +90,30 @@ async function withFakeChrome(
   }
 }
 
+test("factory diagnosticsはChatGPT tabの応答が止まっていても数秒でunverifiedを返し、故障扱いしない", async () => {
+  // 網が揺れるとpage内の/api/auth/session fetchが止まり、工場reporterの20秒予算を超えてpresenceが消えた（Rabbit 2026-10-30 09:18Z）。
+  const server = createServer((_request, response) => {
+    const { port } = server.address() as AddressInfo;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify([{ id: "S1", type: "page", url: "https://chatgpt.com/", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/S1` }]));
+  });
+  const sockets = new WebSocketServer({ server });
+  sockets.on("connection", (socket) => { socket.on("message", () => { /* 応答しないtab */ }); });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const started = Date.now();
+    const result = await factoryDiagnostics({ endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, platform: "darwin" });
+    assert.ok(Date.now() - started < 15_000);
+    assert.equal(result.overall, "unverified");
+    assert.deepEqual(result.checks.find((check) => check.id === "cdp"), { id: "cdp", status: "unverified", reason: "cdp_probe_timeout" });
+    assert.equal(result.checks.find((check) => check.id === "auth")?.reason, "cdp_not_inspected");
+  } finally {
+    for (const socket of sockets.clients) socket.terminate();
+    await new Promise<void>((resolve) => sockets.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("factory diagnosticsはChatGPT tabが複数あっても、bridgeを持つtabを調べてreadyを返す", async () => {
   // 専用Chromeは利用者が普段使いする。tabを2枚開いただけの状態をfailに見せない。
   await withFakeChrome([{ id: "A1", bridge: false }, { id: "B2", bridge: true }], async (endpoint, evaluated) => {
