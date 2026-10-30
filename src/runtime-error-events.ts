@@ -10,7 +10,7 @@ import { runtimeFailureSchema } from "./runtime-failure.js";
 
 export const runtimeOperationSchema = z.enum(["unknown", "setup", "browser_start", "browser_show", "grok_browser_start", "grok_browser_show", "models", "doctor", "chat", "image", "consult", "sessions", "close", "grok-modes", "grok-doctor", "grok-chat", "grok-consult", "grok-sessions", "grok-close", "chatgpt_models", "chatgpt_chat", "chatgpt_image", "chatgpt_close", "diagnostics", "grok_modes", "grok_chat", "grok_consult", "grok_sessions", "grok_diagnostics", "grok_close"]);
 export type RuntimeOperation = z.output<typeof runtimeOperationSchema>;
-export const cdpFailureStageSchema = z.enum(["target_discovery", "websocket_connect", "protocol_call", "transport_closed", "browser_display", "browser_preparation", "unknown"]);
+export const cdpFailureStageSchema = z.enum(["target_discovery", "websocket_connect", "protocol_call", "transport_closed", "browser_display", "browser_preparation", "browser_endpoint_wait", "unknown"]);
 export const cdpFailureReasonSchema = z.enum(["connection_failed", "http_error", "invalid_response", "target_missing", "invalid_endpoint", "timeout", "closed", "transport_error", "display_failed", "unknown"]);
 
 export function runtimeOperationFromCli(argv: readonly string[]): RuntimeOperation {
@@ -52,7 +52,7 @@ const eventsSchema = z.array(eventSchema).max(128);
 /** Bounded private diagnostics, separate from cumulative repair registrations. */
 export function readRuntimeErrorEvents(options: RuntimeErrorOptions = {}) {
   const path = `${options.storePath ?? defaultRuntimeErrorStorePath(options.env)}.events`;
-  return [...readEventFile(path, options), ...readEventFile(`${path}.v2`, options)]
+  return [...readEventFile(path, options), ...readEventFile(`${path}.v2`, options), ...readEventFile(`${path}.v3`, options)]
     .sort((left, right) => left.observed_at.localeCompare(right.observed_at)).slice(-128);
 }
 
@@ -70,8 +70,8 @@ function readEventFile(path: string, options: RuntimeErrorOptions) {
 
 export function recordRuntimeErrorEvent(code: string, assessment: FailureAssessment,
   decision: { register: boolean; severity: RuntimeErrorSeverity | null }, options: RuntimeErrorOptions & { fingerprint?: string }) {
-  // Old live clients retain their strict .events reader and writer.
-  const path = `${options.storePath ?? defaultRuntimeErrorStorePath(options.env)}.events.v2`;
+  // Old live clients retain their strict .events/.v2 reader and writer.
+  const path = `${options.storePath ?? defaultRuntimeErrorStorePath(options.env)}.events.v3`;
   ensurePrivateDirectory(dirname(path), options.env, options.windowsAcl);
   const lock = `${path}.lock`;
   const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;

@@ -8,6 +8,22 @@ import { ConnectorError } from "../src/errors.js";
 import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment } from "../src/runtime-error-assessment.js";
 import { readRuntimeErrorEvents, runtimeOperationFromCli } from "../src/runtime-error-events.js";
 
+test("endpoint待ち段階はv3へ残し旧v2の記録を書き換えない", () => {
+  const options = sandbox();
+  recordRuntimeErrorBestEffort(new ConnectorError("CDP_UNAVAILABLE", "old"), { ...options, now: "2026-10-29T00:00:00.000Z" });
+  const store = defaultRuntimeErrorStorePath(options.env);
+  const old = readFileSync(`${store}.events.v3`, "utf8");
+  writeFileSync(`${store}.events.v2`, old, { mode: 0o600 });
+  recordRuntimeErrorBestEffort(new ConnectorError("CDP_UNAVAILABLE", "private-token", { cdpStage: "browser_endpoint_wait", cdpReason: "timeout" }), { ...options, now: "2026-10-30T01:32:26.212Z", operation: "browser_start", entrypoint: "cli" });
+  const event = readRuntimeErrorEvents(options).at(-1)!;
+  assert.equal(event.context?.cdp?.stage, "browser_endpoint_wait");
+  assert.equal(event.context?.cdp?.reason, "timeout");
+  assert.equal(event.decision.severity, "high");
+  assert.equal(readFileSync(`${store}.events.v2`, "utf8"), old);
+  assert.doesNotMatch(readFileSync(`${store}.events.v3`, "utf8"), /private-token/);
+  console.log("SAFE_BROWSER_ENDPOINT_EVENT_JSON", JSON.stringify(event));
+});
+
 test("CDPの操作/段階/固定flagと版を記録し、集約と同じfingerprint/時刻で照合できる", () => {
   const options = sandbox();
   assert.equal(recordRuntimeErrorBestEffort(new ConnectorError("CDP_UNAVAILABLE", "private-prompt", {
@@ -64,7 +80,7 @@ test("取消確認のないAbortという本文だけでは正常な取消と決
   const options = sandbox();
   assert.equal(recordRuntimeErrorBestEffort(error, options), "recorded");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]?.severity, "high");
-  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`, "utf8"), /private|AbortError|token/);
+  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v3`, "utf8"), /private|AbortError|token/);
   const cancelled = new ConnectorError("CHAT_FAILED", "cancelled", { cancellationConfirmed: true });
   assert.equal(recordRuntimeErrorBestEffort(cancelled, options), "disabled");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]?.occurrence_count, 1);
@@ -123,7 +139,7 @@ test("旧eventsを読み、過去の累計を変えずに新しいsetup診断を
   assert.equal(record.error_code, prior.error_code);
   recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret prompt", { runtimeStage: "bridge_bootstrap", runtimeTag: "sender", secret: "private-token" }), options);
   assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context, { source: "public_operation", failures: [{ stage: "bridge_bootstrap", tag: "sender" }] });
-  assert.doesNotMatch(readFileSync(`${store}.events.v2`, "utf8"), /private-token|secret prompt/u);
+  assert.doesNotMatch(readFileSync(`${store}.events.v3`, "utf8"), /private-token|secret prompt/u);
 });
 
 test("不正な診断contextは保存せず、実害の登録を隠さない", () => {
@@ -132,7 +148,7 @@ test("不正な診断contextは保存せず、実害の登録を隠さない", (
   assert.equal(recordRuntimeErrorBestEffort("RUNTIME_DRIFT", { ...options, assessment: { ...failed, cause: "environment", impact: "data_loss" }, context: context as never }), "recorded");
   assert.equal(readRuntimeErrorSnapshot(options).runtime_errors[0]!.severity, "high");
   assert.equal(readRuntimeErrorEvents(options)[0]!.context, undefined);
-  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`, "utf8"), /private-token|secret|private-prompt/u);
+  assert.doesNotMatch(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v3`, "utf8"), /private-token|secret|private-prompt/u);
   recordRuntimeErrorBestEffort(new ConnectorError("RUNTIME_DRIFT", "secret", { runtimeStage: "runtime_discovery", runtimeTag: "private-token" }), options);
   assert.deepEqual(readRuntimeErrorEvents(options).at(-1)?.context?.failures, [{ stage: "unknown", tag: "unknown" }]);
 });
@@ -152,5 +168,5 @@ test("4組の診断付きeventsを128件保持しても読取上限内で、古�
   assert.equal(events.length, 128);
   assert.equal(events[0]!.observed_at, "2026-10-12T00:00:01.000Z");
   assert.equal(events.at(-1)!.observed_at, "2026-10-12T00:02:08.000Z");
-  assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v2`).length < 128 * 1024);
+  assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v3`).length < 128 * 1024);
 });

@@ -15,6 +15,14 @@ const noSleep = async () => {};
 const child = { once: () => undefined };
 const coldEndpoint = () => { let checks = 0; return async () => ++checks > 1; };
 const base = { platform: "darwin" as const, home, processInspector: owned, windowPreparer: async () => "ready" as const, windowShower: async () => "normal" as const, coldTargetCreator: async () => "created-target", coldWindowVerifier: async () => "ready" as const, existingTargetAbsent: async () => false, processHider: async () => {}, processRevealer: async () => {}, processActivator: async () => {}, windowVisibilityVerifier: async () => {} };
+test("Chrome起動後のendpoint待ちtimeoutをapp readinessと区別する", async () => {
+  await assert.rejects(startBrowser({ ...base, endpointReady: async () => false, spawn: () => child, readyDeadlineMs: 5, sleep: noSleep }), (error: unknown) => {
+    assert.ok(error instanceof ConnectorError);
+    assert.equal(error.code, "CDP_UNAVAILABLE");
+    assert.deepEqual(error.details, { cdpStage: "browser_endpoint_wait", cdpReason: "timeout" });
+    return true;
+  });
+});
 test("browser showは正規endpointだけをnormalへ戻しexact PIDをunhide+activateする", async () => { const events: string[] = []; const result = await showBrowser({ ...base, endpointReady: async () => true, windowShower: async () => { events.push("normal"); return "normal"; }, processRevealer: async (pid) => { events.push(`unhide:${pid}`); }, processActivator: async (pid) => { events.push(`activate:${pid}`); } }); assert.deepEqual(result, { ok: true, status: "shown", endpoint: "http://127.0.0.1:9223" }); assert.deepEqual(events, ["normal", "unhide:42", "activate:42"]); });
 test("browser showはbackslashを含むprofile pathも正規所有者として扱う", async () => { const windowsHome = String.raw`C:\factory`; const windowsProfile = resolve(join(windowsHome, ".gpt-connector", "browser-profile")); const result = await showBrowser({ ...base, home: windowsHome, endpointReady: async () => true, processInspector: async () => [{ pid: "42", command: command(windowsProfile) }] }); assert.equal(result.status, "shown"); });
 test("browser showはCDP stale minimizedを許容しつつWindowServer未表示をfail-closedする", async () => { await assert.rejects(showBrowser({ ...base, endpointReady: async () => true, windowShower: async () => "minimized" as never, windowVisibilityVerifier: async () => { throw new Error("not visible"); } }), { code: "CDP_UNAVAILABLE", message: "専用Chromeを表示可能状態へ復帰できませんでした。" }); });

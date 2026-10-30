@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.10 - 2026-10-30
+
+- browser startでChrome起動後のCDP endpoint/所有確認待ちtimeoutを`browser_endpoint_wait`として記録し、アプリ準備待ちや未分類と区別する。既存の失敗判定・重大度を維持する。
+- private診断の保存先を`.events.v3`へ進め、新段階を読めない旧clientの`.events`/`.events.v2`を保持する。新版は3形式を読める。
+
 ## 0.16.9 - 2026-10-28
 
 - setupのMCP version不一致に期待版・安全な応答版・欠測/不正形式の分類と、公開`setup --repair-launch`による修理案内を追加する。既存登録保持、failed/exit1、close失敗保全は維持し、応答の自由文字列は出力しない。

@@ -294,7 +294,7 @@ for (const platform of ["darwin", "linux", "win32"] as const) {
         assert.deepEqual(events[0]!.decision, { register: true, severity: "high" });
         const storePath = defaultRuntimeErrorStorePath(env);
         const store = readFileSync(storePath, "utf8");
-        const eventBytes = readFileSync(`${storePath}.events.v2`, "utf8");
+        const eventBytes = readFileSync(`${storePath}.events.v3`, "utf8");
         assert.doesNotMatch(eventBytes, /private-token/u);
         assert.equal(readRuntimeErrorSnapshot({ env }).runtime_errors[0]!.occurrence_count, 1);
         assert.doesNotMatch(store, /setup_live_check|rspack_runtime|context/u);
@@ -303,7 +303,7 @@ for (const platform of ["darwin", "linux", "win32"] as const) {
         assert.equal(reports, 1);
         assert.equal(readFileSync(path, "utf8"), config);
         assert.equal(readFileSync(storePath, "utf8"), store);
-        assert.equal(readFileSync(`${storePath}.events.v2`, "utf8"), eventBytes);
+        assert.equal(readFileSync(`${storePath}.events.v3`, "utf8"), eventBytes);
         // A complete existing disabled registration must not be re-enabled or probed.
         const source = client === "codex" || client === "grok"
           ? '[mcp_servers.gpt_connector]\ncommand="fixture-mcp"\nenabled=false\n'
