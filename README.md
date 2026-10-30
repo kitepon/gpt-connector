@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.9`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.10`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -275,7 +275,7 @@ collection を開始するのは次のどちらかの時だけです。
 自動登録は操作への影響・対処・復帰の観測で決めます。未送信の接続失敗、認証待ち、確認済みの取消は診断に残し、修理対象に登録しません。
 結果不明の操作失敗は原因未確定・復帰未確認としてhighを維持します。安全な復帰が確認された失敗はwarn、データ喪失・重複実行はhigh、サービス停止はfatalです。回数だけでは重大度を上げません。
 `gpt-connector runtime-errors events --json`は直近128件のcode、時刻、原因の区分、影響、対処、復帰、登録判断を読み取ります。
-診断は端末内のprivateな`runtime-errors.json.events.v2`に保存し（旧`.events`も読めます）、BugHubへ追加フィールドを送信しません。影響未確認は重大度nullです。
+診断は端末内のprivateな`runtime-errors.json.events.v3`に保存し（旧`.events`と`.events.v2`も読めます）、BugHubへ追加フィールドを送信しません。影響未確認は重大度nullです。
 新しい診断には`context.source`（`setup_live_check`または`public_operation`）と、最大4個の固定の失敗段階・契約タグを付けます。未知のタグは`unknown`にし、任意の例外本文・stack・URL・秘密値は残しません。setupのlive検査失敗は`operation_failed`ですが、相談失敗を観測した意味ではありません。原因・対処・復帰が未確定なら`unknown`とし、確認失敗と復帰未確認を根拠にhighを維持します。
 旧eventsは引き続き読めます。context付きeventsは0.16.2以前のstrict readerでは読めないため、巻き戻す前に診断ファイルを保全してください。集約store、snapshot、doctor/setupの公開JSON、BugHub送信形式は変更しません。
 原本、累計、時刻、fingerprintはこの分類変更で訂正しません。過去分の訂正は観測根拠を確認して正規のresolve/reopen入口から行います。

@@ -167,7 +167,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
   const spawn = options.spawn ?? spawnDetached;
   try { await spawnError(spawn(launch.command, launch.args)); } catch (error) { throw launcherError("CDP_UNAVAILABLE", "専用Chromeを起動できませんでした。", error); }
   if (!await waitForOwnedEndpoint(endpointReady, ownershipReady, sleep, Math.max(timeout, adapter.ownershipProbeTimeoutMs ?? 0), Math.max(1, readyDeadline - Date.now()))) {
-    throw new ConnectorError("CDP_UNAVAILABLE", "専用ChromeのCDP endpointと所有者を確認できるまで待機がtimeoutしました。");
+    throw new ConnectorError("CDP_UNAVAILABLE", "専用ChromeのCDP endpointと所有者を確認できるまで待機がtimeoutしました。", { cdpStage: "browser_endpoint_wait", cdpReason: "timeout" });
   }
   await createAndVerifyTarget(coldTargetCreator, coldWindowVerifier, provider);
   const pid = await hideOwnedProcess(processInspector, processHider, Math.max(1, readyDeadline - Date.now()));
