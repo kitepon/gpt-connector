@@ -315,7 +315,7 @@ function displaySocket(display: string): { readonly path: string; readonly numbe
   return { path: `/tmp/.X11-unix/X${match[1]}`, number: match[1] };
 }
 
-function magicCookie(path: string, displayNumber: string): Buffer {
+export function magicCookie(path: string, displayNumber: string): Buffer {
   let file: Buffer;
   try { file = readFileSync(path); } catch (cause) { throw new Error("X11の認証情報を読めませんでした。", { cause }); }
   let offset = 0;
@@ -328,7 +328,7 @@ function magicCookie(path: string, displayNumber: string): Buffer {
     const name = file.subarray(offset, offset + nameLength).toString(); offset += nameLength;
     const dataLength = file.readUInt16BE(offset); offset += 2;
     const data = file.subarray(offset, offset + dataLength); offset += dataLength;
-    if (number === displayNumber && name === "MIT-MAGIC-COOKIE-1") return Buffer.from(data);
+    if ((number === "" || number === displayNumber) && name === "MIT-MAGIC-COOKIE-1") return Buffer.from(data);
   }
   throw new Error("X11の認証情報を読めませんでした。");
 }
