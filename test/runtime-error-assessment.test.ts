@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { ConnectorError } from "../src/errors.js";
 import { assessRuntimeFailure, runtimeFailureDecision, type FailureAssessment } from "../src/runtime-error-assessment.js";
-import { readRuntimeErrorEvents, runtimeOperationFromCli } from "../src/runtime-error-events.js";
+import { cliFailureExitCode, readRuntimeErrorEvents, runtimeOperationFromCli } from "../src/runtime-error-events.js";
 
 test("endpoint待ち段階はv3へ残し旧v2の記録を書き換えない", () => {
   const options = sandbox();
@@ -169,4 +169,15 @@ test("4組の診断付きeventsを128件保持しても読取上限内で、古�
   assert.equal(events[0]!.observed_at, "2026-10-12T00:00:01.000Z");
   assert.equal(events.at(-1)!.observed_at, "2026-10-12T00:02:08.000Z");
   assert.ok(readFileSync(`${defaultRuntimeErrorStorePath(options.env)}.events.v3`).length < 128 * 1024);
+});
+
+test("browser startのログイン待ちだけ終了2にし、他の失敗と他操作のAUTH_REQUIREDは終了1のまま", () => {
+  const auth = new ConnectorError("AUTH_REQUIRED", "login");
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["browser", "start"]), auth), 2);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["browser", "start", "--provider", "grok"]), auth), 2);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["browser", "start"]), new ConnectorError("CDP_UNAVAILABLE", "down")), 1);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["browser", "start"]), new Error("boom")), 1);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["browser", "show"]), auth), 1);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["chat", "--prompt", "x"]), auth), 1);
+  assert.equal(cliFailureExitCode(runtimeOperationFromCli(["setup"]), auth), 1);
 });

@@ -3,6 +3,7 @@ import { closeSync, lstatSync, openSync, readFileSync, renameSync, rmSync, write
 import { dirname } from "node:path";
 import { z } from "zod";
 
+import { ConnectorError } from "./errors.js";
 import { assertPrivate, defaultRuntimeErrorStorePath, ensurePrivateDirectory, makeFilePrivate } from "./platform/state.js";
 import type { FailureAssessment, RuntimeErrorSeverity } from "./runtime-error-assessment.js";
 import type { RuntimeErrorOptions } from "./runtime-error-store.js";
@@ -18,6 +19,12 @@ export function runtimeOperationFromCli(argv: readonly string[]): RuntimeOperati
   const name = argv[0] === "browser" ? `${provider >= 0 && argv[provider + 1] === "grok" ? "grok_" : ""}browser_${argv[1]}` : argv[0];
   const parsed = runtimeOperationSchema.safeParse(name);
   return parsed.success ? parsed.data : "unknown";
+}
+
+// browser startのログイン待ちは専用Chromeが起動済みなので、起動失敗(1)と区別して2を返し、serviceが同じChromeを保てるようにする。
+export function cliFailureExitCode(operation: RuntimeOperation, error: unknown): 1 | 2 {
+  const authRequired = error instanceof ConnectorError && error.code === "AUTH_REQUIRED";
+  return authRequired && (operation === "browser_start" || operation === "grok_browser_start") ? 2 : 1;
 }
 
 export const runtimeErrorContextSchema = z.object({

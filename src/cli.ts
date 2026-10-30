@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readRuntimeErrorEvents, runtimeOperationFromCli } from "./runtime-error-events.js";
+import { cliFailureExitCode, readRuntimeErrorEvents, runtimeOperationFromCli } from "./runtime-error-events.js";
 
 import { GptConnector } from "./connector.js";
 import { GrokConnector } from "./grok-connector.js";
@@ -394,7 +394,8 @@ async function runtimeErrors(argv: readonly string[]): Promise<unknown> {
 }
 
 main().catch(async (error: unknown) => {
-  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error, { operation: runtimeOperationFromCli(process.argv.slice(2)), entrypoint: "cli" }) : "disabled";
+  const operation = runtimeOperationFromCli(process.argv.slice(2));
+  const telemetry = error instanceof ConnectorError ? recordRuntimeErrorBestEffort(error, { operation, entrypoint: "cli" }) : "disabled";
   if (telemetry === "store_unavailable") process.stderr.write(runtimeErrorStoreDiagnostic);
   if (telemetry === "recorded") await reportRuntimeErrorsBestEffort();
   if (error instanceof ConnectorError) {
@@ -402,5 +403,5 @@ main().catch(async (error: unknown) => {
   } else {
     process.stderr.write(`${JSON.stringify({ code: "INVALID_INPUT", message: "CLI commandを実行できませんでした。" })}\n`);
   }
-  process.exitCode = 1;
+  process.exitCode = cliFailureExitCode(operation, error);
 });
