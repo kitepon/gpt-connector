@@ -71,17 +71,32 @@ async function inspectState(stateDirectory?: string): Promise<"ready" | "not_rea
   }
 }
 
+// shortcut: 4s per CDP step keeps the whole probe under the factory reporter's 20s CLI budget even when the
+// in-page session fetch stalls on a network flap (Rabbit 2026-10-30 09:18Z); raise only with that budget.
+const probeTimeoutMs = 4_000;
+
 async function inspectRuntime(endpoint: string, includeContext: boolean): Promise<RuntimeProbe> {
   let client: CdpClient | undefined;
   try {
-    const target = await discoverChatGptTarget(endpoint);
-    client = await CdpClient.connect(target.webSocketDebuggerUrl);
+    const boundedFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, { ...init, signal: AbortSignal.timeout(probeTimeoutMs) })) as typeof fetch;
+    const target = await discoverChatGptTarget(endpoint, boundedFetch);
+    client = await CdpClient.connect(target.webSocketDebuggerUrl, probeTimeoutMs);
     await client.call("Runtime.enable");
     const result = await evaluateByValue<FactoryRuntimeObservation>(client, factoryRuntimeObservationExpression(bridgeBuildId));
     // A missing bridge still means unverified; preserving detail does not initialize it.
     return projectFactoryRuntimeObservation(result, includeContext);
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "INVALID_INPUT") throw error;
+    if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" && error.details?.cdpReason === "timeout") {
+      // A stalled tab is unverified for this run, not a CDP failure: presence must survive the reporter budget.
+      return {
+        cdp: check("cdp", "unverified", "cdp_probe_timeout"),
+        origin: check("official_origin", "unverified", "cdp_not_inspected"),
+        auth: check("auth", "unverified", "cdp_not_inspected"),
+        bridge: check("runtime_bridge", "unverified", "cdp_not_inspected"),
+      };
+    }
     if (
       error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" &&
       (error.details?.unreachable === true || error.details?.targetMissing === true)
