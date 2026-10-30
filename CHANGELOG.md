@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.11 - 2026-10-30
+
+- Linux X11認証でXwaylandが使う空display番号のMIT-MAGIC-COOKIEを受け入れる。別の明示display番号の認証情報は引き続き選ばず、cookieを出力・コピーしない。
+
 ## 0.16.10 - 2026-10-30
 
 - browser startでChrome起動後のCDP endpoint/所有確認待ちtimeoutを`browser_endpoint_wait`として記録し、アプリ準備待ちや未分類と区別する。既存の失敗判定・重大度を維持する。

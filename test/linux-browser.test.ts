@@ -6,7 +6,25 @@ import { join } from "node:path";
 import test from "node:test";
 import { showBrowser, startBrowser } from "../src/browser-launcher.js";
 import { chromeLaunchCommand, chromeOwnerPids, hideProcess, inspectListenerProcesses, isOwnedChromeProcess, parseListenInodes, revealProcess, activateProcess, verifyWindowVisibility, type ProcIo } from "../src/platform/linux-browser.js";
-import { LinuxX11, displayFromEnviron, isGoogleChromeClass, listLocalDisplays, mapStateFromAttributesReply, normalizeDisplay } from "../src/platform/linux-x11.js";
+import { LinuxX11, displayFromEnviron, isGoogleChromeClass, listLocalDisplays, magicCookie, mapStateFromAttributesReply, normalizeDisplay } from "../src/platform/linux-x11.js";
+
+test("Xwaylandの空display番号の認証を選び、別の明示番号を混同しない", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gpt-xauth-"));
+  const path = join(root, "authority");
+  const entry = (number: string, data: string) => {
+    const family = Buffer.from([1, 0]);
+    return Buffer.concat([family, ...["rabbit", number, "MIT-MAGIC-COOKIE-1", data].map(s => {
+      const b = Buffer.from(s); const length = Buffer.alloc(2); length.writeUInt16BE(b.length); return Buffer.concat([length, b]);
+    })]);
+  };
+  try {
+    await writeFile(path, Buffer.concat([entry("1", "other-display"), entry("", "fixture-cookie")]));
+    assert.equal(magicCookie(path, "0").toString(), "fixture-cookie");
+    assert.equal(magicCookie(path, "1").toString(), "other-display");
+    await writeFile(path, entry("1", "other-display"));
+    assert.throws(() => magicCookie(path, "0"), /認証情報を読めません/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 const executable = "/opt/google/chrome/chrome";
 const owner = (profile: string) => ({ pid: "42", executable, command: "", args: [executable, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223", `--user-data-dir=${profile}`] });
