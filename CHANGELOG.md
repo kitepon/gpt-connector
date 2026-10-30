@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.12 - 2026-10-30
+
+- `browser start`がログイン待ち（`AUTH_REQUIRED`）で止まる時は終了2を返す。専用Chromeは表示したまま残し、他の起動失敗は引き続き終了1にする。常駐serviceは`SuccessExitStatus=2`でログイン待ちのChromeを保てる。
+
 ## 0.16.11 - 2026-10-30
 
 - Linux X11認証でXwaylandが使う空display番号のMIT-MAGIC-COOKIEを受け入れる。別の明示display番号の認証情報は引き続き選ばず、cookieを出力・コピーしない。

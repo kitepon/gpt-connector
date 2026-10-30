@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.11"
+gpt_connector_version="0.16.12"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -161,7 +161,7 @@ Chrome更新時のsmokeは`browser start`、`models`、hidden中の最小Chat、
 
 ## 既存の起動先を明示的に修理する
 
-`setup --repair-launch`は既存の`gpt_connector`登録のcommand/argsだけを、実行中の製品のNodeとMCP scriptへ更新する。通常setupの既存値保持は変更しない。旧導入先を撤去するとき、公開版を製品所有の通常npm prefixへ導入してから実行する。`npm install --global --prefix <製品所有先> gpt-connector@0.16.11`のようにprefixを指定した場合、setupにも同じ`npm_config_prefix`を渡す。
+`setup --repair-launch`は既存の`gpt_connector`登録のcommand/argsだけを、実行中の製品のNodeとMCP scriptへ更新する。通常setupの既存値保持は変更しない。旧導入先を撤去するとき、公開版を製品所有の通常npm prefixへ導入してから実行する。`npm install --global --prefix <製品所有先> gpt-connector@0.16.12`のようにprefixを指定した場合、setupにも同じ`npm_config_prefix`を渡す。
 
 認識する旧起動は`gpt-connector-mcp`（Windowsのcmd/ps1を含む）、またはNodeと絶対パスの`gpt-connector/dist/src/mcp.js`の組合せ。NodeのCA選択flagは位置と順序を保ち、script以後の引数はscript引数のまま保持する。未知wrapper、remote登録、その他のNode起動flag、既存登録が無い場合は書込み前に拒否する。
 
