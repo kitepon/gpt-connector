@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.13"
+gpt_connector_version="0.16.14"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -129,6 +129,7 @@ Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む�
 setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しない。`cdp_unavailable`なら既存`startBrowser`を呼び、再診断する。
 認証待ちでは既存`showBrowser`、または`startBrowser`自身の認証復帰処理で専用Chromeを表示してから停止する。
 人がログインした後、同じsetupを再実行する。`/api/auth/session`とページ本体の認証状態が一致しない場合も、公式runtimeがログアウト状態ならログインを案内する。
+`/api/auth/session`のfetch自体が網の不良で失敗した時は`CDP_UNAVAILABLE`（`unreachable`）で待機・再試行の対象にし、`RUNTIME_DRIFT`にしない。`browser start`は到達不能の間ページを再読込しながらdeadlineまで待つ。
 
 `browser start`はcold startで窓なしChromeのCDP browser endpointから指定providerのbackground targetを作る。
 macOSでは正規PIDをAppKit `hidden`へ移し、WindowServer layer 0の表示window 0件を確認する。`browser show`は同じPIDをunhide／activateし、表示window 1件以上を確認する。

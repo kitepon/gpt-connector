@@ -210,7 +210,25 @@ interface AuthProbe {
   readonly status: number;
   readonly authenticated: boolean;
   readonly officialOrigin: boolean;
+  readonly unreachable?: boolean;
 }
+
+/** Runs in the ChatGPT page main world. A fetch rejection is the page failing to reach ChatGPT (offline, DNS, error page), not a runtime contract change. */
+export const authProbeExpression = String.raw`(async () => {
+  const officialOrigin = location.origin === "https://chatgpt.com";
+  let response;
+  try {
+    response = await fetch("/api/auth/session", { credentials: "include" });
+  } catch {
+    return { status: 0, authenticated: false, officialOrigin, unreachable: true };
+  }
+  let authenticated = false;
+  if (response.ok) {
+    const data = await response.json();
+    authenticated = Boolean(data?.user);
+  }
+  return { status: response.status, authenticated, officialOrigin };
+})()`;
 
 export class GptConnector {
   readonly #client: CdpClient;
@@ -1059,24 +1077,12 @@ export class GptConnector {
   }
 
   async #bootstrap(): Promise<void> {
-    const auth = await evaluateByValue<AuthProbe>(
-      this.#client,
-      String.raw`(async () => {
-        const response = await fetch("/api/auth/session", { credentials: "include" });
-        let authenticated = false;
-        if (response.ok) {
-          const data = await response.json();
-          authenticated = Boolean(data?.user);
-        }
-        return {
-          status: response.status,
-          authenticated,
-          officialOrigin: location.origin === "https://chatgpt.com"
-        };
-      })()`,
-      true, "authentication",
-    );
+    const auth = await evaluateByValue<AuthProbe>(this.#client, authProbeExpression, true, "authentication");
 
+    if (auth.unreachable === true) {
+      // 通信不良は待機・再試行の対象で、不具合（RUNTIME_DRIFT）に登録しない。error pageでは公式origin判定より先に出る。
+      throw new ConnectorError("CDP_UNAVAILABLE", "ChatGPTページから認証確認の通信ができませんでした。網の回復後に再試行してください。", { unreachable: true, cdpStage: "protocol_call", cdpReason: "connection_failed" });
+    }
     if (!auth.officialOrigin) {
       throw new ConnectorError("RUNTIME_DRIFT", "page targetがChatGPT公式originではありません。", runtimeFailureDetails({ stage: "authentication", tag: "official_origin" }));
     }
