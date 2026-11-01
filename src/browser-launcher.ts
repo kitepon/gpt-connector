@@ -24,6 +24,7 @@ type ProcessHider = (pid: number, timeoutMs: number) => Promise<void>;
 type ProcessRevealer = (pid: number, timeoutMs: number) => Promise<void>;
 type ProcessActivator = (pid: number, timeoutMs: number) => Promise<void>;
 type WindowVisibilityVerifier = (pid: number, expectedVisible: boolean, timeoutMs: number) => Promise<void>;
+type PageReloader = () => Promise<void>;
 interface BrowserOptions {
   readonly provider?: "chatgpt" | "grok";
   readonly stateDirectory?: string;
@@ -46,6 +47,7 @@ interface BrowserOptions {
   readonly processRevealer?: ProcessRevealer;
   readonly processActivator?: ProcessActivator;
   readonly windowVisibilityVerifier?: WindowVisibilityVerifier;
+  readonly pageReloader?: PageReloader;
   readonly probeTimeoutMs?: number;
   readonly appProbeTimeoutMs?: number;
   readonly readyDeadlineMs?: number;
@@ -61,6 +63,7 @@ const appProbeTimeoutMs = 3_000;
 const readyDeadlineMs = 30_000;
 const ownershipProbeGraceMs = 3_000;
 const windowVisibilityGraceMs = 5_000;
+const pageReloadIntervalMs = 2_000;
 const lockWaitMarginMs = 1_000;
 const inFlight = new Map<"chatgpt" | "grok", Promise<BrowserLaunchResult>>();
 
@@ -135,6 +138,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
   const coldTargetCreator = options.coldTargetCreator ?? (() => createBackgroundProviderTarget(fetcher, appTimeout, provider));
   const coldWindowVerifier = options.coldWindowVerifier ?? ((targetId) => verifyCreatedProviderWindow(fetcher, appTimeout, targetId, provider));
   const windowShower = options.windowShower ?? (() => showProviderWindow(fetcher, appTimeout, provider));
+  const pageReloader = options.pageReloader ?? (() => reloadProviderPage(fetcher, appTimeout, provider));
   const existingTargetAbsent = options.existingTargetAbsent ?? (() => providerTargetAbsent(fetcher, provider));
   const processHider = options.processHider ?? hideProcess;
   const processRevealer = options.processRevealer ?? revealProcess;
@@ -156,11 +160,11 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
     if (await existingTargetAbsent()) {
       await createAndVerifyTarget(coldTargetCreator, coldWindowVerifier, provider);
       const pid = await hideOwnedProcess(processInspector, processHider, Math.max(1, readyDeadline - Date.now()));
-      const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "already_ready", provider); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
+      const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "already_ready", provider, pageReloader); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
     }
     await prepareReadyWindow(windowPreparer, provider);
     const pid = await hideOwnedProcess(processInspector, processHider, Math.max(1, readyDeadline - Date.now()));
-    const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "already_ready", provider); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
+    const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "already_ready", provider, pageReloader); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
   }
 
   const launch = chromeLaunchCommand(profile);
@@ -171,7 +175,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
   }
   await createAndVerifyTarget(coldTargetCreator, coldWindowVerifier, provider);
   const pid = await hideOwnedProcess(processInspector, processHider, Math.max(1, readyDeadline - Date.now()));
-  const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "started", provider); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
+  const result = await waitForReadyWithAuthRecovery(appReady, sleep, appTimeout, Math.max(1, readyDeadline - Date.now()), authShow, "started", provider, pageReloader); await visibilityVerifier(await stableOwnedListenerPid(processInspector, pid), false, visibilityTimeout()); return result;
 }
 
 async function createAndVerifyTarget(create: ColdTargetCreator, verify: ColdWindowVerifier, provider: "chatgpt" | "grok"): Promise<void> { try { const targetId = await create(); if (targetId.length === 0) throw new Error("CDP targetIdが不正です"); if (await verify(targetId) !== "ready") throw new Error("CDP windowを確認できません"); } catch (error) { throw browserWindowError(`専用Chromeの${providerName(provider)} targetを作成・確認できませんでした。`, error); } }
@@ -192,9 +196,9 @@ async function showOwnedWindow(inspect: ProcessInspector, shower: WindowShower, 
     Object.keys(details).length ? details : undefined, { cause: error });
   }
 }
-async function waitForReadyWithAuthRecovery(appReady: Readiness, sleep: (milliseconds: number) => Promise<void>, timeout: number, deadline: number, recover: () => Promise<void>, status: BrowserLaunchResult["status"], provider: "chatgpt" | "grok"): Promise<BrowserLaunchResult> {
+async function waitForReadyWithAuthRecovery(appReady: Readiness, sleep: (milliseconds: number) => Promise<void>, timeout: number, deadline: number, recover: () => Promise<void>, status: BrowserLaunchResult["status"], provider: "chatgpt" | "grok", reload: PageReloader): Promise<BrowserLaunchResult> {
   try {
-    if (await waitForApp(appReady, sleep, timeout, deadline)) return { ok: true, status, endpoint };
+    if (await waitForApp(appReady, sleep, timeout, deadline, reload)) return { ok: true, status, endpoint };
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "AUTH_REQUIRED") {
       await recover();
@@ -259,6 +263,12 @@ async function showProviderWindow(fetcher: typeof globalThis.fetch, timeoutMs: n
   } finally { client.close(); }
 }
 
+async function reloadProviderPage(fetcher: typeof globalThis.fetch, timeoutMs: number, provider: "chatgpt" | "grok"): Promise<void> {
+  const target = await discoverProviderTarget(endpoint, provider, fetcher);
+  const client = await CdpClient.connect(target.webSocketDebuggerUrl, timeoutMs);
+  try { await client.call("Page.reload", { ignoreCache: true }, timeoutMs); } finally { client.close(); }
+}
+
 async function createBackgroundProviderTarget(fetcher: typeof globalThis.fetch, timeoutMs: number, provider: "chatgpt" | "grok"): Promise<string> {
   let response: Response;
   try {
@@ -298,20 +308,26 @@ function timedFetch(fetcher: typeof globalThis.fetch, timeoutMs: number): typeof
   return (input, init) => fetcher(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
-async function waitForApp(appReady: Readiness, sleep: (milliseconds: number) => Promise<void>, timeoutMs: number, deadlineMs: number): Promise<boolean> {
+async function waitForApp(appReady: Readiness, sleep: (milliseconds: number) => Promise<void>, timeoutMs: number, deadlineMs: number, reload: PageReloader): Promise<boolean> {
   const deadline = Date.now() + deadlineMs;
-  let lastRuntimeDrift: ConnectorError | undefined;
+  let lastPersistent: ConnectorError | undefined;
+  let lastReloadAt = 0;
   while (Date.now() < deadline) {
     try {
       if (await bounded(appReady(), Math.min(timeoutMs, Math.max(1, deadline - Date.now())), "ChatGPT app確認がtimeoutしました")) return true;
     } catch (error) {
       if (error instanceof ConnectorError && error.code === "AUTH_REQUIRED") throw error;
-      if (error instanceof ConnectorError && error.code === "RUNTIME_DRIFT") lastRuntimeDrift = error;
+      if (error instanceof ConnectorError && error.code === "RUNTIME_DRIFT") lastPersistent = error;
+      if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" && error.details?.unreachable === true) {
+        // 網の不良でpageがChatGPTへ届かない。hidden tabはChromeが自動再読込しないので、回復を拾うため間隔を置いて再読込する。
+        lastPersistent = new ConnectorError("CDP_UNAVAILABLE", "ChatGPTページが網の回復を待つ間に待機がtimeoutしました。", { unreachable: true, cdpStage: "browser_preparation", cdpReason: "timeout" });
+        if (Date.now() - lastReloadAt >= pageReloadIntervalMs) { lastReloadAt = Date.now(); await reload().catch(() => { /* 次のprobeが結果を示す */ }); }
+      }
       // SPA初期化中のbridge/catalog probe timeoutは全体deadlineまで再試行する。
     }
     await sleep(Math.min(200, Math.max(0, deadline - Date.now())));
   }
-  if (lastRuntimeDrift !== undefined) throw lastRuntimeDrift;
+  if (lastPersistent !== undefined) throw lastPersistent;
   return false;
 }
 
@@ -405,6 +421,8 @@ async function ready(fetcher: typeof globalThis.fetch, cdpTimeoutMs: number, ope
     return true;
   } catch (error) {
     if (error instanceof ConnectorError && (error.code === "AUTH_REQUIRED" || error.code === "RUNTIME_DRIFT")) throw error;
+    // pageの認証確認fetchが網の不良で失敗した時だけ（stage protocol_call）。CDP自体の到達不能は従来どおり再試行だけ。
+    if (error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" && error.details?.unreachable === true && error.details.cdpStage === "protocol_call") throw error;
     return false;
   } finally { connector?.close(); }
 }

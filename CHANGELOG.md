@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.14 - 2026-11-01
+
+- ChatGPTページ内の認証確認fetchが網の不良（offline・DNS・error page）で失敗した時は`CDP_UNAVAILABLE`（unreachable）にし、`RUNTIME_DRIFT`として不具合登録しない。Rabbitの再起動直後、網が整う前の`browser start`が3回これを重大driftとして登録していた。
+- `browser start`は到達不能の間、hidden tabを2秒おきに再読込しながら待機deadlineまで待つ。回復しなければ同じunreachableのtimeoutで終了1を返し、常駐serviceの再試行に任せる。ログイン待ちの終了2、他の起動失敗の判定・重大度は変えない。
+
 ## 0.16.13 - 2026-10-30
 
 - `factory-diagnostics`のCDP探査（target一覧・接続・各呼出し）を4秒ずつで打ち切り、ChatGPT tabの応答が止まっている時は`cdp: unverified`（reason `cdp_probe_timeout`）を返す。page内の認証確認fetchが網の揺れで止まると、工場reporterの20秒予算を超えてpresenceが「確認できていません」になっていた。
