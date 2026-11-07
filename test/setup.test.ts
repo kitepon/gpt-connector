@@ -349,3 +349,9 @@ test("browser CDP_UNAVAILABLE failure carries only the fixed cdp fields", async 
     cdp: { stage: "browser_preparation", reason: "timeout", target_missing: null, unreachable: true, before_submission: null } });
   assert.doesNotMatch(JSON.stringify(result), /private-detail/u);
 });
+
+test("check reports a login wait as action_required without showing the window", async () => {
+  const deps = { doctor: async () => diagnosis("auth_required"), startBrowser: async () => { throw new Error("unexpected start"); }, showBrowser: async () => { throw new Error("unexpected show"); } };
+  assert.deepEqual(await prepareBrowser(deps, undefined, true), { status: "action_required", reason: "auth_required" });
+  assert.deepEqual(await prepareBrowser({ ...deps, doctor: async () => diagnosis("cdp_unavailable") }, undefined, true), { status: "not_ready", reason: "cdp_unavailable" });
+});

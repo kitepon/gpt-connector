@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.16"
+gpt_connector_version="0.16.17"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -27,6 +27,7 @@ gpt-connector setup --check
 
 `--check`はnpm導入・設定書込み・browser start/showを実行しない。Chromeの表示状態も変えず、
 現在の登録・MCP応答・state・live・Codex Steerの状態を診断する。setup確認のためにChat、upload、conversationは作らない。
+ログイン待ち（`auth_required`）は窓を表示せず`live.status: action_required`とし、`overall`も`action_required`にする。ほかの未準備は`not_ready`（`failed`）のまま。
 
 Mac、Windows、LinuxでCodexを登録する時は、同梱コードでCodexへのSteer接続も導入する。公式Codex Desktopの同梱CLIを先に使い、無ければ通常のCodex CLI（0.154以上）を使う。Aitermは不要。
 `registrations[].codexSteer.status=restart_required`ならCodexを完全終了して再起動する。
