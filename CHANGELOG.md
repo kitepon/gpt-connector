@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.15 - 2026-11-07
+
+- Select the ChatGPT application scope wrapper by its runtime source contract, excluding the React hook. Support the current three-argument wrapper with optional options as well as the previous six-argument form; a changed argument count no longer causes `RUNTIME_DRIFT:scopeWrapper`. Missing or ambiguous wrappers still report genuine runtime drift.
+- Document the bridge function structure, caller connections, data ownership and bootstrap recovery contract.
+
 ## 0.16.14 - 2026-11-01
 
 - ChatGPTページ内の認証確認fetchが網の不良（offline・DNS・error page）で失敗した時は`CDP_UNAVAILABLE`（unreachable）にし、`RUNTIME_DRIFT`として不具合登録しない。Rabbitの再起動直後、網が整う前の`browser start`が3回これを重大driftとして登録していた。
