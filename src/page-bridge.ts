@@ -39,8 +39,8 @@ const bridgeBootstrapSource = String.raw`async function(runtimeUrl, expectedBuil
     try { return value?.__scopeBrand === "AppScope" && value.parent == null; }
     catch { return false; }
   }));
-  const scopeWrapper = bySource("scopeWrapper", (source, value) =>
-    value.length === 6 && source.includes("getOwnValue") &&
+  const scopeWrapper = bySource("scopeWrapper", (source) =>
+    !source.includes("useContext") && source.includes("getOwnValue") &&
     source.includes("queryClient") && /watch=[\w$]+/.test(source)
   );
   const atomModule = unique("atomModule", Object.entries(runtime.c).filter(([, module]) =>

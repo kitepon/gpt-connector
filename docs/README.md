@@ -6,6 +6,7 @@ diagnostics、recovery、update、releaseを所有する。dotagentsは任意の
 
 ## 現行文書
 
+- [ChatGPT runtime bridge contract](runtime-bridge-contract.md): 関数構造、呼出し接続、データ所有権と初期化失敗からの復帰。
 - [README](../README.md): 人間向けの導入、browser運用、ChatGPT／GrokのCLI・MCP、並行相談、session、diagnostics、更新と復旧。
 - [AI installer向けセットアップ契約](ai-installer-setup-contract.md): `setup`による初回・更新・再実行、4AI登録、OS別機能、手動ログインと停止条件。
 - [native attachment契約](native-attachment-contract.md): ChatGPTの添付、job、並行実行時のstate、recoveryの公開契約。Grok Chatのmodeと回答項目は[READMEのGrok節](../README.md#source-setup)と[実測記録](https://github.com/kitepon/gpt-connector/blob/main/rag/grok/observations.md)を参照。
