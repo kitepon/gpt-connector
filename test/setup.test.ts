@@ -47,6 +47,7 @@ test("手動ログイン待ちは成功にせず、再実行で続行できる",
 
 test("準備失敗・表示失敗・runtime driftを成功にしない", async () => {
   await assert.rejects(prepareBrowser({ doctor: async () => diagnosis("cdp_unavailable"), startBrowser: async () => { throw new ConnectorError("RUNTIME_DRIFT", "fixture"); }, showBrowser: async () => { throw new Error("unexpected show"); } }), { code: "RUNTIME_DRIFT" });
+  // Non-product exceptions during show are still failures.
   await assert.rejects(prepareBrowser({ doctor: async () => diagnosis("auth_required"), startBrowser: async () => { throw new Error("unexpected start"); }, showBrowser: async () => { throw new Error("show failed"); } }), /show failed/);
   assert.equal((await prepareBrowser({ doctor: async () => diagnosis("runtime_drift"), startBrowser: async () => { throw new Error("unexpected start"); }, showBrowser: async () => { throw new Error("unexpected show"); } })).status, "failed");
 });
@@ -329,3 +330,22 @@ for (const platform of ["darwin", "linux", "win32"] as const) {
     });
   }
 }
+
+test("ログイン待ちで専用Chromeを表示できなくても、failedにせずaction_requiredと表示失敗を返す", async () => {
+  const result = await prepareBrowser({ doctor: async () => diagnosis("auth_required"), startBrowser: async () => { throw new Error("unexpected start"); },
+    showBrowser: async () => { throw new ConnectorError("CDP_UNAVAILABLE", "fixture", { cdpStage: "browser_display", cdpReason: "display_failed" }); } });
+  assert.equal(result.status, "action_required");
+  assert.equal(result.reason, "auth_required");
+  assert.deepEqual(result.display, { status: "failed", code: "CDP_UNAVAILABLE",
+    cdp: { stage: "browser_display", reason: "display_failed", target_missing: null, unreachable: null, before_submission: null } });
+  assert.match(result.next ?? "", /browser show/);
+});
+
+test("browser CDP_UNAVAILABLE failure carries only the fixed cdp fields", async () => {
+  const result = await setup({}, { ...setupPorts("linux"),
+    browser: async () => { throw new ConnectorError("CDP_UNAVAILABLE", "private-detail", { cdpStage: "browser_preparation", cdpReason: "timeout", unreachable: true }); } });
+  assert.equal(result.overall, "failed");
+  assert.deepEqual(result.registrations[0]!.failure, { stage: "browser", code: "CDP_UNAVAILABLE",
+    cdp: { stage: "browser_preparation", reason: "timeout", target_missing: null, unreachable: true, before_submission: null } });
+  assert.doesNotMatch(JSON.stringify(result), /private-detail/u);
+});

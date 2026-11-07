@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.16 - 2026-11-08
+
+- `setup`: when ChatGPT login is required but the dedicated Chrome window cannot be shown (for example in an unattended scheduled run), return `action_required` / `auth_required` with `live.display` (`failed`, the public code and fixed `cdp` fields) instead of letting the display failure turn the run into `failed` / `CDP_UNAVAILABLE`. Non-product exceptions still fail.
+- `setup`: a browser-stage `CDP_UNAVAILABLE` failure now carries the same fixed, non-secret `cdp` fields as runtime error events (stage, reason, target_missing, unreachable, before_submission), so the failing launcher step is visible in saved setup output.
+
 ## 0.16.15 - 2026-11-07
 
 - Select the ChatGPT application scope wrapper by its runtime source contract, excluding the React hook. Support the current three-argument wrapper with optional options as well as the previous six-argument form; a changed argument count no longer causes `RUNTIME_DRIFT:scopeWrapper`. Missing or ambiguous wrappers still report genuine runtime drift.

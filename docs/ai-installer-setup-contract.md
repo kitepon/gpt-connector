@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.15"
+gpt_connector_version="0.16.16"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -119,6 +119,7 @@ Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む�
 `SETUP_PACKAGE_FAILED`はnpm導入・引継ぎ、`SETUP_REGISTRATION_FAILED`は設定読取・構文・保存、
 `SETUP_MCP_FAILED`はcommand解決・版・stdio応答、`SETUP_STATE_FAILED`はstate読取、
 `SETUP_BROWSER_FAILED`はブラウザ準備の失敗を示す。既存の`ConnectorError`ではその公開codeを返す。
+`CDP_UNAVAILABLE`の失敗には、runtime error eventと同じ安全な`cdp`（stage・reason・target_missing・unreachable・before_submission）を添える。
 
 各AIは新しいセッションで設定を読む。`clientActivation = new_client_session_required`は既存AIセッションへの反映済みを意味しない。
 最終導入確認では対象AI自身から登録・read-only toolを確認する。Codex project設定ではtrusted projectを開く。
@@ -128,6 +129,7 @@ Linuxは公式Google ChromeとローカルX11があるときlive準備へ進む�
 専用profileは`~/.gpt-connector/browser-profile`、製品が起動・表示を所有するendpointは`http://127.0.0.1:9223`。
 setupは各登録のenvでdoctorを実行し、`ready`なら重複起動しない。`cdp_unavailable`なら既存`startBrowser`を呼び、再診断する。
 認証待ちでは既存`showBrowser`、または`startBrowser`自身の認証復帰処理で専用Chromeを表示してから停止する。
+表示に失敗しても（無人実行で対話画面へ出せない等）ログイン待ちは変わらないため、`action_required`／`auth_required`を返し、`live.display`に`failed`と表示失敗の公開codeと`cdp`を添える。表示失敗でログイン待ちを`failed`へ上書きしない。`ConnectorError`以外の例外は従来どおり失敗にする。
 人がログインした後、同じsetupを再実行する。`/api/auth/session`とページ本体の認証状態が一致しない場合も、公式runtimeがログアウト状態ならログインを案内する。
 `/api/auth/session`のfetch自体が網の不良で失敗した時は`CDP_UNAVAILABLE`（`unreachable`）で待機・再試行の対象にし、`RUNTIME_DRIFT`にしない。`browser start`は到達不能の間ページを再読込しながらdeadlineまで待つ。
 

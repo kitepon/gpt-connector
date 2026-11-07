@@ -142,6 +142,17 @@ export function getRuntimeErrorDiagnostics(options: RuntimeErrorOptions = {}) {
   try { return diagnostics("enabled", "ready", readStore(options, true)); } catch { return diagnostics("enabled", "unavailable", emptyStore()); }
 }
 
+/** Fixed, non-secret CDP failure fields shared by runtime events and setup output. */
+export function cdpFailureContext(error: ConnectorError) {
+  return {
+    stage: cdpFailureStageSchema.safeParse(error.details?.cdpStage).data ?? "unknown",
+    reason: cdpFailureReasonSchema.safeParse(error.details?.cdpReason).data ?? "unknown",
+    target_missing: typeof error.details?.targetMissing === "boolean" ? error.details.targetMissing : null,
+    unreachable: typeof error.details?.unreachable === "boolean" ? error.details.unreachable : null,
+    before_submission: typeof error.details?.beforeSubmission === "boolean" ? error.details.beforeSubmission : null,
+  };
+}
+
 /** Adapter-only telemetry hook. It accepts only registered public failure codes and never throws. */
 export function recordRuntimeErrorBestEffort(error: string | ConnectorError, options: RuntimeErrorOptions = {}): "recorded" | "disabled" | "store_unavailable" {
   const code = typeof error === "string" ? error : error.code;
@@ -154,13 +165,7 @@ export function recordRuntimeErrorBestEffort(error: string | ConnectorError, opt
   const context = options.context ?? (error instanceof ConnectorError ? {
     source: "public_operation" as const, failures: code === "RUNTIME_DRIFT" ? [runtimeFailureFromError(error)] : [],
     ...(options.operation ? { operation: options.operation } : {}), ...(options.entrypoint ? { entrypoint: options.entrypoint } : {}),
-    ...(code === "CDP_UNAVAILABLE" ? { cdp: {
-      stage: cdpFailureStageSchema.safeParse(error.details?.cdpStage).data ?? "unknown",
-      reason: cdpFailureReasonSchema.safeParse(error.details?.cdpReason).data ?? "unknown",
-      target_missing: typeof error.details?.targetMissing === "boolean" ? error.details.targetMissing : null,
-      unreachable: typeof error.details?.unreachable === "boolean" ? error.details.unreachable : null,
-      before_submission: typeof error.details?.beforeSubmission === "boolean" ? error.details.beforeSubmission : null,
-    } } : {}),
+    ...(code === "CDP_UNAVAILABLE" ? { cdp: cdpFailureContext(error) } : {}),
   } : undefined);
   const observation = { ...options, now: options.now ?? new Date().toISOString() };
   try { recordRuntimeErrorEvent(code, assessment, decision, { ...observation, context, version: safeVersion(options.version), fingerprint: fingerprintFor(code as RuntimeErrorCode) }); } catch { diagnosticsFailed = true; }

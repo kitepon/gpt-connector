@@ -12,7 +12,7 @@ import { configureCursorHooks } from "./setup-cursor-hooks.js";
 import { CodexSteerSetupError } from "./codex-steer-config.js";
 import { supportsLiveBrowser } from "./platform/browser.js";
 import { supportsCodexSteer } from "./platform/codex.js";
-import { recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
+import { cdpFailureContext, recordRuntimeErrorBestEffort } from "./runtime-error-store.js";
 import { reportRuntimeErrorsBestEffort } from "./runtime-error-reporting.js";
 import { runtimeFailureFromError, type RuntimeFailure } from "./runtime-failure.js";
 import { setupNodeExecutable } from "./platform/setup-node.js";
@@ -94,6 +94,7 @@ interface PreparedBrowser {
   status: string;
   reason: string;
   next?: string;
+  display?: { status: "failed"; code: string; cdp?: ReturnType<typeof cdpFailureContext> };
   runtimeFailure?: RuntimeFailure;
 }
 
@@ -115,7 +116,13 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
   }
   if (diagnosis.reasonCode === "auth_required") {
     if (endpoint && endpoint !== "http://127.0.0.1:9223") throw new Error("指定CDP endpointでログインが必要です。既存browser showが所有するendpointは9223だけです。");
-    await deps.showBrowser();
+    try { await deps.showBrowser(); } catch (error) {
+      // Login is still the required action; an unattended run that cannot show the window must not turn it into a failure.
+      if (!(error instanceof ConnectorError)) throw error;
+      return { status: "action_required", reason: "auth_required",
+        display: { status: "failed", code: error.code, ...(error.code === "CDP_UNAVAILABLE" ? { cdp: cdpFailureContext(error) } : {}) },
+        next: "専用Chromeを表示できませんでした。Chromeを所有する端末の対話画面で`gpt-connector browser show`を実行してChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+    }
     return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
   }
   return { status: diagnosis.overall === "ready" ? "ready" : "failed", reason: diagnosis.reasonCode,
@@ -220,6 +227,7 @@ export async function setup(options: SetupOptions = {}, deps: Omit<typeof setupD
       }
       // 構文errorや子processの出力は秘密値を含み得るため、段階と公開codeだけを返す。
       item.failure = { stage, code: error instanceof ConnectorError ? error.code : `SETUP_${stage.toUpperCase()}_FAILED`,
+        ...(error instanceof ConnectorError && error.code === "CDP_UNAVAILABLE" ? { cdp: cdpFailureContext(error) } : {}),
         ...(error instanceof SetupMcpError ? { substep: error.substep, reason_code: error.reasonCode, close_failed: error.closeFailed,
           ...(error.versionCheck ? { version_check: error.versionCheck,
             next: "公開版のsetup --repair-launchで既存MCPの起動先を更新し、新しいクライアントセッションで読み込んでください。" } : {}) } : {}),
