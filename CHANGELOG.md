@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.17 - 2026-11-08
+
+- `setup --check`: a ChatGPT login wait now reports `live.status: action_required` and `overall: action_required` (without showing the window), matching the setup contract, instead of `not_ready` / `failed`. Other unready browser states are unchanged.
+
 ## 0.16.16 - 2026-11-08
 
 - `setup`: when ChatGPT login is required but the dedicated Chrome window cannot be shown (for example in an unattended scheduled run), return `action_required` / `auth_required` with `live.display` (`failed`, the public code and fixed `cdp` fields) instead of letting the display failure turn the run into `failed` / `CDP_UNAVAILABLE`. Non-product exceptions still fail.

@@ -100,7 +100,7 @@ interface PreparedBrowser {
 
 export async function prepareBrowser(deps = browserDependencies(process.env), endpoint = process.env.GPT_CONNECTOR_CDP_ENDPOINT, check = false): Promise<PreparedBrowser> {
   let diagnosis = await deps.doctor();
-  if (check) return { status: diagnosis.overall === "ready" ? "ready" : "not_ready", reason: diagnosis.reasonCode };
+  if (check) return { status: diagnosis.overall === "ready" ? "ready" : diagnosis.reasonCode === "auth_required" ? "action_required" : "not_ready", reason: diagnosis.reasonCode };
   if (diagnosis.reasonCode === "cdp_unavailable") {
     if (endpoint && endpoint !== "http://127.0.0.1:9223") throw new Error("指定CDP endpointへ接続できません。既存browser startが所有するendpointは9223だけです。");
     try { await deps.startBrowser(); } catch (error) {
