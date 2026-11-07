@@ -21,7 +21,7 @@ Grok has a separate bridge. Public CLI/MCP schemas remain in `contract.ts`.
 2. Flatten cached module exports. Identify each role by its existing source or shape contract. Deduplicate aliases by function/object identity and require one candidate per role.
 3. Select the root AppScope token. Inaccessible cross-origin exports do not identify a scope.
 4. Select the scope wrapper using `getOwnValue`, `queryClient` and `/watch=[\w$]+/` source markers. Exclude functions containing `useContext` (the React hook). Function arity is not part of this contract: both six-argument wrappers and three-argument wrappers with optional options are supported.
-5. Build the existing 17-field scope node using the selected atom/store/scheduler/query client. Invoke `scopeWrapper(scopeToken, chain, node)`; optional arguments are omitted.
+5. Build the existing 17-field scope node using the selected atom/store/scheduler/query client. Invoke `scopeWrapper(scopeToken, new Map([[scopeToken.id, node]]), node)`; the fourth options argument is omitted. Preserve the returned `get/getOwnValue/query/queryClient/set/watch/when` scope consumed by sender/uploader. The source markers are a bounded heuristic, not proof of arbitrary wrapper compatibility; node shape, constructors and call convention are unchanged.
 6. Probe the existing Request candidates with `/models`, create bridge-owned maps, install the bridge and return its summary. The caller validates version/build ID and summary.
 
 ## Data-flow diagram and ownership
@@ -41,9 +41,12 @@ Grok has a separate bridge. Public CLI/MCP schemas remain in `contract.ts`.
 `uninitialized → discovering → unique roles → scope built → ready`.
 Missing or ambiguous roles transition to `bootstrap failed` before installing the bridge,
 protecting against invoking the wrong runtime function. The single-flight pending promise
-is cleared on success or rejection. A later caller automatically retries discovery from
-`uninitialized`; a changed runtime or corrected connector can reach `ready` without a lock reset.
-Build changes invalidate reuse of an older installed bridge. Authentication/network handling
+is cleared on success or rejection, independently of the installed bridge and its maps.
+Failed connect closes its resources and returns the error; that failed call does not retry.
+A later connect/setup invocation retries discovery from `uninitialized` and can reach `ready`
+without a lock reset. Changed bootstrap source changes `bridgeBuildId` and prevents reuse
+of an older installed bridge at the next bootstrap. Updating the package does not reload
+an already-running connector. Authentication/network handling
 remains in the existing connector/browser-preparation contracts.
 
 ## Change scope and verification

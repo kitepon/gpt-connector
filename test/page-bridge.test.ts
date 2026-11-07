@@ -53,14 +53,22 @@ test("scope wrapper discovery accepts optional options, excludes React hooks and
   const expression = createBridgeBootstrapExpression("runtime");
   const helpers = expression.slice(expression.indexOf("const functionSource = "), expression.indexOf("const sender = "));
   const selection = expression.slice(expression.indexOf("const scopeWrapper = "), expression.indexOf("const atomModule = "));
+  const invocation = expression.slice(expression.indexOf("const scope = scopeWrapper("), expression.indexOf("const apiClientCandidates = "));
   // Representative old/new Maitai wrappers and the competing hook, independent of minified names.
-  const legacy = vm.runInNewContext(`(function(a,b,c,d,e,f){const s={getOwnValue:()=>c.value,queryClient:c.queryClient};function w(){}s.watch=w;return s;})`);
-  const current = vm.runInNewContext(`(function(a,b,c){const {observeWatch}=arguments.length>3?arguments[3]:{};const s={getOwnValue:()=>c.value,queryClient:c.queryClient};function w(){return observeWatch;}s.watch=w;return s;})`);
+  const legacy = vm.runInNewContext(`(function(a,b,c,d,e,f){const s={received:[...arguments],getOwnValue:()=>c.value,queryClient:c.queryClient};function w(){}s.watch=w;return s;})`);
+  const current = vm.runInNewContext(`(function(a,b,c){const {observeWatch}=arguments.length>3?arguments[3]:{};const s={received:[...arguments],getOwnValue:()=>c.value,queryClient:c.queryClient};function w(){return observeWatch;}s.watch=w;return s;})`);
   const hook = vm.runInNewContext(`(function(a){const c=React.useContext(a),s={getOwnValue:()=>c.value,queryClient:c.queryClient};function w(){}s.watch=w;return s;})`);
   const discover = (values: unknown[]) => vm.runInNewContext(`${helpers}; ${selection}; scopeWrapper`, { exports: values.map(value => ["fixture", value]) });
+  const scopeToken = { id: "scope" };
+  const node = { value: "value", queryClient: "client" };
   for (const wrapper of [legacy, current]) {
     assert.equal(discover([hook, null, wrapper, wrapper]), wrapper);
-    const scope = wrapper({}, new Map(), { value: "value", queryClient: "client" });
+    const scope = vm.runInNewContext(`${invocation}; scope`, { scopeWrapper: discover([hook, wrapper]), scopeToken, node });
+    assert.equal(scope.received.length, 3);
+    assert.equal(scope.received[0], scopeToken);
+    assert.equal(scope.received[1].size, 1);
+    assert.equal(scope.received[1].get(scopeToken.id), node);
+    assert.equal(scope.received[2], node);
     assert.equal(scope.getOwnValue(), "value");
     assert.equal(scope.queryClient, "client");
     assert.equal(typeof scope.watch, "function");
