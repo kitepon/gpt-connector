@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.18 - 2026-11-09
+
+- Linux: X11 window control now connects with the dedicated Chrome's own `DISPLAY` and `XAUTHORITY` pair from `/proc/<pid>/environ` before the caller's environment. A scheduled `setup` (cron, no `XAUTHORITY`) on an Xwayland desktop used the stale `~/.Xauthority`, was refused by X11 while hiding a newly created ChatGPT window, and failed the first client with `CDP_UNAVAILABLE`. The previous discovery order remains as fallback.
+- A non-product failure while hiding the dedicated Chrome now reports CDP stage `browser_display` / reason `display_failed` instead of `browser_preparation` / `unknown`. Severity and setup outcome rules are unchanged.
+
 ## 0.16.17 - 2026-11-08
 
 - `setup --check`: a ChatGPT login wait now reports `live.status: action_required` and `overall: action_required` (without showing the window), matching the setup contract, instead of `not_ready` / `failed`. Other unready browser states are unchanged.

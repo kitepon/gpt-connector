@@ -44,6 +44,14 @@ export function displayFromEnviron(text: string): string | undefined {
   return undefined;
 }
 
+/** Chromeが実際に使っているX11認証。cronのように呼出元にXAUTHORITYが無い時も、Xwaylandの現行cookieで接続できる。 */
+export function xauthorityFromEnviron(text: string): string | undefined {
+  for (const entry of text.split("\0")) {
+    if (entry.startsWith("XAUTHORITY=/")) return entry.slice("XAUTHORITY=".length);
+  }
+  return undefined;
+}
+
 export function isGoogleChromeClass(data: Buffer | undefined): boolean {
   const parts = data?.toString("latin1").split("\0").filter((part) => part.length > 0) ?? [];
   const instance = parts[0] ?? "";
@@ -103,22 +111,28 @@ export class LinuxX11 {
   /** 専用ChromeのwindowがあるDISPLAYへ接続する。processのDISPLAY、呼出元DISPLAY、ローカルXを順に試す。 */
   static async connectForChrome(pid: number, owners: ReadonlySet<number>, env: NodeJS.ProcessEnv = process.env): Promise<LinuxX11> {
     const preferred: string[] = [];
+    let chromeAttempt: { readonly DISPLAY: string; readonly XAUTHORITY: string } | undefined;
     try {
       if (existsSync(`/proc/${pid}/environ`)) {
-        const fromProcess = displayFromEnviron(readFileSync(`/proc/${pid}/environ`, "utf8"));
+        const environ = readFileSync(`/proc/${pid}/environ`, "utf8");
+        const fromProcess = displayFromEnviron(environ);
+        const authority = xauthorityFromEnviron(environ);
         if (fromProcess) preferred.push(fromProcess);
+        if (fromProcess && authority) chromeAttempt = { DISPLAY: fromProcess, XAUTHORITY: authority };
       }
     } catch { /* processが消えた場合はDISPLAY探索へ */ }
     const envDisplay = normalizeDisplay(env.DISPLAY);
     if (envDisplay && !preferred.includes(envDisplay)) preferred.push(envDisplay);
     const candidates = [...preferred, ...listLocalDisplays(envDisplay).filter((display) => !preferred.includes(display))];
     if (candidates.length === 0) throw new Error("Linuxの専用ChromeはローカルX11のDISPLAYが必要です。");
+    // Chrome自身のDISPLAYとXAUTHORITYの組を先に試し、従来の呼出元env探索は後に残す。
+    const attempts = [...(chromeAttempt ? [chromeAttempt] : []), ...candidates.map((display) => ({ DISPLAY: display }))];
     let lastError: unknown;
     let fallback: LinuxX11 | undefined;
-    for (const display of candidates) {
+    for (const attempt of attempts) {
       let client: LinuxX11 | undefined;
       try {
-        client = await LinuxX11.connect({ ...env, DISPLAY: display });
+        client = await LinuxX11.connect({ ...env, ...attempt });
         const windows = await client.googleChromeWindows(owners);
         if (windows.length > 0) {
           fallback?.close();

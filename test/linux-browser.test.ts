@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { showBrowser, startBrowser } from "../src/browser-launcher.js";
 import { chromeLaunchCommand, chromeOwnerPids, hideProcess, inspectListenerProcesses, isOwnedChromeProcess, parseListenInodes, revealProcess, activateProcess, verifyWindowVisibility, type ProcIo } from "../src/platform/linux-browser.js";
-import { LinuxX11, displayFromEnviron, isGoogleChromeClass, listLocalDisplays, magicCookie, mapStateFromAttributesReply, normalizeDisplay } from "../src/platform/linux-x11.js";
+import { LinuxX11, displayFromEnviron, xauthorityFromEnviron, isGoogleChromeClass, listLocalDisplays, magicCookie, mapStateFromAttributesReply, normalizeDisplay } from "../src/platform/linux-x11.js";
 
 test("Xwaylandの空display番号の認証を選び、別の明示番号を混同しない", async () => {
   const root = await mkdtemp(join(tmpdir(), "gpt-xauth-"));
@@ -92,6 +92,8 @@ test("Linux: 複数DISPLAY候補はpreferredを先頭にし、番号順で続く
   assert.deepEqual(listLocalDisplays(undefined, directory), [":1", ":3", ":12"]);
   assert.equal(normalizeDisplay("localhost:12.0"), ":12");
   assert.equal(displayFromEnviron("HOME=/tmp\0DISPLAY=:12\0"), ":12");
+  assert.equal(xauthorityFromEnviron("DISPLAY=:0\0XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.8G5YX3\0"), "/run/user/1000/.mutter-Xwaylandauth.8G5YX3");
+  assert.equal(xauthorityFromEnviron("XAUTHORITY=relative\0"), undefined);
   assert.equal(isGoogleChromeClass(Buffer.from("google-chrome (/tmp/profile)\0Google-chrome\0")), true);
   assert.equal(isGoogleChromeClass(Buffer.from("chrome\0Chrome\0")), false);
   await rm(directory, { recursive: true, force: true });

@@ -382,7 +382,9 @@ async function ownedListenerPid(inspect: ProcessInspector): Promise<number> {
 async function stableOwnedListenerPid(inspect: ProcessInspector, expectedPid: number): Promise<number> { const pid = await ownedListenerPid(inspect); if (pid !== expectedPid) throw new ConnectorError("RUNTIME_DRIFT", "専用Chromeの9223所有PIDが起動中に交代しました。"); return pid; }
 async function hideOwnedProcess(inspect: ProcessInspector, hide: ProcessHider, timeoutMs: number): Promise<number> {
   const pid = await ownedListenerPid(inspect);
-  try { await hide(pid, timeoutMs); return pid; } catch (error) { throw launcherError("CDP_UNAVAILABLE", "専用Chromeをhidden状態へ移行できませんでした。", error); }
+  try { await hide(pid, timeoutMs); return pid; } catch (error) {
+    throw error instanceof ConnectorError ? error : new ConnectorError("CDP_UNAVAILABLE", "専用Chromeをhidden状態へ移行できませんでした。", { cdpStage: "browser_display", cdpReason: "display_failed" }, { cause: error });
+  }
 }
 async function acquireBrowserLock(profile: string, waitDeadlineMs: number): Promise<BrowserLock> {
   const file = join(profile, "browser-launch.lock");
