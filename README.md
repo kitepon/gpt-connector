@@ -236,7 +236,7 @@ gpt-connector setup --check
 ```
 
 `doctor`が`cdp_unavailable`なら`browser start`を使います。専用Chromeが止まっている時とChatGPT tabが閉じられている時は、MCPとCLIのChatGPT操作もこの準備を自動で試みます（9223が別の持ち主、たとえばSSH転送なら準備せず元の失敗を返します）。`auth_required`なら`browser show`で専用Chromeを表示し、そこで手動ログインします。
-`browser start`はログイン待ちで専用Chromeを表示したまま終了2を返し、起動失敗は終了1です。systemd等で常駐させる時は`SuccessExitStatus=2`でログイン待ちのChromeを終了させずに保てます。
+`browser start`はログイン待ちで専用Chromeを表示したまま終了2を返し、起動失敗は終了1です。systemd等で常駐させる時は`SuccessExitStatus=2`でログイン待ちのChromeを終了させずに保てます。あわせて`KillMode=process`を指定してください。Linuxでは専用Chromeの本体だけが自分のscopeへ移り、zygote・network・storage等の子processは起動したserviceのcgroupに残ります。既定の`KillMode=control-group`ではserviceの失敗・停止・再起動のたびにそれらが強制終了され、Chromeが更新済みのcookieを書き残せずに落ちてChatGPTのログインが失われます。
 ChatGPTページが網の不良（offline・DNS・error page）で到達できない間は、`browser start`がページを数秒おきに再読込しながら待ち、待機deadlineでも回復しなければ`CDP_UNAVAILABLE`（unreachable）で終了1を返します。これは通信不良として扱い、runtime driftの不具合には登録しません。常駐serviceの`Restart=on-failure`が再試行します。
 `runtime_drift`なら製品更新または製品側修理が正規復旧です。別APIや通常Chromeへfallbackしません。
 caller timeout後のconsult／画像jobは同じslugを再送せず、`sessions --slug <slug>`で既存jobを回収します。
