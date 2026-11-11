@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.19 - 2026-11-11
+
+- Linux: launch the dedicated Chrome with `--password-store=basic`. On an auto-login host the login keyring stays locked after boot, and Chrome's keyring-encrypted cookie store then blocked every request that carries cookies (all page navigations, the in-page `/api/auth/session` check) until a person unlocked the keyring. Rabbit's post-reboot `browser start` service timed out on every retry (restart loop, `CDP_UNAVAILABLE`) while cookie-less requests and the network were fine. The profile stays private (`0700`). Cookies already stored with the keyring key cannot be read with the basic store, so the first dedicated Chrome launched by this version needs one ChatGPT/Grok login; an already running dedicated Chrome is unchanged until it is restarted.
+
 ## 0.16.18 - 2026-11-09
 
 - Linux: X11 window control now connects with the dedicated Chrome's own `DISPLAY` and `XAUTHORITY` pair from `/proc/<pid>/environ` before the caller's environment. A scheduled `setup` (cron, no `XAUTHORITY`) on an Xwayland desktop used the stale `~/.Xauthority`, was refused by X11 while hiding a newly created ChatGPT window, and failed the first client with `CDP_UNAVAILABLE`. The previous discovery order remains as fallback.

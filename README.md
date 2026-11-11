@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.18`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.19`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -130,6 +130,7 @@ Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない
 
 Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
 呼出元の終了後もChromeは残る。`--ozone-platform=x11`で専用ChromeのwindowをX11に固定する。
+専用profileのcookieは`--password-store=basic`でChrome内蔵の鍵により暗号化し、desktopのキーリングに依存させない。自動ログインで起動したホストではloginキーリングが解除されないまま残り、キーリング鍵のcookie storeは解除されるまでcookieを伴う通信（ChatGPTのpage読込を含む）をすべて止める。profile自体は`0700`で保護する。キーリング鍵で保存済みのcookieはこの版の専用Chromeでは読めないため、更新後に専用Chromeを起動し直すと一度だけChatGPT／Grokへの再ログインが要る。
 9223の所有は`/proc/net/tcp`の`127.0.0.1`待受と、`/proc/<pid>/exe`・cmdlineの専用profileで照合する。
 表示制御は、Chrome processの`DISPLAY`と`XAUTHORITY`の組（`/proc/<pid>/environ`）、呼出元の`DISPLAY`、`/tmp/.X11-unix`上のローカルXを順に試し、
 （cronのように呼出元に`XAUTHORITY`が無くても、Xwayland等のChromeが使う現行cookieで接続する。Unmap失敗はCDP stage `browser_display`・reason `display_failed`で返す）
