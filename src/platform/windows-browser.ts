@@ -79,9 +79,9 @@ public static class GptProfileLock {
 '@
 `;
 
-export async function inspectListenerProcesses(profile: string): Promise<readonly ListenerProcess[]> {
+export async function inspectListenerProcesses(profile: string, port = 9223): Promise<readonly ListenerProcess[]> {
   const output = await windowsPowerShell(`${profileLockType}
-$listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq 9223)
+$listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq ${port})
 $lock = Join-Path ${quotePowerShell(profile)} 'lockfile'
 $holders = if ($listeners.Count -gt 0 -and (Test-Path -LiteralPath $lock)) { @([GptProfileLock]::Holders($lock)) } else { @() }
 $result = @(foreach ($connection in $listeners) {

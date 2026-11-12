@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { open } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createServer, type AddressInfo } from "node:net";
 import { chromeLaunchCommand, inspectListenerProcesses, isOwnedChromeProcess } from "../src/platform/windows-browser.js";
 import { startBrowser, showBrowser } from "../src/browser-launcher.js";
 import { windowsPowerShell, windowsPowerShellSync } from "../src/platform/windows-powershell.js";
@@ -37,14 +37,16 @@ test("Windows: 専用profileのlockfileを持つchrome.exeだけを所有者と�
 test("Windows: 9223の待受PIDが専用profileのlockfileを開いているかをRestart Managerで読む", { skip: process.platform !== "win32" }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "gpt-windows-lock-"));
   const server = createServer();
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(9223, "127.0.0.1", resolve); });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  // The Windows runner is a real host whose dedicated Chrome may own 9223.
+  const port = (server.address() as AddressInfo).port;
   try {
-    assert.deepEqual(await inspectListenerProcesses(profile), [{ pid: String(process.pid), command: "node.exe", profileLock: false }]);
+    assert.deepEqual(await inspectListenerProcesses(profile, port), [{ pid: String(process.pid), command: "node.exe", profileLock: false }]);
     const lock = await open(join(profile, "lockfile"), "w");
     try {
-      assert.deepEqual(await inspectListenerProcesses(profile), [{ pid: String(process.pid), command: "node.exe", profileLock: true }]);
+      assert.deepEqual(await inspectListenerProcesses(profile, port), [{ pid: String(process.pid), command: "node.exe", profileLock: true }]);
     } finally { await lock.close(); }
-    assert.deepEqual(await inspectListenerProcesses(profile), [{ pid: String(process.pid), command: "node.exe", profileLock: false }]);
+    assert.deepEqual(await inspectListenerProcesses(profile, port), [{ pid: String(process.pid), command: "node.exe", profileLock: false }]);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(profile, { recursive: true, force: true });
