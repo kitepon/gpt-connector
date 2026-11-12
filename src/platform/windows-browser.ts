@@ -39,50 +39,58 @@ export async function spawnDetached(command: string, args: readonly string[]): P
   await runInInteractiveSession(detachedLaunchSource(command, args), 10_000);
 }
 
-export function isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean {
-  const args = listener.args;
-  if (!listener.executable || win32.basename(listener.executable).toLowerCase() !== "chrome.exe" || !args) return false;
-  if (win32.normalize(args[0] ?? "").toLowerCase() !== win32.normalize(listener.executable).toLowerCase()) return false;
-  const values = (key: string) => args.filter(arg => arg.startsWith(key + "="));
-  return values("--remote-debugging-address").length === 1 && args.includes("--remote-debugging-address=127.0.0.1")
-    && values("--remote-debugging-port").length === 1 && args.includes("--remote-debugging-port=9223")
-    && values("--user-data-dir").length === 1
-    && win32.normalize(values("--user-data-dir")[0]!.slice("--user-data-dir=".length)).toLowerCase() === win32.normalize(profile).toLowerCase();
+// Chrome hardens its process DACL, so its command line and image path are unreadable even to the same user.
+// Ownership is therefore the 9223 listener being the process that holds the dedicated profile's lockfile.
+// Restart Manager is not used: it returned access denied under the CI runner's service account.
+export function isOwnedChromeProcess(listener: ListenerProcess): boolean {
+  return listener.command.toLowerCase() === "chrome.exe" && listener.profileLock === true;
 }
 
-const commandLineType = String.raw`
+const profileLockType = String.raw`
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public static class GptCommandLine {
-  [DllImport("shell32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-  static extern IntPtr CommandLineToArgvW(string command, out int count);
-  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
-  public static string[] Split(string command) {
-    int count;
-    var memory = CommandLineToArgvW(command, out count);
-    if (memory == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
-    try {
-      var args = new string[count];
-      for (int i = 0; i < count; i++) args[i] = Marshal.PtrToStringUni(Marshal.ReadIntPtr(memory, i * IntPtr.Size));
-      return args;
-    } finally { LocalFree(memory); }
+using Microsoft.Win32.SafeHandles;
+public static class GptProfileLock {
+  [StructLayout(LayoutKind.Sequential)] struct IoStatus { public IntPtr Status; public IntPtr Information; }
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationFile(SafeFileHandle file, out IoStatus status, IntPtr buffer, int length, int fileClass);
+  // FileProcessIdsUsingFileInformation needs only an attribute handle to the file, never a handle to the hardened process.
+  public static long[] Holders(string path) {
+    using (var file = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+      if (file.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+      for (int length = 4096; length <= 1 << 20; length *= 2) {
+        var buffer = Marshal.AllocHGlobal(length);
+        try {
+          IoStatus status; int code = NtQueryInformationFile(file, out status, buffer, length, 47);
+          if (code == unchecked((int)0xC0000004)) continue;
+          if (code != 0) throw new System.ComponentModel.Win32Exception("NtQueryInformationFile 0x" + code.ToString("X8"));
+          var count = Marshal.ReadInt32(buffer);
+          var pids = new long[count];
+          for (int i = 0; i < count; i++) pids[i] = Marshal.ReadIntPtr(buffer, IntPtr.Size * (i + 1)).ToInt64();
+          return pids;
+        } finally { Marshal.FreeHGlobal(buffer); }
+      }
+      throw new InvalidOperationException("file_process_ids_too_large");
+    }
   }
 }
 '@
 `;
 
-export async function inspectListenerProcesses(): Promise<readonly ListenerProcess[]> {
-  const output = await windowsPowerShell(`${commandLineType}
-$listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq 9223)
+export async function inspectListenerProcesses(profile: string, port = 9223): Promise<readonly ListenerProcess[]> {
+  const output = await windowsPowerShell(`${profileLockType}
+$listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq ${port})
+$lock = Join-Path ${quotePowerShell(profile)} 'lockfile'
+$holders = if ($listeners.Count -gt 0 -and (Test-Path -LiteralPath $lock)) { @([GptProfileLock]::Holders($lock)) } else { @() }
 $result = @(foreach ($connection in $listeners) {
   if ($connection.LocalAddress -ne '127.0.0.1') { throw '専用CDPの待受addressが不正です' }
   $entry = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $connection.OwningProcess)
-  if (!$entry.ExecutablePath -or !$entry.CommandLine) { throw '専用Chromeのprocess情報を取得できません' }
-  @{ pid = [string]$entry.ProcessId; command = $entry.CommandLine; executable = $entry.ExecutablePath; args = [GptCommandLine]::Split($entry.CommandLine) }
+  if (!$entry -or !$entry.Name) { throw '専用Chromeのprocess情報を取得できません' }
+  @{ pid = [string]$entry.ProcessId; command = [string]$entry.Name; profileLock = ($holders -contains [long]$entry.ProcessId) }
 })
 ConvertTo-Json -InputObject $result -Compress -Depth 4`);
-  return z.array(z.object({ pid: z.string().regex(/^\d+$/), command: z.string(), executable: z.string(), args: z.array(z.string()) })).parse(JSON.parse(output));
+  return z.array(z.object({ pid: z.string().regex(/^\d+$/), command: z.string(), profileLock: z.boolean() })).parse(JSON.parse(output));
 }
 
 const windowType = String.raw`

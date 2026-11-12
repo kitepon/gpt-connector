@@ -9,6 +9,8 @@ export interface ListenerProcess {
   readonly command: string;
   readonly executable?: string;
   readonly args?: readonly string[];
+  /** Windows: the listener holds the dedicated profile's lockfile. */
+  readonly profileLock?: boolean;
 }
 export interface SpawnedChild { readonly once: (event: "error", listener: (error: Error) => void) => unknown; }
 export interface BrowserPlatform {
@@ -16,7 +18,7 @@ export interface BrowserPlatform {
   readonly ownershipProbeTimeoutMs?: number;
   chromeLaunchCommand(profile: string): { readonly command: string; readonly args: readonly string[] };
   spawnDetached(command: string, args: readonly string[]): SpawnedChild | Promise<void>;
-  inspectListenerProcesses(): Promise<readonly ListenerProcess[]>;
+  inspectListenerProcesses(profile: string): Promise<readonly ListenerProcess[]>;
   isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean;
   hideProcess(pid: number, timeoutMs: number): Promise<void>;
   revealProcess(pid: number, timeoutMs: number): Promise<void>;
@@ -31,6 +33,6 @@ export function supportsLiveBrowser(platform: string = process.platform): boolea
 export function browserPlatform(platform: string = process.platform): BrowserPlatform {
   if (platform === "darwin") return { ...darwin, isOwnedChromeProcess: (listener, profile) => darwin.isOwnedChromeCommand(listener.command, profile) };
   if (platform === "win32") return windows;
-  if (platform === "linux") return linux;
+  if (platform === "linux") return { ...linux, inspectListenerProcesses: () => linux.inspectListenerProcesses() };
   throw new ConnectorError("INVALID_INPUT", "専用Chromeの起動・表示はこのOSでは未対応です。");
 }

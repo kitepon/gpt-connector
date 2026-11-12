@@ -79,12 +79,12 @@ export async function startBrowser(options: BrowserOptions = {}): Promise<Browse
 export async function showBrowser(options: BrowserOptions = {}): Promise<BrowserShowResult> {
   const provider = options.provider ?? "chatgpt";
   const adapter = browserPlatform(options.platform);
-  const { inspectListenerProcesses, revealProcess, activateProcess, verifyWindowVisibility } = adapter;
+  const { revealProcess, activateProcess, verifyWindowVisibility } = adapter;
   const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));
   const timeout = options.probeTimeoutMs ?? probeTimeoutMs;
   const fetcher = timedFetch(options.fetch ?? globalThis.fetch, timeout);
   const endpointReady = options.endpointReady ?? (() => endpointIsReady(fetcher));
-  const inspect = ownedProcessInspector(profile, options.processInspector ?? inspectListenerProcesses, adapter);
+  const inspect = ownedProcessInspector(profile, options.processInspector ?? (() => adapter.inspectListenerProcesses(profile)), adapter);
   const ownershipReady = () => ownsEndpoint(inspect);
   if (!await bounded(endpointReady(), timeout, "CDP endpoint確認がtimeoutしました")) throw new ConnectorError("CDP_UNAVAILABLE", "専用ChromeのCDP endpointを確認できませんでした。");
   const showTimeout = options.appProbeTimeoutMs ?? appProbeTimeoutMs;
@@ -131,7 +131,7 @@ async function startBrowserLocked(options: BrowserOptions, profile: string, adap
   const visibilityGrace = options.windowVisibilityGraceMs ?? windowVisibilityGraceMs;
   const fetcher = timedFetch(options.fetch ?? globalThis.fetch, timeout);
   const endpointReady = options.endpointReady ?? (() => endpointIsReady(fetcher));
-  const processInspector = ownedProcessInspector(profile, options.processInspector ?? adapter.inspectListenerProcesses, adapter);
+  const processInspector = ownedProcessInspector(profile, options.processInspector ?? (() => adapter.inspectListenerProcesses(profile)), adapter);
   const ownershipReady = () => ownsEndpoint(processInspector);
   const appReady = options.appReady ?? options.connectorProbe ?? (() => ready(fetcher, timeout, appTimeout, provider, options.stateDirectory));
   const windowPreparer = options.windowPreparer ?? (() => prepareProviderWindow(fetcher, appTimeout, provider));
