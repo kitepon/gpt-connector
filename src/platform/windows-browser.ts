@@ -39,50 +39,59 @@ export async function spawnDetached(command: string, args: readonly string[]): P
   await runInInteractiveSession(detachedLaunchSource(command, args), 10_000);
 }
 
-export function isOwnedChromeProcess(listener: ListenerProcess, profile: string): boolean {
-  const args = listener.args;
-  if (!listener.executable || win32.basename(listener.executable).toLowerCase() !== "chrome.exe" || !args) return false;
-  if (win32.normalize(args[0] ?? "").toLowerCase() !== win32.normalize(listener.executable).toLowerCase()) return false;
-  const values = (key: string) => args.filter(arg => arg.startsWith(key + "="));
-  return values("--remote-debugging-address").length === 1 && args.includes("--remote-debugging-address=127.0.0.1")
-    && values("--remote-debugging-port").length === 1 && args.includes("--remote-debugging-port=9223")
-    && values("--user-data-dir").length === 1
-    && win32.normalize(values("--user-data-dir")[0]!.slice("--user-data-dir=".length)).toLowerCase() === win32.normalize(profile).toLowerCase();
+// Chrome hardens its process DACL, so its command line and image path are unreadable even to the same user.
+// Ownership is therefore the 9223 listener being the process that holds the dedicated profile's lockfile.
+export function isOwnedChromeProcess(listener: ListenerProcess): boolean {
+  return listener.command.toLowerCase() === "chrome.exe" && listener.profileLock === true;
 }
 
-const commandLineType = String.raw`
+const profileLockType = String.raw`
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public static class GptCommandLine {
-  [DllImport("shell32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-  static extern IntPtr CommandLineToArgvW(string command, out int count);
-  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
-  public static string[] Split(string command) {
-    int count;
-    var memory = CommandLineToArgvW(command, out count);
-    if (memory == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+public static class GptProfileLock {
+  [StructLayout(LayoutKind.Sequential)] struct UniqueProcess { public int Pid; public System.Runtime.InteropServices.ComTypes.FILETIME Start; }
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct ProcessInfo { public UniqueProcess Process; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)] public string App; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=64)] public string Service; public int Type; public int Status; public int Session; [MarshalAs(UnmanagedType.Bool)] public bool Restartable; }
+  [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmStartSession(out uint handle, int flags, string key);
+  [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint handle);
+  [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmRegisterResources(uint handle, uint files, string[] names, uint apps, UniqueProcess[] processes, uint services, string[] serviceNames);
+  [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint handle, out uint needed, ref uint count, [In, Out] ProcessInfo[] info, ref uint reasons);
+  // Restart Manager reads file users from the file system, not from the hardened process.
+  public static int[] Holders(string path) {
+    uint handle; int code = RmStartSession(out handle, 0, Guid.NewGuid().ToString("N"));
+    if (code != 0) throw new System.ComponentModel.Win32Exception(code);
     try {
-      var args = new string[count];
-      for (int i = 0; i < count; i++) args[i] = Marshal.PtrToStringUni(Marshal.ReadIntPtr(memory, i * IntPtr.Size));
-      return args;
-    } finally { LocalFree(memory); }
+      code = RmRegisterResources(handle, 1, new[] { path }, 0, null, 0, null);
+      if (code != 0) throw new System.ComponentModel.Win32Exception(code);
+      uint needed, count = 0, reasons = 0;
+      code = RmGetList(handle, out needed, ref count, null, ref reasons);
+      if (code == 0) return new int[0];
+      if (code != 234) throw new System.ComponentModel.Win32Exception(code);
+      var info = new ProcessInfo[needed]; count = needed;
+      code = RmGetList(handle, out needed, ref count, info, ref reasons);
+      if (code != 0) throw new System.ComponentModel.Win32Exception(code);
+      var pids = new int[count];
+      for (int i = 0; i < count; i++) pids[i] = info[i].Process.Pid;
+      return pids;
+    } finally { RmEndSession(handle); }
   }
 }
 '@
 `;
 
-export async function inspectListenerProcesses(): Promise<readonly ListenerProcess[]> {
-  const output = await windowsPowerShell(`${commandLineType}
+export async function inspectListenerProcesses(profile: string): Promise<readonly ListenerProcess[]> {
+  const output = await windowsPowerShell(`${profileLockType}
 $listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq 9223)
+$lock = Join-Path ${quotePowerShell(profile)} 'lockfile'
+$holders = if ($listeners.Count -gt 0 -and (Test-Path -LiteralPath $lock)) { @([GptProfileLock]::Holders($lock)) } else { @() }
 $result = @(foreach ($connection in $listeners) {
   if ($connection.LocalAddress -ne '127.0.0.1') { throw '専用CDPの待受addressが不正です' }
   $entry = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $connection.OwningProcess)
-  if (!$entry.ExecutablePath -or !$entry.CommandLine) { throw '専用Chromeのprocess情報を取得できません' }
-  @{ pid = [string]$entry.ProcessId; command = $entry.CommandLine; executable = $entry.ExecutablePath; args = [GptCommandLine]::Split($entry.CommandLine) }
+  if (!$entry -or !$entry.Name) { throw '専用Chromeのprocess情報を取得できません' }
+  @{ pid = [string]$entry.ProcessId; command = [string]$entry.Name; profileLock = ($holders -contains [int]$entry.ProcessId) }
 })
 ConvertTo-Json -InputObject $result -Compress -Depth 4`);
-  return z.array(z.object({ pid: z.string().regex(/^\d+$/), command: z.string(), executable: z.string(), args: z.array(z.string()) })).parse(JSON.parse(output));
+  return z.array(z.object({ pid: z.string().regex(/^\d+$/), command: z.string(), profileLock: z.boolean() })).parse(JSON.parse(output));
 }
 
 const windowType = String.raw`

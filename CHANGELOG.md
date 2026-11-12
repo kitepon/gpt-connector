@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.20 - 2026-11-12
+
+- Windows: the 9223 ownership check no longer reads the Chrome command line. Chrome hardens its processes so that their command line and image path are unreadable even to the same user, from both the SSH session and the desktop session. The check therefore always failed, `browser start` waited until `browser_endpoint_wait`/`timeout`, and the next clients reported the dedicated Chrome as `cdp_endpoint_not_owned`. Ownership is now proven by the single `127.0.0.1:9223` listener being the `chrome.exe` that holds the dedicated profile's `lockfile`, read with the Windows Restart Manager.
+
 ## 0.16.19 - 2026-11-11
 
 - Linux: launch the dedicated Chrome with `--password-store=basic`. On an auto-login host the login keyring stays locked after boot, and Chrome's keyring-encrypted cookie store then blocked every request that carries cookies (all page navigations, the in-page `/api/auth/session` check) until a person unlocked the keyring. Rabbit's post-reboot `browser start` service timed out on every retry (restart loop, `CDP_UNAVAILABLE`) while cookie-less requests and the network were fine. The profile stays private (`0700`). Cookies already stored with the keyring key cannot be read with the basic store, so the first dedicated Chrome launched by this version needs one ChatGPT/Grok login; an already running dedicated Chrome is unchanged until it is restarted.

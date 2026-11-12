@@ -22,7 +22,7 @@ MarkItDownは別区分の第三者CLIです。
 > [!WARNING]
 > consumer Chatの非公開Web runtimeとminified bundleに依存する実験的実装。OpenAI／xAIの公開・安定APIではない。bundle contractが変わった場合は`RUNTIME_DRIFT`で停止し、別方式へ自動fallbackしない。
 
-現在ソース版は`gpt-connector@0.16.19`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
+現在ソース版は`gpt-connector@0.16.20`。`setup`がnpm導入・MCP登録・ブラウザ準備・CodexへのSteer接続・診断を所有します。
 通常Chatは指定を省略すると「最新」の右端を使います。選べる段階は`chatgpt_models`のlive catalogで確認します。公開済みversionは
 [npm](https://www.npmjs.com/package/gpt-connector)、ソースと変更履歴は
 [GitHub repository](https://github.com/kitepon/gpt-connector)を正とします。
@@ -125,7 +125,7 @@ CDP `minimized`は作成時のhintだけで、非表示の最終判定には使�
 Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必要時の`browser show`で行う。
 
 Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない専用Chromeを起動する。Codex等の終了にChromeを巻き込まない。
-9223の所有PID・実行file・ネイティブ解析した引数を照合し、
+9223の`127.0.0.1`待受PIDが専用profileの`lockfile`を開いている`chrome.exe`であることをRestart Managerで照合し（Chromeは自processのcommand lineと実行fileを同じユーザーにも読ませない）、
 そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。呼出元とChromeが別sessionなら、ログイン中の同じユーザーの対話sessionで一時taskを実行し、結果を呼出元へ返す。taskと一時記録は終了時に削除する。所有確認と表示状態の読戻しが成立してから成功を返す。
 
 Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
