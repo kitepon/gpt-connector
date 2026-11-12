@@ -41,6 +41,7 @@ export async function spawnDetached(command: string, args: readonly string[]): P
 
 // Chrome hardens its process DACL, so its command line and image path are unreadable even to the same user.
 // Ownership is therefore the 9223 listener being the process that holds the dedicated profile's lockfile.
+// Restart Manager is not used: it returned access denied under the CI runner's service account.
 export function isOwnedChromeProcess(listener: ListenerProcess): boolean {
   return listener.command.toLowerCase() === "chrome.exe" && listener.profileLock === true;
 }
@@ -49,31 +50,29 @@ const profileLockType = String.raw`
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 public static class GptProfileLock {
-  [StructLayout(LayoutKind.Sequential)] struct UniqueProcess { public int Pid; public System.Runtime.InteropServices.ComTypes.FILETIME Start; }
-  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct ProcessInfo { public UniqueProcess Process; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)] public string App; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=64)] public string Service; public int Type; public int Status; public int Session; [MarshalAs(UnmanagedType.Bool)] public bool Restartable; }
-  [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmStartSession(out uint handle, int flags, string key);
-  [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint handle);
-  [DllImport("rstrtmgr.dll", CharSet=CharSet.Unicode)] static extern int RmRegisterResources(uint handle, uint files, string[] names, uint apps, UniqueProcess[] processes, uint services, string[] serviceNames);
-  [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint handle, out uint needed, ref uint count, [In, Out] ProcessInfo[] info, ref uint reasons);
-  // Restart Manager reads file users from the file system, not from the hardened process.
-  public static int[] Holders(string path) {
-    uint handle; int code = RmStartSession(out handle, 0, Guid.NewGuid().ToString("N"));
-    if (code != 0) throw new System.ComponentModel.Win32Exception(code);
-    try {
-      code = RmRegisterResources(handle, 1, new[] { path }, 0, null, 0, null);
-      if (code != 0) throw new System.ComponentModel.Win32Exception(code);
-      uint needed, count = 0, reasons = 0;
-      code = RmGetList(handle, out needed, ref count, null, ref reasons);
-      if (code == 0) return new int[0];
-      if (code != 234) throw new System.ComponentModel.Win32Exception(code);
-      var info = new ProcessInfo[needed]; count = needed;
-      code = RmGetList(handle, out needed, ref count, info, ref reasons);
-      if (code != 0) throw new System.ComponentModel.Win32Exception(code);
-      var pids = new int[count];
-      for (int i = 0; i < count; i++) pids[i] = info[i].Process.Pid;
-      return pids;
-    } finally { RmEndSession(handle); }
+  [StructLayout(LayoutKind.Sequential)] struct IoStatus { public IntPtr Status; public IntPtr Information; }
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationFile(SafeFileHandle file, out IoStatus status, IntPtr buffer, int length, int fileClass);
+  // FileProcessIdsUsingFileInformation needs only an attribute handle to the file, never a handle to the hardened process.
+  public static long[] Holders(string path) {
+    using (var file = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+      if (file.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+      for (int length = 4096; length <= 1 << 20; length *= 2) {
+        var buffer = Marshal.AllocHGlobal(length);
+        try {
+          IoStatus status; int code = NtQueryInformationFile(file, out status, buffer, length, 47);
+          if (code == unchecked((int)0xC0000004)) continue;
+          if (code != 0) throw new System.ComponentModel.Win32Exception("NtQueryInformationFile 0x" + code.ToString("X8"));
+          var count = Marshal.ReadInt32(buffer);
+          var pids = new long[count];
+          for (int i = 0; i < count; i++) pids[i] = Marshal.ReadIntPtr(buffer, IntPtr.Size * (i + 1)).ToInt64();
+          return pids;
+        } finally { Marshal.FreeHGlobal(buffer); }
+      }
+      throw new InvalidOperationException("file_process_ids_too_large");
+    }
   }
 }
 '@
@@ -88,7 +87,7 @@ $result = @(foreach ($connection in $listeners) {
   if ($connection.LocalAddress -ne '127.0.0.1') { throw '専用CDPの待受addressが不正です' }
   $entry = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $connection.OwningProcess)
   if (!$entry -or !$entry.Name) { throw '専用Chromeのprocess情報を取得できません' }
-  @{ pid = [string]$entry.ProcessId; command = [string]$entry.Name; profileLock = ($holders -contains [int]$entry.ProcessId) }
+  @{ pid = [string]$entry.ProcessId; command = [string]$entry.Name; profileLock = ($holders -contains [long]$entry.ProcessId) }
 })
 ConvertTo-Json -InputObject $result -Compress -Depth 4`);
   return z.array(z.object({ pid: z.string().regex(/^\d+$/), command: z.string(), profileLock: z.boolean() })).parse(JSON.parse(output));

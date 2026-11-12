@@ -34,7 +34,7 @@ test("Windows: 専用profileのlockfileを持つchrome.exeだけを所有者と�
   assert.equal(isOwnedChromeProcess({ ...owner(), command: "ssh.exe" }), false);
 });
 
-test("Windows: 9223の待受PIDが専用profileのlockfileを開いているかをRestart Managerで読む", { skip: process.platform !== "win32" }, async () => {
+test("Windows: 9223の待受PIDが専用profileのlockfileを開いているかをfile systemから読む", { skip: process.platform !== "win32" }, async () => {
   const profile = await mkdtemp(join(tmpdir(), "gpt-windows-lock-"));
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });

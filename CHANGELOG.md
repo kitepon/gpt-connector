@@ -2,7 +2,7 @@
 
 ## 0.16.20 - 2026-11-12
 
-- Windows: the 9223 ownership check no longer reads the Chrome command line. Chrome hardens its processes so that their command line and image path are unreadable even to the same user, from both the SSH session and the desktop session. The check therefore always failed, `browser start` waited until `browser_endpoint_wait`/`timeout`, and the next clients reported the dedicated Chrome as `cdp_endpoint_not_owned`. Ownership is now proven by the single `127.0.0.1:9223` listener being the `chrome.exe` that holds the dedicated profile's `lockfile`, read with the Windows Restart Manager.
+- Windows: the 9223 ownership check no longer reads the Chrome command line. Chrome hardens its processes so that their command line and image path are unreadable even to the same user, from both the SSH session and the desktop session. The check therefore always failed, `browser start` waited until `browser_endpoint_wait`/`timeout`, and the next clients reported the dedicated Chrome as `cdp_endpoint_not_owned`. Ownership is now proven by the single `127.0.0.1:9223` listener being the `chrome.exe` that holds the dedicated profile's `lockfile`, read from the file system (`NtQueryInformationFile` / `FileProcessIdsUsingFileInformation`) with an attribute-only handle, so neither the hardened process nor the service manager is opened.
 
 ## 0.16.19 - 2026-11-11
 

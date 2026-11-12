@@ -125,7 +125,7 @@ CDP `minimized`は作成時のhintだけで、非表示の最終判定には使�
 Chrome更新時のsmokeは`browser start`、`models`、hidden中の`chat`、必要時の`browser show`で行う。
 
 Windowsでは標準WMIのprocess作成で、呼出元の終了jobに属さない専用Chromeを起動する。Codex等の終了にChromeを巻き込まない。
-9223の`127.0.0.1`待受PIDが専用profileの`lockfile`を開いている`chrome.exe`であることをRestart Managerで照合し（Chromeは自processのcommand lineと実行fileを同じユーザーにも読ませない）、
+9223の`127.0.0.1`待受PIDが専用profileの`lockfile`を開いている`chrome.exe`であることを、lockfileを使うprocess IDのOS照会（`NtQueryInformationFile`）で照合し（Chromeは自processのcommand lineと実行fileを同じユーザーにも読ませない）、
 そのPIDのChrome windowだけをWin32 APIで非表示／再表示する。呼出元とChromeが別sessionなら、ログイン中の同じユーザーの対話sessionで一時taskを実行し、結果を呼出元へ返す。taskと一時記録は終了時に削除する。所有確認と表示状態の読戻しが成立してから成功を返す。
 
 Linuxでは公式の`/opt/google/chrome/chrome`（無ければ`google-chrome-stable`／`google-chrome`）を新しいsessionで起動する。
