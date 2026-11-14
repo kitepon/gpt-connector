@@ -341,6 +341,17 @@ test("ログイン待ちで専用Chromeを表示できなくても、failedに�
   assert.match(result.next ?? "", /browser show/);
 });
 
+test("起動中の認証復帰で表示できなくても、failedにせずaction_requiredと表示失敗を返す", async () => {
+  const result = await prepareBrowser({ doctor: async () => diagnosis("cdp_unavailable"),
+    startBrowser: async () => { throw new ConnectorError("CDP_UNAVAILABLE", "fixture", { cdpStage: "browser_display", cdpReason: "display_failed", authRequired: true }); },
+    showBrowser: async () => { throw new Error("unexpected show"); } });
+  assert.equal(result.status, "action_required");
+  assert.equal(result.reason, "auth_required");
+  assert.deepEqual(result.display, { status: "failed", code: "CDP_UNAVAILABLE",
+    cdp: { stage: "browser_display", reason: "display_failed", target_missing: null, unreachable: null, before_submission: null } });
+  assert.match(result.next ?? "", /browser show/);
+});
+
 test("browser CDP_UNAVAILABLE failure carries only the fixed cdp fields", async () => {
   const result = await setup({}, { ...setupPorts("linux"),
     browser: async () => { throw new ConnectorError("CDP_UNAVAILABLE", "private-detail", { cdpStage: "browser_preparation", cdpReason: "timeout", unreachable: true }); } });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.21 - 2026-11-15
+
+- `setup`: when the dedicated Chrome had to be started and ChatGPT needed a login, a failure to show the window from `browser start`'s own login recovery (an unattended run, e.g. the 02:00 scheduled update on a Mac) made setup report `failed` with `CDP_UNAVAILABLE` `browser_display`/`display_failed`. Setup now returns `live.status: action_required` / `auth_required` with `live.display` failed, as the setup contract already requires for the `browser show` path. `browser start` still fails with the same `CDP_UNAVAILABLE` error (runtime reporting unchanged), now marked `authRequired` so setup can tell the login wait apart.
+
 ## 0.16.20 - 2026-11-12
 
 - Windows: the 9223 ownership check no longer reads the Chrome command line. Chrome hardens its processes so that their command line and image path are unreadable even to the same user, from both the SSH session and the desktop session. The check therefore always failed, `browser start` waited until `browser_endpoint_wait`/`timeout`, and the next clients reported the dedicated Chrome as `cdp_endpoint_not_owned`. Ownership is now proven by the single `127.0.0.1:9223` listener being the `chrome.exe` that holds the dedicated profile's `lockfile`, read from the file system (`NtQueryInformationFile` / `FileProcessIdsUsingFileInformation`) with an attribute-only handle, so neither the hardened process nor the service manager is opened.
