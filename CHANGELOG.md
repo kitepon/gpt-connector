@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.22 - 2026-11-15
+
+- Every CDP session to a page target now enables focus emulation (`Emulation.setFocusEmulationEnabled`) before use. Chrome 157 on macOS froze the hidden, unfocused dedicated ChatGPT page: synchronous evaluation still answered, but no timer, fetch or message task ran, so the in-page `/api/auth/session` check never settled, every connect timed out (`CDP_UNAVAILABLE` `protocol_call`/`timeout`), and `doctor`/`setup` reported `cdp_unavailable` while the logged-in Chrome was running. Focus emulation lasts only for the attached session; browser-endpoint sessions are unchanged.
+
 ## 0.16.21 - 2026-11-15
 
 - `setup`: when the dedicated Chrome had to be started and ChatGPT needed a login, a failure to show the window from `browser start`'s own login recovery (an unattended run, e.g. the 02:00 scheduled update on a Mac) made setup report `failed` with `CDP_UNAVAILABLE` `browser_display`/`display_failed`. Setup now returns `live.status: action_required` / `auth_required` with `live.display` failed, as the setup contract already requires for the `browser show` path. `browser start` still fails with the same `CDP_UNAVAILABLE` error (runtime reporting unchanged), now marked `authRequired` so setup can tell the login wait apart.

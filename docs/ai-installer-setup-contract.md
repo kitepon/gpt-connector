@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.21"
+gpt_connector_version="0.16.22"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -142,6 +142,7 @@ Linuxは公式Chromeを新しいsessionで起動し、`127.0.0.1:9223`の所有p
 接続先DISPLAYはChrome processの環境変数、呼出元の`DISPLAY`、ローカル`/tmp/.X11-unix`を順に選ぶ。
 X11の`DISPLAY`が無い環境は起動しない。
 CDPの`minimized`はcold target作成時のhintであり、画面非表示状態の正本ではない。
+Chromeはhiddenでfocusのないpageをfreezeしてtimerやfetchのtaskを止めるため、page targetへのCDP接続は接続ごとに`Emulation.setFocusEmulationEnabled`を有効にしてから使う（browser endpointへの接続は対象外）。
 
 doctor単体の`reasonCode`が`auth_required`なら、
 次の正規入口で専用Chromeを表示できる。
