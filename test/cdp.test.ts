@@ -168,3 +168,25 @@ test("CDP timeoutを明示エラーにする", async () => {
   );
   client.close();
 });
+
+test("page target接続だけがfocus emulationを有効にし、Chromeによる非表示pageの凍結を避ける", async () => {
+  const { WebSocketServer } = await import("ws");
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+  const seen: string[] = [];
+  server.on("connection", (socket, request) => socket.on("message", (data) => {
+    const message = JSON.parse(String(data)) as { id: number; method: string; params: unknown };
+    seen.push(`${request.url} ${message.method} ${JSON.stringify(message.params)}`);
+    socket.send(JSON.stringify({ id: message.id, result: {} }));
+  }));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const page = await CdpClient.connect(`ws://127.0.0.1:${port}/devtools/page/ABC`, 1_000);
+    page.close();
+    const browser = await CdpClient.connect(`ws://127.0.0.1:${port}/devtools/browser/XYZ`, 1_000);
+    browser.close();
+    assert.deepEqual(seen, ['/devtools/page/ABC Emulation.setFocusEmulationEnabled {"enabled":true}']);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

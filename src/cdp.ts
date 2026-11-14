@@ -226,7 +226,13 @@ export class CdpClient {
       });
     });
 
-    return new CdpClient(socket, defaultTimeoutMs);
+    const client = new CdpClient(socket, defaultTimeoutMs);
+    // Chrome freezes a hidden, unfocused page (no timer, fetch or message task runs), so async page work never settles.
+    // Focus emulation lasts for this session only and keeps the page's tasks running while it is attached.
+    if (url.pathname.startsWith("/devtools/page/")) {
+      try { await client.call("Emulation.setFocusEmulationEnabled", { enabled: true }); } catch (error) { client.close(); throw error; }
+    }
+    return client;
   }
 
   onEvent(listener: CdpEventListener): () => void {
