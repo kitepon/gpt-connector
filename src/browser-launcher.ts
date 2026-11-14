@@ -201,7 +201,8 @@ async function waitForReadyWithAuthRecovery(appReady: Readiness, sleep: (millise
     if (await waitForApp(appReady, sleep, timeout, deadline, reload)) return { ok: true, status, endpoint };
   } catch (error) {
     if (error instanceof ConnectorError && error.code === "AUTH_REQUIRED") {
-      await recover();
+      // A show failure stays a browser failure; authRequired lets setup keep the login wait as its outcome.
+      try { await recover(); } catch (showError) { throw showError instanceof ConnectorError && showError.code === "CDP_UNAVAILABLE" ? new ConnectorError(showError.code, showError.message, { ...showError.details, authRequired: true }, { cause: showError.cause }) : showError; }
     }
     throw error;
   }

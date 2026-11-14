@@ -98,6 +98,12 @@ interface PreparedBrowser {
   runtimeFailure?: RuntimeFailure;
 }
 
+function displayFailed(error: ConnectorError): PreparedBrowser {
+  return { status: "action_required", reason: "auth_required",
+    display: { status: "failed", code: error.code, ...(error.code === "CDP_UNAVAILABLE" ? { cdp: cdpFailureContext(error) } : {}) },
+    next: "専用Chromeを表示できませんでした。Chromeを所有する端末の対話画面で`gpt-connector browser show`を実行してChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+}
+
 export async function prepareBrowser(deps = browserDependencies(process.env), endpoint = process.env.GPT_CONNECTOR_CDP_ENDPOINT, check = false): Promise<PreparedBrowser> {
   let diagnosis = await deps.doctor();
   if (check) return { status: diagnosis.overall === "ready" ? "ready" : diagnosis.reasonCode === "auth_required" ? "action_required" : "not_ready", reason: diagnosis.reasonCode };
@@ -106,6 +112,7 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
     try { await deps.startBrowser(); } catch (error) {
       if (!(error instanceof ConnectorError)) throw error;
       if (error.code === "AUTH_REQUIRED") return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+      if (error.details?.authRequired === true) return displayFailed(error);
       // この端末でbrowserを準備できないだけの状態は、導入の失敗にしない。
       // 9223が他端末のChromeへのSSH転送などで専用Chromeの物でない時と、専用Chromeを持てない端末（ChromeかX11の無いLinux）。
       if (error.details?.portConflict === true) return { status: "external", reason: "cdp_endpoint_not_owned", next: "9223はこの端末の専用Chromeではありません。Chromeを所有する端末で`gpt-connector browser start`を実行してください。" };
@@ -119,9 +126,7 @@ export async function prepareBrowser(deps = browserDependencies(process.env), en
     try { await deps.showBrowser(); } catch (error) {
       // Login is still the required action; an unattended run that cannot show the window must not turn it into a failure.
       if (!(error instanceof ConnectorError)) throw error;
-      return { status: "action_required", reason: "auth_required",
-        display: { status: "failed", code: error.code, ...(error.code === "CDP_UNAVAILABLE" ? { cdp: cdpFailureContext(error) } : {}) },
-        next: "専用Chromeを表示できませんでした。Chromeを所有する端末の対話画面で`gpt-connector browser show`を実行してChatGPTへログインし、同じsetupコマンドを再実行してください。" };
+      return displayFailed(error);
     }
     return { status: "action_required", reason: "auth_required", next: "表示された専用ChromeでChatGPTへログインし、同じsetupコマンドを再実行してください。" };
   }
