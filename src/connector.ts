@@ -225,7 +225,8 @@ export const authProbeExpression = String.raw`(async () => {
   let authenticated = false;
   if (response.ok) {
     const data = await response.json();
-    authenticated = Boolean(data?.user);
+    // A failed token refresh keeps the user in the session JSON while ChatGPT shows its login screen (no sender module there).
+    authenticated = Boolean(data?.user) && data?.error !== "RefreshAccessTokenError";
   }
   return { status: response.status, authenticated, officialOrigin };
 })()`;

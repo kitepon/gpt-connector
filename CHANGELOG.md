@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.23 - 2026-11-18
+
+- `/api/auth/session` that still lists the user but carries `error: "RefreshAccessTokenError"` (the token refresh failed and ChatGPT shows its login screen) is now treated as logged out. Before, the connector took the session as authenticated, found no sender module on the login route and ended with a high-severity `RUNTIME_DRIFT` after the 30 second readiness deadline (the Mac nightly setup on 2026-11-18 02:02 JST); it now returns `AUTH_REQUIRED` at once, so setup reports `action_required` / `auth_required` and registers no drift. No schema or reporting rule changed.
+
 ## 0.16.22 - 2026-11-15
 
 - Every CDP session to a page target now enables focus emulation (`Emulation.setFocusEmulationEnabled`) before use. Chrome 157 on macOS froze the hidden, unfocused dedicated ChatGPT page: synchronous evaluation still answered, but no timer, fetch or message task ran, so the in-page `/api/auth/session` check never settled, every connect timed out (`CDP_UNAVAILABLE` `protocol_call`/`timeout`), and `doctor`/`setup` reported `cdp_unavailable` while the logged-in Chrome was running. Focus emulation lasts only for the attached session; browser-endpoint sessions are unchanged.
