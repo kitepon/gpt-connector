@@ -18,6 +18,8 @@ test("認証確認fetchの網の失敗はunreachableとして返し、応答が�
   assert.deepEqual(await probe(async () => { throw new TypeError("Failed to fetch"); }, "chrome-error://chromewebdata"), { status: 0, authenticated: false, officialOrigin: false, unreachable: true });
   assert.deepEqual(await probe(async () => ({ ok: true, status: 200, json: async () => ({ user: { id: "u" } }) })), { status: 200, authenticated: true, officialOrigin: true });
   assert.deepEqual(await probe(async () => ({ ok: false, status: 401, json: async () => ({}) })), { status: 401, authenticated: false, officialOrigin: true });
+  // The session still lists the user after a failed token refresh; ChatGPT then shows its login screen, so setup must wait for login, not report drift.
+  assert.deepEqual(await probe(async () => ({ ok: true, status: 200, json: async () => ({ user: { id: "u" }, error: "RefreshAccessTokenError" }) })), { status: 200, authenticated: false, officialOrigin: true });
 });
 
 test("connectはpageの到達不能をCDP_UNAVAILABLE(unreachable)で返し、RUNTIME_DRIFTにもAUTH_REQUIREDにもしない", async (t) => {
