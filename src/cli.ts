@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { uninstall } from "./uninstall.js";
 import { cliFailureExitCode, readRuntimeErrorEvents, runtimeOperationFromCli } from "./runtime-error-events.js";
 
 import { GptConnector } from "./connector.js";
@@ -136,8 +137,14 @@ async function main(): Promise<void> {
     process.exitCode = result.overall === "ready" ? 0 : result.overall === "partial" ? 2 : 1;
     return;
   }
+  if (argv[0] === "uninstall" && argv.length === 1) {
+    const result = await uninstall();
+    writeJson(result);
+    process.exitCode = result.overall === "uninstalled" ? 0 : 1;
+    return;
+  }
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "help") {
-    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | --version | browser <start|show> [--provider grok] | models | doctor [--runtime-only] | factory-diagnostics --json [--include-observation-context] | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> [--mode auto|fast|expert|heavy] | grok-consult --prompt <text> --slug <id> [--mode auto|fast|expert|heavy] | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
+    process.stdout.write("usage: gpt-connector setup [--check] [--ai claude,codex,grok,cursor] | uninstall | --version | browser <start|show> [--provider grok] | models | doctor [--runtime-only] | factory-diagnostics --json [--include-observation-context] | chat --prompt <text> [--level <段階名>] | image --prompt <text> --slug <id> --workspace-root <abs> --output <relative.png> --model <id> | consult --prompt <text> --slug <id> [--level <段階名>] [--keep-open] [--session-id <uuid>] | sessions --slug <id> | close --session-id <uuid> | grok-modes | grok-doctor | grok-chat --prompt <text> [--mode auto|fast|expert|heavy] | grok-consult --prompt <text> --slug <id> [--mode auto|fast|expert|heavy] | grok-sessions --slug <id> | grok-close --session-id <uuid>\n");
     return;
   }
   if (argv[0] === "runtime-errors") {

@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import { parse } from "smol-toml";
 import { archiveSetupConfig } from "./platform/setup-backup.js";
 import { ensurePrivateDirectory, makeFilePrivate } from "./platform/state.js";
-import { addTomlValues, replaceTomlValue } from "./setup-toml.js";
+import { addTomlValues, removeTomlServer, replaceTomlValue } from "./setup-toml.js";
 
 export const setupClients = ["claude", "codex", "grok", "cursor"] as const;
 export type SetupClient = typeof setupClients[number];
@@ -86,8 +86,37 @@ export function mergeRegistration(source: string, client: SetupClient, command: 
     : added : `${JSON.stringify(data, null, 2)}\n`) : source, server, changed };
 }
 
-export async function registerClient(client: SetupClient, command: string, args: string[], path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups"), environmentDefaults: Record<string, string> = {}, repairLaunch = false) {
-  // 共有設定の保存先がsymlinkなら、その実体を更新してリンクを維持する。
+// 共有設定を、backup・競合確認・読戻し付きで置き換える。登録と解除が同じ手順を使う。
+async function saveConfig(client: SetupClient, target: string, source: string, exists: boolean, mode: number, text: string, backupDirectory: string): Promise<string | null> {
+  let backup: string | null = null;
+  await mkdir(dirname(target), { recursive: true });
+  if (exists) {
+    ensurePrivateDirectory(backupDirectory);
+    backup = join(backupDirectory, `${client}-${randomUUID()}.tar`);
+    await writeFile(backup, "", { mode: 0o600, flag: "wx" });
+    makeFilePrivate(backup);
+    archiveSetupConfig(backup, target);
+  }
+  const temporary = `${target}.gpt-connector-${randomUUID()}.tmp`;
+  await writeFile(temporary, text, { mode, flag: "wx" });
+  if (process.platform === "win32") makeFilePrivate(temporary);
+  try {
+    let current: string | null = null;
+    try { current = await readFile(target, "utf8"); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (current !== (exists ? source : null)) throw new Error("共有AI設定が更新されました。setupを再実行してください。");
+    await rename(temporary, target);
+  } catch (error) {
+    await unlink(temporary);
+    throw error;
+  }
+  if (await readFile(target, "utf8") !== text) throw new Error("MCP設定の保存確認に失敗しました。");
+  return backup;
+}
+
+// 共有設定の保存先がsymlinkなら、その実体を読む。fileが無ければ空として扱う。
+async function readConfig(path: string) {
   let source = "";
   let target = path;
   let mode = 0o600;
@@ -101,33 +130,13 @@ export async function registerClient(client: SetupClient, command: string, args:
   } catch (error) {
     if (exists || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  return { source, target, mode, exists };
+}
+
+export async function registerClient(client: SetupClient, command: string, args: string[], path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups"), environmentDefaults: Record<string, string> = {}, repairLaunch = false) {
+  const { source, target, mode, exists } = await readConfig(path);
   const merged = mergeRegistration(source, client, command, args, environmentDefaults, repairLaunch);
-  let backup: string | null = null;
-  if (merged.changed) {
-    await mkdir(dirname(target), { recursive: true });
-    if (exists) {
-      ensurePrivateDirectory(backupDirectory);
-      backup = join(backupDirectory, `${client}-${randomUUID()}.tar`);
-      await writeFile(backup, "", { mode: 0o600, flag: "wx" });
-      makeFilePrivate(backup);
-      archiveSetupConfig(backup, target);
-    }
-    const temporary = `${target}.gpt-connector-${randomUUID()}.tmp`;
-    await writeFile(temporary, merged.text, { mode, flag: "wx" });
-    if (process.platform === "win32") makeFilePrivate(temporary);
-    try {
-      let current: string | null = null;
-      try { current = await readFile(target, "utf8"); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      if (current !== (exists ? source : null)) throw new Error("共有AI設定が更新されました。setupを再実行してください。");
-      await rename(temporary, target);
-    } catch (error) {
-      await unlink(temporary);
-      throw error;
-    }
-    if (await readFile(target, "utf8") !== merged.text) throw new Error("MCP設定の保存確認に失敗しました。");
-  }
+  const backup = merged.changed ? await saveConfig(client, target, source, exists, mode, merged.text, backupDirectory) : null;
   return { client, path, backup, status: merged.changed ? "registered" : "unchanged", server: merged.server };
 }
 
@@ -139,4 +148,25 @@ export async function readRegistration(client: SetupClient, path = registrationP
   const env = server.env === undefined ? {} : table(server.env);
   if (Object.values(env).some((value) => typeof value !== "string")) throw new Error("MCP env形式が不正です。");
   return { client, path, backup: null, status: "existing", server: { ...server, args: server.args ?? [], env } as SetupServer };
+}
+
+/** 自分の`gpt_connector`登録だけを外す。他のMCP・設定は保つ。 */
+export async function removeRegistration(client: SetupClient, path = registrationPath(client), backupDirectory = join(homedir(), ".gpt-connector", "setup-backups")) {
+  const { source, target, mode, exists } = await readConfig(path);
+  const toml = client === "codex" || client === "grok";
+  const key = toml ? "mcp_servers" : "mcpServers";
+  const data = table(source.trim() ? (toml ? parse(source, { integersAsBigInt: true }) : JSON.parse(source)) : {});
+  if (data[key] === undefined || table(data[key]).gpt_connector === undefined) return { client, path, backup: null, status: "absent" as const };
+  let text: string;
+  if (toml) {
+    text = removeTomlServer(source, [key, "gpt_connector"]);
+    const rest = table(parse(text, { integersAsBigInt: true }));
+    if (rest[key] !== undefined && table(rest[key]).gpt_connector !== undefined) throw new Error("gpt_connector登録をtableとして取り除けません。");
+  } else {
+    const others = { ...table(data[key]) };
+    delete others.gpt_connector;
+    text = `${JSON.stringify({ ...data, [key]: others }, null, 2)}\n`;
+  }
+  const backup = await saveConfig(client, target, source, exists, mode, text, backupDirectory);
+  return { client, path, backup, status: "removed" as const };
 }

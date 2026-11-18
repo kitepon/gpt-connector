@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { parse } from "smol-toml";
-import { mergeRegistration, registerClient, registrationPath, setupClients, setupTools } from "../src/setup-registration.js";
+import { mergeRegistration, registerClient, registrationPath, removeRegistration, setupClients, setupTools } from "../src/setup-registration.js";
 
 for (const client of setupClients) {
   test(`${client}: 起動先修理はcommand/argsだけを更新しCA flagと利用者設定を保持する`, () => {
@@ -186,3 +186,27 @@ test("symlinkの登録先はリンクを保ったまま実体へ反映する", {
   await registerClient("codex", process.execPath, ["/gpt-connector/dist/src/mcp.js"], link, join(root, "backups"));
   assert.equal(await readFile(link, "utf8"), await readFile(actual, "utf8"));
 });
+
+for (const client of setupClients) {
+  test(`${client}: 解除は自分の登録だけを外し、他の設定を保ち、backupを残し、再実行では何もしない`, async () => {
+    const toml = client === "codex" || client === "grok";
+    const directory = await mkdtemp(join(tmpdir(), "gpt-connector-remove-"));
+    try {
+      const path = join(directory, toml ? "config.toml" : "config.json");
+      const backups = join(directory, "backups");
+      await writeFile(path, toml
+        ? `# kept\n[mcp_servers.other]\ncommand = "other"\n[mcp_servers.gpt_connector]\ncommand = "x"\n[mcp_servers.gpt_connector.env]\nA = "b"\n[projects."/p"]\ntrust = "t"\n`
+        : JSON.stringify({ oauth: "kept", mcpServers: { other: { command: "other" }, gpt_connector: { command: "x" } } }));
+      const first = await removeRegistration(client, path, backups);
+      assert.equal(first.status, "removed");
+      assert.equal((await readdir(backups)).length, 1);
+      const text = await readFile(path, "utf8");
+      const data = toml ? parse(text) : JSON.parse(text);
+      const servers = (data[toml ? "mcp_servers" : "mcpServers"] ?? {}) as Record<string, unknown>;
+      assert.deepEqual(Object.keys(servers), ["other"]);
+      assert.match(text, toml ? /# kept[\s\S]*\[projects\."\/p"\]/u : /"oauth": "kept"/u);
+      assert.equal((await removeRegistration(client, path, backups)).status, "absent");
+      assert.equal((await removeRegistration(client, join(directory, "missing"), backups)).status, "absent");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+}

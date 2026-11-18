@@ -94,6 +94,27 @@ export async function showBrowser(options: BrowserOptions = {}): Promise<Browser
   return { ok: true, status: "shown", endpoint };
 }
 
+/** 専用profileのChromeだけを閉じる。別の所有者が9223番を使っていれば触れない。 */
+export async function stopBrowser(options: BrowserOptions = {}): Promise<{ readonly ok: true; readonly status: "stopped" | "not_running" | "not_owned" }> {
+  const adapter = browserPlatform(options.platform);
+  const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));
+  const timeout = options.probeTimeoutMs ?? probeTimeoutMs;
+  const fetcher = timedFetch(options.fetch ?? globalThis.fetch, timeout);
+  if (!await endpointIsReady(fetcher)) return { ok: true, status: "not_running" };
+  const inspect = ownedProcessInspector(profile, options.processInspector ?? (() => adapter.inspectListenerProcesses(profile)), adapter);
+  if (!await bounded(ownsEndpoint(inspect), Math.max(timeout, adapter.ownershipProbeTimeoutMs ?? ownershipProbeGraceMs), "CDP endpoint所有確認がtimeoutしました")) return { ok: true, status: "not_owned" };
+  const version = await (await fetcher(`${endpoint}/json/version`)).json() as BrowserVersion;
+  if (typeof version.webSocketDebuggerUrl !== "string") throw new Error("CDP browser WebSocket URLが不正です");
+  const client = await CdpClient.connect(version.webSocketDebuggerUrl, appProbeTimeoutMs);
+  // Chromeは応答前に接続を閉じるので、callの失敗は終了の確認で判定する。
+  try { await client.call("Browser.close", {}, appProbeTimeoutMs); } catch { /* checked below */ } finally { client.close(); }
+  for (let waited = 0; waited < readyDeadlineMs; waited += 500) {
+    if (!await endpointIsReady(fetcher)) return { ok: true, status: "stopped" };
+    await (options.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms))))(500);
+  }
+  throw new ConnectorError("CDP_UNAVAILABLE", "専用Chromeを閉じられませんでした。");
+}
+
 async function startBrowserOnce(options: BrowserOptions): Promise<BrowserLaunchResult> {
   const adapter = browserPlatform(options.platform);
   const profile = resolve(join(options.home ?? homedir(), ".gpt-connector", "browser-profile"));

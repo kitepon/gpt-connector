@@ -71,3 +71,11 @@ export function replaceTomlValue(source: string, path: readonly string[], value:
   const rendered = stringify({ value }, { numbersAsFloat: true }).trim().slice("value = ".length);
   return source.slice(0, node.value.range[0]) + rendered + source.slice(node.value.range[1]);
 }
+
+/** 指定serverのtableだけを範囲ごと取り除き、他のtable・コメント・整形を保持する。 */
+export function removeTomlServer(source: string, path: readonly string[]): string {
+  const tables = parseTOML(source).body[0].body.filter((node): node is AST.TOMLTable => node.type === "TOMLTable" && prefixOf(path, node.resolvedKey as string[]));
+  let text = source;
+  for (const table of tables.reverse()) text = text.slice(0, table.range[0]) + text.slice(table.range[1]).replace(/^\r?\n/u, "");
+  return text;
+}
