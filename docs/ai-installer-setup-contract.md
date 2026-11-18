@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.24"
+gpt_connector_version="0.16.25"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -196,10 +196,10 @@ Chrome起動後のCDP endpointと所有者の待機timeoutは、private診断で
 ## 廃止（uninstall）
 
 ```bash
-npx --yes gpt-connector@0.16.24 uninstall
+npx --yes gpt-connector@0.16.25 uninstall
 npm uninstall -g gpt-connector
 ```
 
 `uninstall`は引数なし。自分が置いたCodex Steer hook、Cursor hook、4AIの`gpt_connector`登録（変更前に`~/.gpt-connector/setup-backups/`へbackup）、
 専用profileのChrome（9223を専用profileが所有する時だけ）を外す。login profile、`~/.gpt-connector`のデータ、他製品の設定は変更しない。
-再実行しても変わらない。結果は`gpt-connector.uninstall.v1`で、`overall`が`uninstalled`なら終了コード0、`failed`なら1。`steps[]`に工程ごとの結果を返す。
+再実行しても変わらない。結果は`gpt-connector.uninstall.v1`で、`overall`が`uninstalled`なら終了コード0、`failed`なら1。`steps[]`に工程ごとの結果を返す。`codex-steer`が`restart_required`でも失敗ではない。SSHなどGUIのlaunchd領域が無いmacOSでは、旧中継が無効なら`gui_unchecked`として確認を省く。Windowsで共有AI設定のrenameが拒否された時は、同じ競合確認・backup・読戻しの上でその場書込みへ切り替える。

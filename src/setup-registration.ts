@@ -1,4 +1,4 @@
-import { readFile, mkdir, writeFile, rename, lstat, realpath, unlink } from "node:fs/promises";
+import { readFile, mkdir, writeFile, rename, lstat, realpath, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -106,9 +106,14 @@ async function saveConfig(client: SetupClient, target: string, source: string, e
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     if (current !== (exists ? source : null)) throw new Error("共有AI設定が更新されました。setupを再実行してください。");
-    await rename(temporary, target);
+    try { await rename(temporary, target); } catch (error) {
+      // shortcut: Windows refuses to rename over a file another process holds open (a running Claude Code, EPERM); write in place instead. Non-atomic, but the backup tar exists and the read-back below checks it. Upgrade if a host needs atomic replace.
+      if (process.platform !== "win32" || !["EPERM", "EBUSY", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      await writeFile(target, text);
+      await rm(temporary, { force: true });
+    }
   } catch (error) {
-    await unlink(temporary);
+    await rm(temporary, { force: true });
     throw error;
   }
   if (await readFile(target, "utf8") !== text) throw new Error("MCP設定の保存確認に失敗しました。");
