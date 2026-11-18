@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.24 - 2026-11-18
+
+- Final version: gpt-connector is retired. New `gpt-connector uninstall` removes only what the product placed: its own Codex steer hooks, Cursor hooks, the `gpt_connector` MCP entry in the Claude, Codex, Grok and Cursor configs (a backup tar is saved to `~/.gpt-connector/setup-backups/` first) and the dedicated Chrome on 9223 (only when that Chrome owns the port). The login profile, `~/.gpt-connector` data and every other product's settings are kept. Re-running is safe; the JSON result (`gpt-connector.uninstall.v1`) lists each step. Remove the package afterwards with `npm uninstall -g gpt-connector`.
+
 ## 0.16.23 - 2026-11-18
 
 - `/api/auth/session` that still lists the user but carries `error: "RefreshAccessTokenError"` (the token refresh failed and ChatGPT shows its login screen) is now treated as logged out. Before, the connector took the session as authenticated, found no sender module on the login route and ended with a high-severity `RUNTIME_DRIFT` after the 30 second readiness deadline (the Mac nightly setup on 2026-11-18 02:02 JST); it now returns `AUTH_REQUIRED` at once, so setup reports `action_required` / `auth_required` and registers no drift. No schema or reporting rule changed.

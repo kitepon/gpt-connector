@@ -12,7 +12,7 @@ npx --yes gpt-connector@latest setup
 version指定時（指定版を変更して使う）:
 
 ```bash
-gpt_connector_version="0.16.23"
+gpt_connector_version="0.16.24"
 npx --yes "gpt-connector@$gpt_connector_version" setup
 ```
 
@@ -192,3 +192,14 @@ Node版/PID/instance IDはそのprocessだけの事実。CA選択分類はmodule
 version段の失敗には`version_check`（`expected`、数値3区切りの応答版`actual`またはnull、`status=mismatch/missing/invalid`）と公開`setup --repair-launch`による修理案内を返す。自由文字列の応答版は記録しない。通常setupは既存の固定起動先を保持するため、更新後の版不一致は明示修理で起動先を更新する。
 
 Chrome起動後のCDP endpointと所有者の待機timeoutは、private診断で`cdp.stage=browser_endpoint_wait`/`reason=timeout`を返す。アプリ準備段階のtimeoutと区別し、例外本文・環境・コマンドの自由文字列は追加しない。
+
+## 廃止（uninstall）
+
+```bash
+npx --yes gpt-connector@0.16.24 uninstall
+npm uninstall -g gpt-connector
+```
+
+`uninstall`は引数なし。自分が置いたCodex Steer hook、Cursor hook、4AIの`gpt_connector`登録（変更前に`~/.gpt-connector/setup-backups/`へbackup）、
+専用profileのChrome（9223を専用profileが所有する時だけ）を外す。login profile、`~/.gpt-connector`のデータ、他製品の設定は変更しない。
+再実行しても変わらない。結果は`gpt-connector.uninstall.v1`で、`overall`が`uninstalled`なら終了コード0、`failed`なら1。`steps[]`に工程ごとの結果を返す。

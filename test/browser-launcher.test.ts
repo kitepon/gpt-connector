@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after } from "node:test";
-import { showBrowser, startBrowser } from "../src/browser-launcher.js";
+import { showBrowser, startBrowser, stopBrowser } from "../src/browser-launcher.js";
 import { ConnectorError } from "../src/errors.js";
 
 const home = await mkdtemp(join(tmpdir(), "gpt-browser-test-"));
@@ -67,3 +67,10 @@ test("lock異常は固定ConnectorErrorへ正規化する", async () => { await 
 test("dead PIDのfilesystem lockは回収して起動判定を継続する", async () => { const lockHome = await mkdtemp(join(tmpdir(), "gpt-lock-")); const lockProfile = join(lockHome, ".gpt-connector", "browser-profile"); await mkdir(lockProfile, { recursive: true, mode: 0o700 }); await writeFile(join(lockProfile, "browser-launch.lock"), "2147483647\n", { mode: 0o600 }); const result = await startBrowser({ platform: "darwin", home: lockHome, endpointReady: async () => true, processInspector: async () => [{ pid: "42", command: command(lockProfile) }], appReady: async () => true, existingTargetAbsent: async () => false, windowPreparer: async () => "ready", processHider: async () => {}, windowVisibilityVerifier: async () => {} }); assert.equal(result.status, "already_ready"); });
 test("symlinkのfilesystem lockはfail-closedな固定ConnectorErrorで拒否する", async () => { const lockHome = await mkdtemp(join(tmpdir(), "gpt-lock-")); const lockProfile = join(lockHome, ".gpt-connector", "browser-profile"); await mkdir(lockProfile, { recursive: true, mode: 0o700 }); await symlink("/tmp", join(lockProfile, "browser-launch.lock")); await assert.rejects(startBrowser({ platform: "darwin", home: lockHome, endpointReady: async () => true, processInspector: owned, appReady: async () => true }), { code: "CDP_UNAVAILABLE", message: "専用Chrome起動lockを取得できませんでした。" }); });
 test("json/list fetchへAbortSignalを渡し、無視されてもapp probe deadlineで固定errorにする", async () => { let listSignal: AbortSignal | undefined; const pending = new Promise<Response>(() => {}); const started = Date.now(); await assert.rejects(startBrowser({ ...base, endpointReady: async () => true, probeTimeoutMs: 5, readyDeadlineMs: 30, fetch: async (input, init) => { if (String(input).endsWith("/json/list")) { listSignal = init?.signal ?? undefined; return pending; } return new Response("{}", { status: 200 }); } }), { code: "CDP_UNAVAILABLE", message: "専用ChromeのChatGPTが利用可能になるまで待機がtimeoutしました。" }); assert.ok(listSignal instanceof AbortSignal); assert.ok(Date.now() - started < 200); });
+
+test("stopBrowser: 動いていなければ何もせず、別の所有者の9223番には触れない", async () => {
+  const down = (async () => { throw new Error("refused"); }) as unknown as typeof fetch;
+  assert.equal((await stopBrowser({ home, fetch: down })).status, "not_running");
+  const up = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+  assert.equal((await stopBrowser({ home, fetch: up, processInspector: async () => [] })).status, "not_owned");
+});
