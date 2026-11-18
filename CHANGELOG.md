@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.25 - 2026-11-18
+
+- `uninstall`: `codex-steer` = `restart_required` (the hook is removed, only a Codex restart is left) no longer makes `overall` `failed`.
+- `uninstall` over SSH on macOS: when the session has no GUI launchd domain and the old Codex relay is already disabled, the GUI check is skipped (`codex-steer` detail `gui_unchecked`) and the Codex hook is still removed. An enabled old relay still fails, because the GUI launcher variable could then point at this product.
+- Config writes on Windows: when renaming over `~/.claude.json` is refused (`EPERM` while Claude Code holds the file open), the new content is written in place after the same change check, the backup tar and the read-back. Other platforms still fail on a refused rename.
+
 ## 0.16.24 - 2026-11-18
 
 - Final version: gpt-connector is retired. New `gpt-connector uninstall` removes only what the product placed: its own Codex steer hooks, Cursor hooks, the `gpt_connector` MCP entry in the Claude, Codex, Grok and Cursor configs (a backup tar is saved to `~/.gpt-connector/setup-backups/` first) and the dedicated Chrome on 9223 (only when that Chrome owns the port). The login profile, `~/.gpt-connector` data and every other product's settings are kept. Re-running is safe; the JSON result (`gpt-connector.uninstall.v1`) lists each step. Remove the package afterwards with `npm uninstall -g gpt-connector`.
